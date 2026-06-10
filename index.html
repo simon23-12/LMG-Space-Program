@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LMG Space Program</title>
+<style>
+:root{
+  --orange:#f7941d; --blue:#1b5faa; --blue-dark:#0d3a6e;
+  --bg:#0a0e1a; --panel:#121a2e; --panel2:#1a2440;
+  --text:#e8ecf5; --muted:#8fa0c0; --green:#4caf50; --red:#e05252;
+}
+*{box-sizing:border-box; margin:0; padding:0; user-select:none;}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);
+  font-family:"Segoe UI",system-ui,-apple-system,sans-serif;}
+.screen{position:absolute;inset:0;display:none;}
+.screen.active{display:flex;}
+button{cursor:pointer;font-family:inherit;}
+.btn{background:linear-gradient(180deg,var(--blue),var(--blue-dark));color:#fff;border:1px solid #2d7ad0;
+  border-radius:8px;padding:10px 22px;font-size:16px;font-weight:600;transition:filter .15s;}
+.btn:hover{filter:brightness(1.25);}
+.btn.orange{background:linear-gradient(180deg,var(--orange),#c46a08);border-color:#ffb45e;}
+.btn:disabled{filter:grayscale(1) brightness(.6);cursor:default;}
+/* ---------- Hauptmenü ---------- */
+#menu{flex-direction:column;align-items:center;justify-content:center;gap:8px;
+  background:radial-gradient(ellipse at 50% 120%, #16335e 0%, #0a0e1a 60%);}
+#menu .logo{font-size:64px;font-weight:900;letter-spacing:4px;
+  background:linear-gradient(90deg,var(--orange) 0 38%,#fff 38% 62%,var(--blue) 62%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;}
+#menu .sub{font-size:22px;letter-spacing:14px;color:var(--muted);margin-bottom:30px;}
+#menu .btn{width:260px;margin:5px;}
+#menu .version{position:absolute;bottom:10px;right:14px;color:var(--muted);font-size:12px;}
+#menu .tip{position:absolute;bottom:10px;color:var(--muted);font-size:13px;}
+/* ---------- VAB ---------- */
+#vab{flex-direction:row;}
+.vab-col{display:flex;flex-direction:column;background:var(--panel);overflow-y:auto;flex-shrink:0;}
+#partList{width:250px;padding:10px;gap:8px;border-right:2px solid var(--blue-dark);}
+#partList h3,#vabInfo h3{color:var(--orange);font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:6px 0;}
+.part-btn{display:flex;flex-direction:column;text-align:left;background:var(--panel2);color:var(--text);
+  border:1px solid #2a3a64;border-radius:6px;padding:8px;font-size:13px;}
+.part-btn:hover{border-color:var(--orange);}
+.part-btn.locked{opacity:.35;cursor:default;}
+.part-btn small{color:var(--muted);}
+#vabCenter{flex:1;display:flex;flex-direction:column;background:
+  linear-gradient(180deg,#1a2440 0%,#0e1526 100%);}
+#vabTop{display:flex;gap:10px;padding:10px;align-items:center;background:rgba(0,0,0,.3);}
+#vabTop .title{font-weight:800;color:var(--orange);font-size:18px;margin-right:auto;}
+#rocketCanvas{flex:1;}
+#vabInfo{width:270px;padding:12px;border-left:2px solid var(--blue-dark);font-size:14px;gap:4px;}
+#vabInfo .stat{display:flex;justify-content:space-between;padding:2px 0;}
+#vabInfo .stat span:last-child{color:var(--orange);font-weight:600;}
+.stage-box{background:var(--panel2);border:1px solid #2a3a64;border-radius:6px;padding:6px 8px;margin:4px 0;font-size:12px;}
+.stage-box b{color:var(--orange);}
+#stackList .stack-item{display:flex;justify-content:space-between;align-items:center;
+  background:var(--panel2);border:1px solid #2a3a64;border-radius:5px;padding:4px 8px;margin:3px 0;font-size:12px;}
+#stackList .stack-item button{background:none;border:none;color:var(--red);font-size:14px;font-weight:bold;}
+/* ---------- Flug ---------- */
+#flight{flex-direction:column;}
+#flightCanvas{position:absolute;inset:0;width:100%;height:100%;}
+.hud{position:absolute;background:rgba(10,16,32,.82);border:1px solid var(--blue-dark);
+  border-radius:8px;padding:10px 14px;font-size:14px;backdrop-filter:blur(3px);}
+#hudLeft{top:12px;left:12px;min-width:210px;}
+#hudLeft .row{display:flex;justify-content:space-between;gap:16px;}
+#hudLeft .row span:last-child{color:var(--orange);font-variant-numeric:tabular-nums;}
+#hudRight{top:12px;right:12px;text-align:right;}
+#hudMsg{bottom:90px;left:50%;transform:translateX(-50%);font-size:18px;font-weight:700;
+  color:var(--orange);display:none;text-align:center;}
+#hudControls{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:8px;}
+#hudControls .btn{padding:8px 14px;font-size:13px;}
+#milestoneToast{top:70px;left:50%;transform:translateX(-50%);color:var(--green);font-weight:700;display:none;}
+#throttleBar{position:absolute;left:12px;bottom:12px;width:26px;height:160px;border:1px solid var(--blue-dark);
+  border-radius:6px;background:rgba(10,16,32,.8);overflow:hidden;}
+#throttleFill{position:absolute;bottom:0;width:100%;background:linear-gradient(180deg,var(--orange),#c46a08);}
+/* ---------- Tech & Missionen ---------- */
+#tech,#missions,#universe{flex-direction:column;background:radial-gradient(ellipse at 50% -20%, #16335e 0%, #0a0e1a 60%);
+  padding:30px;overflow-y:auto;align-items:center;}
+.page-head{display:flex;align-items:center;gap:20px;width:100%;max-width:900px;margin-bottom:20px;}
+.page-head h1{color:var(--orange);font-size:28px;margin-right:auto;}
+.tech-grid{display:flex;flex-wrap:wrap;gap:14px;max-width:900px;justify-content:center;}
+.tech-node{width:260px;background:var(--panel);border:2px solid var(--blue-dark);border-radius:10px;padding:14px;}
+.tech-node.unlocked{border-color:var(--green);}
+.tech-node h3{color:var(--orange);font-size:16px;margin-bottom:6px;}
+.tech-node ul{margin:6px 0 10px 18px;font-size:13px;color:var(--muted);}
+.mission-card{width:100%;max-width:700px;background:var(--panel);border:2px solid var(--blue-dark);
+  border-radius:10px;padding:14px;margin:6px 0;display:flex;align-items:center;gap:14px;}
+.mission-card.done{border-color:var(--green);}
+.mission-card .check{font-size:24px;}
+.mission-card h3{font-size:16px;}
+.mission-card p{font-size:13px;color:var(--muted);}
+.mission-card .sci{margin-left:auto;color:var(--orange);font-weight:700;white-space:nowrap;}
+.scibadge{background:var(--panel2);border:1px solid var(--orange);border-radius:20px;
+  padding:6px 16px;color:var(--orange);font-weight:700;}
+input[type=file]{display:none;}
+</style>
+</head>
+<body>
+
+<!-- ============ LADEBILDSCHIRM ============ -->
+<div id="loader" style="position:fixed;inset:0;z-index:100;background:#04060e url('loading.png') center/cover no-repeat;
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  transition:opacity .8s;">
+  <div style="width:100%;background:linear-gradient(180deg,rgba(4,6,14,0),#04060e 16%);
+    padding:130px 0 46px;display:flex;flex-direction:column;align-items:center;gap:10px;">
+    <div id="loaderText" style="font-weight:700;letter-spacing:3px;color:var(--text);">WIRD GELADEN …</div>
+    <div style="width:320px;max-width:70vw;height:14px;border:1px solid var(--blue-dark);border-radius:7px;overflow:hidden;background:#0a0e1a;">
+      <div id="loaderBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--blue),var(--orange));"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ HAUPTMENÜ ============ -->
+<div id="menu" class="screen active">
+  <div class="logo">LMG</div>
+  <div class="sub">SPACE PROGRAM</div>
+  <button class="btn orange" onclick="UI.startCareer()">🚀 Karriere</button>
+  <button class="btn" onclick="UI.startSandbox()">🛠️ Sandbox</button>
+  <button class="btn" onclick="UI.show('universe')">🪐 Universum ansehen</button>
+  <button class="btn" onclick="UI.show('missions')">📋 Missionen</button>
+  <button class="btn" onclick="UI.show('tech')">🔬 Forschung</button>
+  <button class="btn" onclick="UI.saveGame()">💾 Spielstand speichern</button>
+  <button class="btn" onclick="document.getElementById('loadFile').click()">📂 Spielstand laden</button>
+  <input type="file" id="loadFile" accept=".json" onchange="UI.loadGame(this)">
+  <button id="musicBtn" class="btn" style="position:absolute;top:14px;right:14px;padding:8px 14px;"
+    onclick="toggleMusic()">🔊 Musik</button>
+  <div class="tip">💡 TIPP: Mehr Stufen helfen dir, höhere Orbits zu erreichen.</div>
+  <div class="version">v1.0 · Leibniz-Montessori-Gymnasium Düsseldorf</div>
+</div>
+
+<!-- ============ VAB (Raketenbau) ============ -->
+<div id="vab" class="screen">
+  <div id="partList" class="vab-col"></div>
+  <div id="vabCenter">
+    <div id="vabTop">
+      <span class="title">🏗️ Montagehalle</span>
+      <span id="vabSci" class="scibadge"></span>
+      <button class="btn" onclick="UI.show('tech')">🔬 Forschung</button>
+      <button class="btn" onclick="UI.show('missions')">📋 Missionen</button>
+      <button class="btn" onclick="UI.show('menu')">☰ Menü</button>
+      <button class="btn orange" id="launchBtn" onclick="UI.launch()">🚀 START</button>
+    </div>
+    <canvas id="rocketCanvas"></canvas>
+  </div>
+  <div id="vabInfo" class="vab-col"></div>
+</div>
+
+<!-- ============ FLUG ============ -->
+<div id="flight" class="screen">
+  <canvas id="flightCanvas"></canvas>
+  <div id="hudLeft" class="hud"></div>
+  <div id="hudRight" class="hud"></div>
+  <div id="hudMsg" class="hud"></div>
+  <div id="milestoneToast" class="hud"></div>
+  <div id="throttleBar"><div id="throttleFill"></div></div>
+  <div id="hudControls">
+    <button class="btn" onclick="Flight.stage()">Stufe [Leertaste]</button>
+    <button class="btn" onclick="Flight.toggleChute()">Fallschirm [P]</button>
+    <button class="btn" onclick="Flight.toggleMap()">Karte [M]</button>
+    <button class="btn" onclick="Flight.warpDown()">⏪ [,]</button>
+    <button class="btn" onclick="Flight.warpUp()">⏩ [.]</button>
+    <button class="btn orange" id="endFlightBtn" onclick="Flight.endFlight()">Flug beenden</button>
+  </div>
+</div>
+
+<!-- ============ FORSCHUNG ============ -->
+<div id="tech" class="screen">
+  <div class="page-head">
+    <h1>🔬 Forschung &amp; Technologie</h1>
+    <span id="techSci" class="scibadge"></span>
+    <button class="btn" onclick="UI.back()">← Zurück</button>
+  </div>
+  <div class="tech-grid" id="techGrid"></div>
+</div>
+
+<!-- ============ MISSIONEN ============ -->
+<div id="missions" class="screen">
+  <div class="page-head">
+    <h1>📋 Missionen</h1>
+    <span id="misSci" class="scibadge"></span>
+    <button class="btn" onclick="UI.back()">← Zurück</button>
+  </div>
+  <div id="missionList" style="width:100%;max-width:700px;"></div>
+</div>
+
+<!-- ============ UNIVERSUM ============ -->
+<div id="universe" class="screen">
+  <div class="page-head">
+    <h1>🪐 Unser Universum</h1>
+    <button class="btn" onclick="UI.back()">← Zurück</button>
+  </div>
+  <canvas id="universeCanvas" style="width:100%;max-width:900px;height:320px;border:1px solid var(--blue-dark);border-radius:10px;background:#04060e;"></canvas>
+  <div id="universeCards" style="display:flex;flex-wrap:wrap;gap:14px;max-width:900px;justify-content:center;margin-top:16px;"></div>
+</div>
+
+<!-- ============ HINWEIS-DIALOG ============ -->
+<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;
+  align-items:center;justify-content:center;">
+  <div style="background:var(--panel);border:2px solid var(--orange);border-radius:14px;
+    max-width:480px;margin:20px;padding:24px;">
+    <h2 id="modalTitle" style="color:var(--orange);margin-bottom:12px;"></h2>
+    <div id="modalText" style="font-size:15px;line-height:1.5;"></div>
+    <label style="display:flex;align-items:center;gap:8px;margin:18px 0 14px;color:var(--muted);font-size:13px;cursor:pointer;">
+      <input type="checkbox" id="modalNoShow" style="width:16px;height:16px;"> Nicht wieder anzeigen
+    </label>
+    <button class="btn orange" style="width:100%" onclick="closeHint()">Los geht's!</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* =================================================================
+   LMG SPACE PROGRAM – 2D-Raumfahrtsimulation für den Browser
+   ================================================================= */
+const G0 = 9.81;
+
+/* ---------- Himmelskörper ---------- */
+const LEIBNIZ = {
+  name:"Leibniz", R:600000, mu:3.5316e12, atmoH:70000, rho0:1.2, scaleH:5600,
+  color:"#3b7dd8", ground:"#3a7d44", soi:Infinity
+};
+const MONTI = {
+  name:"Monti", R:200000, mu:6.5138e10, atmoH:0,
+  color:"#9aa3b0", ground:"#7d8590",
+  orbitR:12000000
+};
+MONTI.period = 2*Math.PI*Math.sqrt(Math.pow(MONTI.orbitR,3)/LEIBNIZ.mu);
+MONTI.soi = MONTI.orbitR*Math.pow(MONTI.mu/LEIBNIZ.mu, 2/5);
+function montiPos(t){
+  const a = 2*Math.PI*t/MONTI.period;
+  return {x:MONTI.orbitR*Math.cos(a), y:MONTI.orbitR*Math.sin(a)};
+}
+
+/* ---------- Prozedurale Oberflächen (deterministisch) ---------- */
+function seededRand(seed){
+  let s = seed;
+  return ()=>{ s = (s*9301+49297)%233280; return s/233280; };
+}
+function genBlobs(seed, count, minSize, maxSize){
+  const rnd = seededRand(seed), blobs = [];
+  for(let k=0;k<count;k++){
+    const ca = rnd()*Math.PI*2, cd = 0.1+rnd()*0.78;
+    const cx = Math.cos(ca)*cd, cy = Math.sin(ca)*cd;
+    const size = minSize+rnd()*(maxSize-minSize);
+    const p1=rnd()*7, p2=rnd()*7, p3=rnd()*7;
+    const pts = [];
+    for(let i=0;i<18;i++){
+      const a = i/18*Math.PI*2;
+      const r = size*(0.65 + 0.22*Math.sin(a*3+p1) + 0.14*Math.sin(a*5+p2) + 0.09*Math.sin(a*9+p3));
+      pts.push([cx+Math.cos(a)*r, cy+Math.sin(a)*r]);
+    }
+    blobs.push(pts);
+  }
+  return blobs;
+}
+LEIBNIZ.land   = genBlobs(7, 7, 0.22, 0.45);
+LEIBNIZ.clouds = genBlobs(31, 10, 0.12, 0.3);
+MONTI.craters  = (()=>{ const rnd=seededRand(99), c=[];
+  for(let i=0;i<16;i++){ const a=rnd()*Math.PI*2, d=rnd()*0.85;
+    c.push({x:Math.cos(a)*d, y:Math.sin(a)*d, r:0.04+rnd()*0.11}); }
+  return c; })();
+
+function drawBlobPath(ctx, pts, sx, sy, rp, rot){
+  const cos=Math.cos(rot||0), sin=Math.sin(rot||0);
+  ctx.beginPath();
+  pts.forEach((p,i)=>{
+    const x = sx + (p[0]*cos - p[1]*sin)*rp;
+    const y = sy + (p[0]*sin + p[1]*cos)*rp;
+    i ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+  });
+  ctx.closePath();
+}
+/* Zeichnet die Oberfläche eines Himmelskörpers mit Radius rp (Pixel) */
+function drawPlanetSurface(ctx, b, sx, sy, rp, t){
+  // Nahansicht (Startplatz / Landestelle): Boden statt Weltkugel zeigen
+  if(rp > 150000){
+    const gg = ctx.createRadialGradient(sx,sy,rp*0.9985,sx,sy,rp);
+    if(b===LEIBNIZ){ gg.addColorStop(0,"#2c5e36"); gg.addColorStop(1,"#4a9b58"); }
+    else { gg.addColorStop(0,"#4a505c"); gg.addColorStop(1,"#8d95a3"); }
+    ctx.fillStyle = gg;
+    ctx.beginPath(); ctx.arc(sx,sy,rp,0,7); ctx.fill();
+    return;
+  }
+  // Grundkugel mit Beleuchtung
+  const g = ctx.createRadialGradient(sx-rp*0.35, sy-rp*0.4, rp*0.1, sx, sy, rp);
+  if(b===LEIBNIZ){
+    g.addColorStop(0,"#7db8ee"); g.addColorStop(0.65,"#2f6cc4"); g.addColorStop(1,"#13325f");
+  } else {
+    g.addColorStop(0,"#d3d8e0"); g.addColorStop(0.65,"#8d95a3"); g.addColorStop(1,"#4a505c");
+  }
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(sx,sy,rp,0,7); ctx.fill();
+  if(rp < 22) return;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(sx,sy,rp*0.997,0,7); ctx.clip();
+  if(b===LEIBNIZ){
+    // Kontinente (zwei Töne für etwas Relief)
+    for(const blob of b.land){
+      ctx.fillStyle = "#2f7a40";
+      drawBlobPath(ctx, blob, sx, sy, rp, 0); ctx.fill();
+      ctx.fillStyle = "#4a9b58";
+      drawBlobPath(ctx, blob, sx - rp*0.012, sy - rp*0.012, rp*0.97, 0); ctx.fill();
+    }
+    // Polkappen
+    ctx.fillStyle = "rgba(240,248,255,.92)";
+    ctx.beginPath(); ctx.ellipse(sx, sy-rp*0.94, rp*0.5, rp*0.18, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(sx, sy+rp*0.94, rp*0.5, rp*0.18, 0, 0, 7); ctx.fill();
+    // Wolken, langsam rotierend
+    const rot = (t||0)*2*Math.PI/2400;
+    ctx.fillStyle = "rgba(255,255,255,.32)";
+    for(const blob of b.clouds){ drawBlobPath(ctx, blob, sx, sy, rp, rot); ctx.fill(); }
+  } else {
+    // Krater mit Schattenrand und Lichtkante
+    for(const c of b.craters){
+      const cx = sx+c.x*rp, cy = sy+c.y*rp, cr = c.r*rp;
+      ctx.fillStyle = "rgba(60,65,78,.55)";
+      ctx.beginPath(); ctx.arc(cx,cy,cr,0,7); ctx.fill();
+      ctx.fillStyle = "rgba(210,216,226,.5)";
+      ctx.beginPath(); ctx.arc(cx,cy,cr,Math.PI*0.9,Math.PI*1.85);
+      ctx.arc(cx,cy,cr*0.78,Math.PI*1.85,Math.PI*0.9,true); ctx.closePath(); ctx.fill();
+    }
+  }
+  // Tag-Nacht-Schattierung
+  const sh = ctx.createRadialGradient(sx-rp*0.5, sy-rp*0.5, rp*0.3, sx-rp*0.2, sy-rp*0.2, rp*1.6);
+  sh.addColorStop(0,"rgba(0,0,0,0)"); sh.addColorStop(0.6,"rgba(2,6,20,.18)"); sh.addColorStop(1,"rgba(2,6,20,.6)");
+  ctx.fillStyle = sh;
+  ctx.beginPath(); ctx.arc(sx,sy,rp,0,7); ctx.fill();
+  ctx.restore();
+}
+
+/* ---------- Bauteile ---------- */
+/* cat: cmd = Kommando (ganz oben) · upper = 2. Stufe (Vakuum)
+        struct = Struktur/Trennung · lower = 1. Stufe (Start) */
+const CATS = [
+  {id:"cmd",    name:"🧑‍🚀 Kommando & Rückkehr", sub:"Gehört an die Spitze jeder Rakete."},
+  {id:"upper",  name:"🛰️ 2. Stufe (Oberstufe)",  sub:"Leicht & effizient – arbeitet oben im Vakuum."},
+  {id:"struct", name:"🔗 Struktur & Stufentrennung", sub:"Verbindet die Stufen miteinander."},
+  {id:"lower",  name:"🚀 1. Stufe (Unterstufe)", sub:"Viel Schub – hebt die Rakete vom Boden."}
+];
+const PARTS = {
+  pod:       {name:"Kommandokapsel »Leibniz I«", type:"pod",    cat:"cmd", mass:800,  w:10,h:14, tech:"start",
+              info:"Sitz für eine mutige Pilotin / einen mutigen Piloten."},
+  chute:     {name:"Fallschirm Mk1",            type:"chute",  cat:"cmd", mass:100,  w:10,h:5,  tech:"start",
+              info:"Für die sichere Landung. Mit [P] auslösen."},
+  tankS:     {name:"Treibstofftank S",          type:"tank",   cat:"upper", mass:250,  fuel:1400, w:10,h:16, tech:"start",
+              info:"1,4 t Treibstoff – klein und leicht."},
+  engS:      {name:"Triebwerk »Funke«",         type:"engine", cat:"upper", mass:200,  thrust:45000, isp:300, w:10,h:8, tech:"start",
+              info:"45 kN Schub, drosselbar. Gut für kleine Raketen und Oberstufen."},
+  tankM:     {name:"Treibstofftank M",          type:"tank",   cat:"upper", mass:450,  fuel:2800, w:10,h:28, tech:"adv",
+              info:"2,8 t Treibstoff."},
+  engVac:    {name:"Triebwerk »Terrier«",       type:"engine", cat:"upper", mass:500,  thrust:60000, isp:345, w:10,h:9, tech:"adv",
+              info:"Sehr effizient im Vakuum (Isp 345 s) – das ideale Oberstufen-Triebwerk."},
+  decoupler: {name:"Stufentrenner",             type:"decoupler", cat:"struct", mass:50, w:10,h:4, tech:"basic",
+              info:"Trennt Stufen voneinander. [Leertaste]"},
+  legs:      {name:"Landebeine",                type:"legs",   cat:"struct", mass:120,  w:14,h:6, tech:"explore",
+              info:"Erlauben Landungen bis 12 m/s (sonst 8 m/s)."},
+  srb:       {name:"Feststoffbooster »Böller«", type:"srb",    cat:"lower", mass:450,  fuel:1700, thrust:230000, isp:220, w:10,h:24, tech:"basic",
+              info:"Viel Schub, nicht drosselbar, nicht abschaltbar!"},
+  fin:       {name:"Stabilisierungsflosse",     type:"fin",    cat:"lower", mass:40,   w:14,h:6, tech:"basic",
+              info:"Verringert den Luftwiderstand beim Aufstieg."},
+  tankL:     {name:"Treibstofftank L",          type:"tank",   cat:"lower", mass:800,  fuel:5600, w:12,h:42, tech:"heavy",
+              info:"5,6 t Treibstoff – schwer, gehört nach unten."},
+  engMain:   {name:"Triebwerk »Hauptstufe«",    type:"engine", cat:"lower", mass:1500, thrust:600000, isp:290, w:12,h:12, tech:"heavy",
+              info:"600 kN Schub für schwere Raketen."}
+};
+
+/* ---------- Tech Tree ---------- */
+const TECH = [
+  {id:"start",   name:"Startkapital",        cost:0,   desc:"Die ersten Schritte ins All."},
+  {id:"basic",   name:"Grundlagen-Raketen",  cost:12,  desc:"Stufentrennung und Feststoffbooster."},
+  {id:"adv",     name:"Fortgeschrittener Antrieb", cost:30, desc:"Effiziente Vakuum-Triebwerke."},
+  {id:"heavy",   name:"Schwerlast-Raketen",  cost:60,  desc:"Große Tanks, große Triebwerke."},
+  {id:"explore", name:"Erkundung",           cost:100, desc:"Landetechnik für fremde Welten."}
+];
+
+/* ---------- Missionen / Meilensteine ---------- */
+const MISSIONS = [
+  {id:"alt5",    name:"Höhenrekord: 5 km",   desc:"Erreiche eine Höhe von 5 km.",   sci:5,
+   check:s=>s.alt>5000},
+  {id:"alt20",   name:"Höhenrekord: 20 km",  desc:"Erreiche eine Höhe von 20 km.",  sci:8,
+   check:s=>s.alt>20000},
+  {id:"space",   name:"Grenze zum Weltraum", desc:"Verlasse die Atmosphäre (70 km).", sci:15,
+   check:s=>s.alt>70000},
+  {id:"speed1k", name:"Schallmauer ade",     desc:"Erreiche 1000 m/s.",             sci:6,
+   check:s=>s.speed>1000},
+  {id:"orbit",   name:"Orbit!",              desc:"Erreiche einen stabilen Orbit um Leibniz (Periapsis > 70 km).", sci:25,
+   check:s=>s.body===LEIBNIZ && s.pe>LEIBNIZ.atmoH && s.ap>0},
+  {id:"land",    name:"Sichere Rückkehr",    desc:"Lande sicher zurück auf Leibniz.", sci:12,
+   check:s=>s.landed && s.body===LEIBNIZ && s.flew},
+  {id:"montiSoi",name:"Hallo Monti!",        desc:"Erreiche die Gravitationssphäre des Mondes Monti.", sci:35,
+   check:s=>s.body===MONTI},
+  {id:"montiOrb",name:"Monti-Orbit",         desc:"Erreiche einen Orbit um Monti.", sci:40,
+   check:s=>s.body===MONTI && s.pe>0 && s.ap>0 && s.ap<MONTI.soi},
+  {id:"montiLand",name:"Monti-Landung",      desc:"Lande sicher auf Monti. Die Königsdisziplin!", sci:60,
+   check:s=>s.landed && s.body===MONTI}
+];
+
+/* =================================================================
+   Spielstand
+   ================================================================= */
+let Game = newGame();
+function newGame(){
+  return {science:0, unlocked:["start"], done:[], sandbox:false, design:["pod","chute","tankS","engS"]};
+}
+
+/* =================================================================
+   UI / Screens
+   ================================================================= */
+const UI = {
+  prev:"menu",
+  show(id){
+    const cur = document.querySelector(".screen.active");
+    if(cur && cur.id!=="flight") this.prev = cur.id;
+    document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+    document.getElementById(id).classList.add("active");
+    if(id==="vab") VAB.refresh();
+    if(id==="tech") renderTech();
+    if(id==="missions") renderMissions();
+    if(id==="universe"){ renderUniverse(); showHint("universe"); }
+    updateMusic();
+  },
+  back(){ this.show(this.prev==="flight"?"menu":this.prev); },
+  startCareer(){ Game.sandbox=false; this.show("vab"); showHint("career"); },
+  startSandbox(){ Game.sandbox=true; this.show("vab"); showHint("sandbox"); },
+  launch(){
+    const v = VAB.validate();
+    if(v){ alert(v); return; }
+    Game.design = [...VAB.stack];
+    Flight.start(VAB.buildVessel());
+    this.show("flight");
+  },
+  saveGame(){
+    Game.design = VAB.stack.length?[...VAB.stack]:Game.design;
+    const blob = new Blob([JSON.stringify(Game,null,2)],{type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "lmg-space-program-spielstand.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+  loadGame(input){
+    const f = input.files[0]; if(!f) return;
+    f.text().then(t=>{
+      try{
+        const d = JSON.parse(t);
+        if(!Array.isArray(d.unlocked)) throw 0;
+        Game = Object.assign(newGame(), d);
+        VAB.stack = [...Game.design];
+        alert("Spielstand geladen! 🛰️ Wissenschaft: "+Game.science);
+      }catch(e){ alert("Datei konnte nicht gelesen werden."); }
+      input.value="";
+    });
+  }
+};
+/* =================================================================
+   Willkommens-Hinweise (merken via localStorage, kein Account nötig)
+   ================================================================= */
+const HINTS = {
+  career: {title:"🚀 Willkommen im Karrieremodus!", text:
+    `Du leitest das Raumfahrtprogramm des LMG! So funktioniert's:<br><br>
+     <b>1.</b> Baue links aus Bauteilen eine Rakete – Kapsel oben, Triebwerk unten.<br>
+     <b>2.</b> Drücke <b>START</b> und zünde mit der <b>Leertaste</b>.<br>
+     <b>3.</b> Erfülle <b>Missionen</b> (z.&nbsp;B. „5 km Höhe“) und verdiene Wissenschaftspunkte 🧪.<br>
+     <b>4.</b> Schalte damit unter <b>Forschung</b> neue Bauteile frei.<br><br>
+     Tipp: Erst Höhenrekorde, dann ein Orbit – und irgendwann der Mond <b>Monti</b>! 🌗`},
+  sandbox: {title:"🛠️ Willkommen in der Sandbox!", text:
+    `Hier sind <b>alle Bauteile freigeschaltet</b> – keine Punkte, keine Regeln.<br><br>
+     Perfekt zum Experimentieren: Baue die größte, schnellste oder verrückteste Rakete
+     und finde heraus, was passiert. Fehlschläge sind hier ausdrücklich erlaubt! 💥`},
+  universe: {title:"🪐 Unser Universum", text:
+    `Hier siehst du den Planeten <b>Leibniz</b> und seinen Mond <b>Monti</b> in Bewegung.<br><br>
+     Die Karten zeigen für jeden Himmelskörper die <b>Schwerkraft (g)</b> und das
+     <b>Δv</b> („Delta-v“) – die Geschwindigkeitsänderung, die deine Rakete insgesamt
+     aufbringen muss, um dort einen Orbit zu erreichen. Vergleiche die Werte:
+     Warum ist es so viel leichter, von Monti zu starten? 🤔`}
+};
+function showHint(id){
+  if(!HINTS[id] || localStorage.getItem("lmgHint_"+id)) return;
+  document.getElementById("modalTitle").innerHTML = HINTS[id].title;
+  document.getElementById("modalText").innerHTML = HINTS[id].text;
+  document.getElementById("modalNoShow").checked = false;
+  const m = document.getElementById("modal");
+  m.style.display = "flex";
+  m.dataset.hint = id;
+}
+function closeHint(){
+  const m = document.getElementById("modal");
+  if(document.getElementById("modalNoShow").checked)
+    localStorage.setItem("lmgHint_"+m.dataset.hint, "1");
+  m.style.display = "none";
+}
+
+/* =================================================================
+   Universum-Ansicht
+   ================================================================= */
+function bodyStats(b){
+  const g = b.mu/(b.R*b.R);
+  const orbAlt = b===LEIBNIZ ? 80000 : 20000;
+  const vOrb = Math.sqrt(b.mu/(b.R+orbAlt));
+  // Verluste: Leibniz hat Atmosphäre + langen Gravitationsaufstieg
+  const dv = b===LEIBNIZ ? vOrb+1150 : vOrb*1.12;
+  return {g, orbAlt, vOrb, dv};
+}
+function renderUniverse(){
+  const cards = document.getElementById("universeCards");
+  cards.innerHTML = "";
+  for(const b of [LEIBNIZ, MONTI]){
+    const s = bodyStats(b);
+    const div = document.createElement("div");
+    div.className = "tech-node unlocked";
+    div.style.width = "300px";
+    div.innerHTML = `<h3>${b===LEIBNIZ?"🌍":"🌗"} ${b.name}</h3>
+      <div class="stat" style="display:flex;justify-content:space-between"><span>Radius</span><b>${(b.R/1000).toFixed(0)} km</b></div>
+      <div class="stat" style="display:flex;justify-content:space-between"><span>Schwerkraft (Oberfläche)</span><b>${s.g.toFixed(2)} m/s²</b></div>
+      <div class="stat" style="display:flex;justify-content:space-between"><span>Atmosphäre</span><b>${b.atmoH?`bis ${b.atmoH/1000} km`:"keine"}</b></div>
+      ${b===MONTI?`<div class="stat" style="display:flex;justify-content:space-between"><span>Umlaufzeit um Leibniz</span><b>${(MONTI.period/3600).toFixed(1)} h</b></div>`:""}
+      <div class="stat" style="display:flex;justify-content:space-between"><span>Orbitgeschwindigkeit (${s.orbAlt/1000} km)</span><b>${s.vOrb.toFixed(0)} m/s</b></div>
+      <div class="stat" style="display:flex;justify-content:space-between;color:var(--orange)"><span><b>Δv bis zum Orbit</b></span><b>≈ ${Math.round(s.dv/10)*10} m/s</b></div>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px">${b===LEIBNIZ
+        ? "Atmosphäre und starke Schwerkraft kosten extra Δv – plane Reserven ein!"
+        : "Keine Atmosphäre: Fallschirme funktionieren hier nicht – nutze Triebwerk und Landebeine!"}</p>`;
+    cards.appendChild(div);
+  }
+  if(!renderUniverse.running){ renderUniverse.running = true; universeFrame(); }
+}
+function universeFrame(){
+  requestAnimationFrame(universeFrame);
+  if(!document.getElementById("universe").classList.contains("active")) return;
+  const c = document.getElementById("universeCanvas");
+  const ctx = c.getContext("2d");
+  c.width = c.clientWidth; c.height = c.clientHeight;
+  const W = c.width, H = c.height;
+  ctx.fillStyle = "#04060e"; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = "rgba(255,255,255,.7)";
+  for(let i=0;i<70;i++) ctx.fillRect((i*97.3)%W,(i*211.7)%H,(i%3===0?2:1),(i%3===0?2:1));
+  const cx = W/2, cy = H/2;
+  const orbPx = Math.min(W,H)*0.42;
+  // Monti-Orbit (im Zeitraffer)
+  ctx.strokeStyle = "rgba(150,160,190,.35)";
+  ctx.beginPath(); ctx.arc(cx,cy,orbPx,0,7); ctx.stroke();
+  const t = performance.now()/1000 * (MONTI.period/40);  // 1 Umlauf ≈ 40 s
+  drawPlanetSurface(ctx, LEIBNIZ, cx, cy, orbPx*0.38, t);
+  const a = 2*Math.PI*t/MONTI.period;
+  const mx = cx+Math.cos(a)*orbPx, my = cy+Math.sin(a)*orbPx;
+  drawPlanetSurface(ctx, MONTI, mx, my, orbPx*0.13, t);
+  ctx.fillStyle = "#e8ecf5"; ctx.font = "13px sans-serif"; ctx.textAlign = "center";
+  ctx.fillText("Leibniz", cx, cy+orbPx*0.38+18);
+  ctx.fillText("Monti", mx, my+orbPx*0.13+16);
+  ctx.textAlign = "left";
+}
+
+function sciBadge(){ return Game.sandbox ? "Sandbox-Modus" : "🧪 "+Game.science+" Wissenschaft"; }
+function isUnlocked(tech){ return Game.sandbox || Game.unlocked.includes(tech); }
+
+/* =================================================================
+   Forschung & Missionen (Render)
+   ================================================================= */
+function renderTech(){
+  document.getElementById("techSci").textContent = sciBadge();
+  const grid = document.getElementById("techGrid");
+  grid.innerHTML = "";
+  for(const t of TECH){
+    const parts = Object.values(PARTS).filter(p=>p.tech===t.id).map(p=>"<li>"+p.name+"</li>").join("");
+    const un = isUnlocked(t.id);
+    const can = !un && Game.science>=t.cost;
+    const div = document.createElement("div");
+    div.className = "tech-node"+(un?" unlocked":"");
+    div.innerHTML = `<h3>${un?"✅ ":""}${t.name}</h3><p style="font-size:13px">${t.desc}</p>
+      <ul>${parts}</ul>` +
+      (un ? `<b style="color:var(--green)">Freigeschaltet</b>`
+          : `<button class="btn orange" ${can?"":"disabled"} onclick="unlockTech('${t.id}')">
+              Erforschen (🧪 ${t.cost})</button>`);
+    grid.appendChild(div);
+  }
+}
+function unlockTech(id){
+  const t = TECH.find(x=>x.id===id);
+  if(Game.science>=t.cost && !Game.unlocked.includes(id)){
+    Game.science -= t.cost;
+    Game.unlocked.push(id);
+    renderTech();
+  }
+}
+function renderMissions(){
+  document.getElementById("misSci").textContent = sciBadge();
+  const list = document.getElementById("missionList");
+  list.innerHTML = "";
+  for(const m of MISSIONS){
+    const done = Game.done.includes(m.id);
+    const div = document.createElement("div");
+    div.className = "mission-card"+(done?" done":"");
+    div.innerHTML = `<span class="check">${done?"✅":"⬜"}</span>
+      <div><h3>${m.name}</h3><p>${m.desc}</p></div>
+      <span class="sci">🧪 ${m.sci}</span>`;
+    list.appendChild(div);
+  }
+}
+
+/* =================================================================
+   VAB – Raketenbau
+   ================================================================= */
+const VAB = {
+  stack: [...Game.design],   // Teil-IDs von OBEN nach UNTEN
+  canvas:null, ctx:null,
+  init(){
+    this.canvas = document.getElementById("rocketCanvas");
+    this.ctx = this.canvas.getContext("2d");
+  },
+  refresh(){
+    document.getElementById("vabSci").textContent = sciBadge();
+    // Teile-Liste
+    const list = document.getElementById("partList");
+    list.innerHTML = "";
+    for(const cat of CATS){
+      const h = document.createElement("h3");
+      h.innerHTML = cat.name+`<br><small style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">${cat.sub}</small>`;
+      list.appendChild(h);
+      for(const [id,p] of Object.entries(PARTS)){
+        if(p.cat!==cat.id) continue;
+        const un = isUnlocked(p.tech);
+        const b = document.createElement("button");
+        b.className = "part-btn"+(un?"":" locked");
+        let det = p.mass/1000+" t";
+        if(p.fuel) det += " · "+p.fuel/1000+" t Treibstoff";
+        if(p.thrust) det += " · "+p.thrust/1000+" kN";
+        b.innerHTML = `<b>${p.name}</b><small>${det}</small><small>${p.info}</small>`;
+        if(un) b.onclick = ()=>{ this.add(id); };
+        else b.title = "Noch nicht erforscht";
+        list.appendChild(b);
+      }
+    }
+    this.renderInfo();
+    this.draw();
+  },
+  add(id){
+    const p = PARTS[id];
+    if(p.type==="pod"){ if(this.stack.some(x=>PARTS[x].type==="pod")) return alert("Nur eine Kapsel pro Rakete!");
+      this.stack.unshift(id); }
+    else if(p.type==="chute"){ this.stack.unshift(id); } // Fallschirm ganz oben
+    else this.stack.push(id);  // alles andere unten anfügen
+    this.refresh();
+  },
+  remove(i){ this.stack.splice(i,1); this.refresh(); },
+  validate(){
+    if(!this.stack.some(x=>PARTS[x].type==="pod")) return "Deine Rakete braucht eine Kommandokapsel!";
+    if(!this.stack.some(x=>["engine","srb"].includes(PARTS[x].type))) return "Deine Rakete braucht ein Triebwerk!";
+    return null;
+  },
+  /* Stufen: Stack an Stufentrennern teilen. Segment 0 = unterstes. */
+  segments(stack){
+    const segs = [[]];
+    // von unten nach oben durchgehen
+    for(let i=stack.length-1;i>=0;i--){
+      const id = stack[i];
+      if(PARTS[id].type==="decoupler"){ segs[segs.length-1].push(id); segs.push([]); }
+      else segs[segs.length-1].push(id);
+    }
+    return segs.filter(s=>s.length);
+  },
+  segStats(seg){
+    let dry=0, fuel=0, srbFuel=0, thrust=0, srbThrust=0, ispSum=0, n=0;
+    for(const id of seg){
+      const p=PARTS[id]; dry+=p.mass;
+      if(p.type==="tank") fuel+=p.fuel;
+      if(p.type==="engine"){ thrust+=p.thrust; ispSum+=p.isp; n++; }
+      if(p.type==="srb"){ srbFuel+=p.fuel; srbThrust+=p.thrust; ispSum+=p.isp; n++; }
+    }
+    return {dry,fuel,srbFuel,thrust,srbThrust,isp:n?ispSum/n:0,
+      hasChute:seg.some(id=>PARTS[id].type==="chute"),
+      hasLegs:seg.some(id=>PARTS[id].type==="legs"),
+      hasFins:seg.some(id=>PARTS[id].type==="fin")};
+  },
+  buildVessel(){
+    const segs = this.segments(this.stack).map(s=>{
+      const st = this.segStats(s);
+      return {parts:[...s], ...st, fuelLeft:st.fuel, srbLeft:st.srbFuel, ignited:false};
+    });
+    return {segs, stack:[...this.stack]};
+  },
+  renderInfo(){
+    const info = document.getElementById("vabInfo");
+    const segs = this.segments(this.stack);
+    let total=0;
+    segs.forEach(s=>{const st=this.segStats(s); total+=st.dry+st.fuel+st.srbFuel;});
+    let html = `<h3>Rakete</h3>
+      <div class="stat"><span>Gesamtmasse</span><span>${(total/1000).toFixed(2)} t</span></div>
+      <div class="stat"><span>Teile</span><span>${this.stack.length}</span></div>
+      <div class="stat"><span>Stufen</span><span>${segs.length}</span></div>
+      <h3>Stufen (von unten)</h3>`;
+    // Delta-v pro Stufe: Masse oberhalb mitrechnen
+    let above = 0;
+    const statsArr = segs.map(s=>this.segStats(s));
+    const massOf = st=>st.dry+st.fuel+st.srbFuel;
+    for(let i=segs.length-1;i>=1;i--){} // (Masse oberhalb wird unten kumuliert)
+    for(let i=0;i<segs.length;i++){
+      const st = statsArr[i];
+      let upper = 0;
+      for(let j=i+1;j<segs.length;j++) upper += massOf(statsArr[j]);
+      const m0 = upper + massOf(st);
+      const m1 = upper + st.dry;
+      const totalThrust = st.thrust+st.srbThrust;
+      const dv = st.isp&&m0>m1 ? st.isp*G0*Math.log(m0/m1) : 0;
+      const twr = totalThrust/(m0*G0);
+      html += `<div class="stage-box"><b>Stufe ${i+1}</b> – ${(massOf(st)/1000).toFixed(2)} t<br>
+        Δv ≈ ${dv.toFixed(0)} m/s · TWR ${twr.toFixed(2)}
+        ${totalThrust&&twr<1?'<br><span style="color:var(--red)">⚠ TWR &lt; 1: hebt evtl. nicht ab!</span>':''}
+        </div>`;
+    }
+    html += `<h3>Aufbau (oben → unten)</h3><div id="stackList">` +
+      this.stack.map((id,i)=>`<div class="stack-item"><span>${PARTS[id].name}</span>
+        <button onclick="VAB.remove(${i})" title="Entfernen">✕</button></div>`).join("") + "</div>";
+    info.innerHTML = html;
+  },
+  draw(){
+    const c=this.canvas, ctx=this.ctx;
+    c.width=c.clientWidth; c.height=c.clientHeight;
+    ctx.clearRect(0,0,c.width,c.height);
+    drawRocketStack(ctx, this.stack, c.width/2, 60, 3.2, 0, {});
+    // Boden
+    ctx.fillStyle="#223052";
+    ctx.fillRect(0,c.height-30,c.width,30);
+  }
+};
+
+/* Rakete zeichnen (VAB und Flug). scale = Pixel pro "Einheit". */
+function drawRocketStack(ctx, stack, cx, topY, scale, angle, opts){
+  ctx.save();
+  let totalH = stack.reduce((a,id)=>a+PARTS[id].h,0);
+  if(angle!==undefined && opts.center){
+    ctx.translate(cx, topY);
+    ctx.rotate(angle);
+    ctx.translate(0, -totalH*scale/2);
+    cx=0; topY=0;
+  }
+  let y = topY;
+  for(let i=0;i<stack.length;i++){
+    const p = PARTS[stack[i]];
+    const w = p.w*scale, h = p.h*scale, x = cx-w/2;
+    ctx.lineWidth = 1.5;
+    switch(p.type){
+      case "pod":
+        ctx.fillStyle="#d9dee8";
+        ctx.beginPath();
+        ctx.moveTo(cx,y); ctx.lineTo(x+w,y+h); ctx.lineTo(x,y+h); ctx.closePath();
+        ctx.fill(); ctx.strokeStyle="#7d8aa5"; ctx.stroke();
+        ctx.fillStyle="#1b5faa";
+        ctx.beginPath(); ctx.arc(cx,y+h*0.62,w*0.16,0,7); ctx.fill();
+        break;
+      case "chute":
+        if(opts.chuteOpen){
+          ctx.fillStyle="#f7941d";
+          ctx.beginPath(); ctx.arc(cx,y-h*6,w*3.2,Math.PI,0); ctx.fill();
+          ctx.strokeStyle="#f7941d";
+          ctx.beginPath();
+          ctx.moveTo(cx-w*3,y-h*6); ctx.lineTo(cx,y+h);
+          ctx.moveTo(cx+w*3,y-h*6); ctx.lineTo(cx,y+h);
+          ctx.stroke();
+        }
+        ctx.fillStyle="#f7941d";
+        ctx.fillRect(x+w*0.2,y,w*0.6,h);
+        ctx.strokeStyle="#b06a10"; ctx.strokeRect(x+w*0.2,y,w*0.6,h);
+        break;
+      case "tank":
+        ctx.fillStyle="#e8ecf5";
+        ctx.fillRect(x,y,w,h);
+        ctx.strokeStyle="#7d8aa5"; ctx.strokeRect(x,y,w,h);
+        ctx.fillStyle="#f7941d"; ctx.fillRect(x,y+h*0.42,w,h*0.16);
+        break;
+      case "engine":
+        ctx.fillStyle="#8a93a8";
+        ctx.beginPath();
+        ctx.moveTo(x+w*0.25,y); ctx.lineTo(x+w*0.75,y);
+        ctx.lineTo(x+w*0.95,y+h); ctx.lineTo(x+w*0.05,y+h);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle="#525a6e"; ctx.stroke();
+        if(opts.flame>0){
+          ctx.fillStyle="rgba(255,"+(140+Math.random()*60|0)+",30,.9)";
+          ctx.beginPath();
+          ctx.moveTo(x+w*0.15,y+h);
+          ctx.lineTo(cx, y+h+(h*2.2+Math.random()*h)*opts.flame);
+          ctx.lineTo(x+w*0.85,y+h);
+          ctx.closePath(); ctx.fill();
+        }
+        break;
+      case "srb":
+        ctx.fillStyle="#d8d8d8";
+        ctx.fillRect(x,y,w,h);
+        ctx.strokeStyle="#888"; ctx.strokeRect(x,y,w,h);
+        ctx.fillStyle="#c43d3d"; ctx.fillRect(x,y,w,h*0.12);
+        if(opts.srbFlame>0){
+          ctx.fillStyle="rgba(255,170,40,.9)";
+          ctx.beginPath();
+          ctx.moveTo(x+w*0.2,y+h);
+          ctx.lineTo(cx,y+h+h*0.9+Math.random()*h*0.3);
+          ctx.lineTo(x+w*0.8,y+h);
+          ctx.closePath(); ctx.fill();
+        }
+        break;
+      case "decoupler":
+        ctx.fillStyle="#f7941d"; ctx.fillRect(x,y,w,h);
+        ctx.strokeStyle="#b06a10"; ctx.strokeRect(x,y,w,h);
+        break;
+      case "fin":
+        ctx.fillStyle="#1b5faa";
+        ctx.beginPath();
+        ctx.moveTo(x,y+h); ctx.lineTo(x+w*0.25,y); ctx.lineTo(x+w*0.25,y+h); ctx.closePath();
+        ctx.moveTo(x+w,y+h); ctx.lineTo(x+w*0.75,y); ctx.lineTo(x+w*0.75,y+h); ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle="#e8ecf5"; ctx.fillRect(x+w*0.25,y,w*0.5,h);
+        break;
+      case "legs":
+        ctx.fillStyle="#e8ecf5"; ctx.fillRect(x+w*0.3,y,w*0.4,h);
+        ctx.strokeStyle="#8a93a8"; ctx.lineWidth=2.5;
+        ctx.beginPath();
+        ctx.moveTo(x+w*0.35,y); ctx.lineTo(x-w*0.25,y+h*1.6);
+        ctx.moveTo(x+w*0.65,y); ctx.lineTo(x+w*1.25,y+h*1.6);
+        ctx.stroke();
+        break;
+    }
+    y += h;
+  }
+  ctx.restore();
+}
+
+/* =================================================================
+   FLUG – Physik & Darstellung
+   ================================================================= */
+const WARPS = [1,2,5,10,50,100,500,1000];
+const Flight = {
+  canvas:null, ctx:null,
+  v:null,           // vessel: {segs, stack}
+  x:0,y:0,vx:0,vy:0,theta:0,t:0,
+  throttle:1, warpI:0, map:false, zoom:1,
+  landed:true, crashed:false, ended:false, flew:false,
+  chuteOpen:false, msgTimer:0,
+  keys:{},
+  init(){
+    this.canvas = document.getElementById("flightCanvas");
+    this.ctx = this.canvas.getContext("2d");
+    addEventListener("keydown",e=>{
+      if(!document.getElementById("flight").classList.contains("active")) return;
+      this.keys[e.key]=true;
+      if(e.key===" "){ e.preventDefault(); this.stage(); }
+      if(e.key==="p"||e.key==="P") this.toggleChute();
+      if(e.key==="m"||e.key==="M") this.toggleMap();
+      if(e.key===".") this.warpUp();
+      if(e.key===",") this.warpDown();
+      if(e.key==="x"||e.key==="X") this.throttle=0;
+      if(e.key==="z"||e.key==="Z") this.throttle=1;
+    });
+    addEventListener("keyup",e=>this.keys[e.key]=false);
+    addEventListener("wheel",e=>{
+      if(!document.getElementById("flight").classList.contains("active")) return;
+      this.zoom *= e.deltaY<0?1.15:1/1.15;
+      this.zoom = Math.max(0.00002, Math.min(8, this.zoom));
+    },{passive:true});
+  },
+  start(vessel){
+    this.v = vessel;
+    // Startposition: auf der Oberfläche, "oben" am Planeten
+    this.x = 0; this.y = LEIBNIZ.R + this.height()/2;
+    this.vx = 0; this.vy = 0;
+    this.theta = 0;            // 0 = senkrecht nach oben (radial)
+    this.t = 0; this.throttle = 1; this.warpI = 0;
+    this.map=false; this.zoom=1.6;
+    this.landed = true; this.crashed=false; this.ended=false; this.flew=false;
+    this.chuteOpen = false;
+    this.showMsg("Bereit zum Start – [Leertaste] zündet die erste Stufe!", 5);
+    if(!this.loop){ this.loop=true; requestAnimationFrame(()=>this.frame()); }
+  },
+  height(){ return this.v.stack.reduce((a,id)=>a+PARTS[id].h,0); },
+  mass(){
+    let m=0;
+    for(const s of this.v.segs) m += s.dry + s.fuelLeft + s.srbLeft;
+    return m;
+  },
+  activeSeg(){ return this.v.segs[0]; },
+  /* ---- Stufenschaltung ---- */
+  stage(){
+    if(this.crashed||this.ended) return;
+    const s = this.activeSeg();
+    if(!s) return;
+    if(!s.ignited && (s.thrust||s.srbThrust)){
+      s.ignited = true;
+      this.showMsg("Zündung! 🔥",2);
+      this.landed = false; this.flew = true;
+      return;
+    }
+    if(this.v.segs.length>1){
+      // unterste Stufe abwerfen
+      const dropped = this.v.segs.shift();
+      // abgeworfene Teile aus dem Zeichen-Stack entfernen (von unten)
+      this.v.stack.splice(this.v.stack.length-dropped.parts.length, dropped.parts.length);
+      const n = this.activeSeg();
+      if(n && (n.thrust||n.srbThrust)){ n.ignited=true; this.showMsg("Stufentrennung + Zündung!",2); }
+      else this.showMsg("Stufentrennung!",2);
+    }
+  },
+  toggleChute(){
+    const top = this.v.segs[this.v.segs.length-1];
+    if(top && top.hasChute && !this.chuteOpen){
+      this.chuteOpen = true;
+      this.showMsg("Fallschirm ausgelöst! 🪂",2);
+    }
+  },
+  toggleMap(){ this.map = !this.map; },
+  warpUp(){ if(this.canWarp(this.warpI+1)) this.warpI=Math.min(this.warpI+1,WARPS.length-1); },
+  warpDown(){ this.warpI=Math.max(0,this.warpI-1); },
+  canWarp(i){
+    if(i<=1) return true;
+    const alt = Math.hypot(this.x,this.y)-LEIBNIZ.R;
+    if(alt < LEIBNIZ.atmoH){ this.showMsg("Zeitraffer erst außerhalb der Atmosphäre!",2); return false; }
+    return true;
+  },
+  showMsg(txt,sec){
+    const el=document.getElementById("hudMsg");
+    el.textContent=txt; el.style.display="block";
+    this.msgTimer = sec;
+  },
+  /* ---- aktueller dominanter Himmelskörper ---- */
+  body(){
+    const mp = montiPos(this.t);
+    const dM = Math.hypot(this.x-mp.x, this.y-mp.y);
+    return dM < MONTI.soi ? MONTI : LEIBNIZ;
+  },
+  bodyCenter(b, t){
+    return b===LEIBNIZ ? {x:0,y:0} : montiPos(t===undefined?this.t:t);
+  },
+  /* ---- Beschleunigung ---- */
+  accel(x,y,t){
+    let ax=0, ay=0;
+    let r2 = x*x+y*y, r=Math.sqrt(r2);
+    let a = LEIBNIZ.mu/r2;
+    ax -= a*x/r; ay -= a*y/r;
+    const mp = montiPos(t);
+    const dx=x-mp.x, dy=y-mp.y, d2=dx*dx+dy*dy, d=Math.sqrt(d2);
+    if(d>1){ const am=MONTI.mu/d2; ax -= am*dx/d; ay -= am*dy/d; }
+    return {ax,ay};
+  },
+  /* ---- Physikschritt ---- */
+  step(dt){
+    if(this.crashed||this.ended) return;
+    const warp = WARPS[this.warpI];
+    // Steuerung (nur bei niedrigem Warp)
+    if(warp<=2){
+      const rot = 1.6; // rad/s
+      if(this.keys["ArrowLeft"]||this.keys["a"])  this.theta -= rot*dt;
+      if(this.keys["ArrowRight"]||this.keys["d"]) this.theta += rot*dt;
+      if(this.keys["ArrowUp"]||this.keys["w"])    this.throttle=Math.min(1,this.throttle+1.2*dt);
+      if(this.keys["ArrowDown"]||this.keys["s"])  this.throttle=Math.max(0,this.throttle-1.2*dt);
+    }
+    const m = this.mass();
+    const s = this.activeSeg();
+    // Schub
+    let thrust = 0;
+    if(s && s.ignited && warp<=2){
+      if(s.fuelLeft>0 && s.thrust){
+        thrust += s.thrust*this.throttle;
+        s.fuelLeft -= s.thrust*this.throttle/(s.isp*G0)*dt;
+        if(s.fuelLeft<0) s.fuelLeft=0;
+      }
+      if(s.srbLeft>0 && s.srbThrust){
+        thrust += s.srbThrust;
+        s.srbLeft -= s.srbThrust/(220*G0)*dt;
+        if(s.srbLeft<0) s.srbLeft=0;
+      }
+    }
+    // Richtung: theta relativ zur lokalen Senkrechten am Start? Einfach: global, Start zeigt nach oben (+y)
+    const up = Math.atan2(this.y,this.x); // radial
+    const dir = up - this.theta;          // theta=0 → radial nach außen
+    const tx = Math.cos(dir), ty = Math.sin(dir);
+    let {ax,ay} = this.accel(this.x,this.y,this.t);
+    ax += thrust/m*tx; ay += thrust/m*ty;
+    // Luftwiderstand (nur Leibniz-Atmosphäre)
+    const r = Math.hypot(this.x,this.y);
+    const alt = r - LEIBNIZ.R;
+    if(alt < LEIBNIZ.atmoH){
+      const rho = LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH);
+      const v = Math.hypot(this.vx,this.vy);
+      if(v>0.1){
+        let cdA = 4 * (s&&s.hasFins?0.7:1);
+        if(this.chuteOpen && alt<30000) cdA += 350;
+        const fd = 0.5*rho*v*v*cdA;
+        ax -= fd/m*this.vx/v; ay -= fd/m*this.vy/v;
+      }
+    }
+    if(this.landed){
+      // am Boden festhalten bis Schub > Gewicht
+      const g = LEIBNIZ.mu/(r*r);
+      if(thrust/m > g){ this.landed=false; this.flew=true; }
+      else { this.vx=0; this.vy=0; this.t+=dt; return; }
+    }
+    // Semi-implizites Euler
+    this.vx += ax*dt; this.vy += ay*dt;
+    this.x += this.vx*dt; this.y += this.vy*dt;
+    this.t += dt;
+    // Bodenkontakt prüfen (Leibniz + Monti)
+    this.checkContact();
+    this.checkMissions();
+  },
+  checkContact(){
+    const bodies=[LEIBNIZ,MONTI];
+    for(const b of bodies){
+      const c = this.bodyCenter(b);
+      const dx=this.x-c.x, dy=this.y-c.y;
+      const r = Math.hypot(dx,dy);
+      const surf = b.R + this.height()/2;
+      if(r <= surf){
+        // Oberflächengeschwindigkeit relativ
+        let bvx=0,bvy=0;
+        if(b===MONTI){
+          const w = 2*Math.PI/MONTI.period;
+          bvx = -w*MONTI.orbitR*Math.sin(2*Math.PI*this.t/MONTI.period);
+          bvy =  w*MONTI.orbitR*Math.cos(2*Math.PI*this.t/MONTI.period);
+        }
+        const vrel = Math.hypot(this.vx-bvx, this.vy-bvy);
+        const seg = this.v.segs[this.v.segs.length-1];
+        const limit = (seg&&seg.hasLegs)?12:8;
+        // auf Oberfläche setzen
+        const f = surf/r;
+        this.x = c.x+dx*f; this.y = c.y+dy*f;
+        this.vx = bvx; this.vy = bvy;
+        this.warpI = 0;
+        if(vrel > limit && !this.landed){
+          this.crashed = true;
+          this.showMsg("💥 KABUMM! Aufschlag mit "+vrel.toFixed(0)+" m/s. Zurück ans Reißbrett!",99);
+        } else if(!this.landed){
+          this.landed = true;
+          this.showMsg("🛬 Gelandet auf "+b.name+"! ("+vrel.toFixed(1)+" m/s)",5);
+        }
+      }
+    }
+  },
+  /* ---- Orbit-Parameter relativ zum dominanten Körper ---- */
+  orbit(){
+    const b = this.body();
+    const c = this.bodyCenter(b);
+    let bvx=0,bvy=0;
+    if(b===MONTI){
+      const w = 2*Math.PI/MONTI.period;
+      bvx = -w*MONTI.orbitR*Math.sin(2*Math.PI*this.t/MONTI.period);
+      bvy =  w*MONTI.orbitR*Math.cos(2*Math.PI*this.t/MONTI.period);
+    }
+    const rx=this.x-c.x, ry=this.y-c.y, vx=this.vx-bvx, vy=this.vy-bvy;
+    const r = Math.hypot(rx,ry), v2 = vx*vx+vy*vy;
+    const mu = b.mu;
+    const energy = v2/2 - mu/r;
+    const h = rx*vy - ry*vx;
+    const a = -mu/(2*energy);
+    const e = Math.sqrt(Math.max(0, 1 + 2*energy*h*h/(mu*mu)));
+    let ap = a*(1+e)-b.R, pe = a*(1-e)-b.R;
+    if(energy>=0){ ap = -1; } // hyperbolisch
+    return {body:b, alt:r-b.R, speed:Math.hypot(vx,vy), ap, pe};
+  },
+  checkMissions(){
+    if(Game.sandbox || this.crashed) return;
+    const o = this.orbit();
+    const state = {alt:o.alt, speed:o.speed, ap:o.ap, pe:o.pe, body:o.body,
+      landed:this.landed, flew:this.flew};
+    for(const ms of MISSIONS){
+      if(!Game.done.includes(ms.id) && ms.check(state)){
+        Game.done.push(ms.id);
+        Game.science += ms.sci;
+        const t = document.getElementById("milestoneToast");
+        t.innerHTML = "🏆 "+ms.name+" &nbsp;+"+ms.sci+" 🧪";
+        t.style.display="block";
+        clearTimeout(this._toastT);
+        this._toastT = setTimeout(()=>t.style.display="none", 4000);
+      }
+    }
+  },
+  endFlight(){
+    this.ended = true;
+    UI.show("vab");
+  },
+  /* ---- Hauptschleife ---- */
+  frame(){
+    requestAnimationFrame(()=>this.frame());
+    if(!document.getElementById("flight").classList.contains("active")) return;
+    const warp = WARPS[this.warpI];
+    // Physik: Substeps
+    const frameT = 1/60 * warp;
+    const maxDt = warp<=2 ? 0.02 : 1.0;
+    let remaining = frameT;
+    let guard = 0;
+    while(remaining>1e-9 && guard++<200){
+      const dt = Math.min(maxDt, remaining);
+      this.step(dt);
+      remaining -= dt;
+      if(this.crashed) break;
+    }
+    if(this.msgTimer>0){
+      this.msgTimer -= 1/60;
+      if(this.msgTimer<=0 && !this.crashed) document.getElementById("hudMsg").style.display="none";
+    }
+    this.draw();
+    this.drawHUD();
+  },
+  /* ---- Trajektorien-Vorhersage ---- */
+  predict(){
+    const pts=[];
+    let x=this.x,y=this.y,vx=this.vx,vy=this.vy,t=this.t;
+    const o=this.orbit();
+    let period = 2*Math.PI*Math.sqrt(Math.pow(Math.max(o.alt+o.body.R, o.body.R),3)/o.body.mu);
+    if(!isFinite(period)||period<=0) period = 40000;
+    const total = Math.min(period*1.2, 400000);
+    const n = 600, dt = total/n;
+    for(let i=0;i<n;i++){
+      // RK2 (Mittelpunkt) für Stabilität bei großen dt
+      const a1=this.accel(x,y,t);
+      const mx=x+vx*dt/2, my=y+vy*dt/2;
+      const a2=this.accel(mx+0,my+0,t+dt/2);
+      x += (vx + a1.ax*dt/2)*dt;
+      y += (vy + a1.ay*dt/2)*dt;
+      vx += a2.ax*dt; vy += a2.ay*dt;
+      t += dt;
+      pts.push({x,y});
+      if(Math.hypot(x,y) < LEIBNIZ.R) break;
+      const mp=montiPos(t);
+      if(Math.hypot(x-mp.x,y-mp.y) < MONTI.R) break;
+    }
+    return pts;
+  },
+  /* ---- Zeichnen ---- */
+  draw(){
+    const c=this.canvas, ctx=this.ctx;
+    c.width=c.clientWidth; c.height=c.clientHeight;
+    const W=c.width,H=c.height;
+    ctx.fillStyle="#04060e"; ctx.fillRect(0,0,W,H);
+    const alt = Math.hypot(this.x,this.y)-LEIBNIZ.R;
+    // Atmosphären-Himmel
+    if(!this.map && alt<LEIBNIZ.atmoH){
+      const f = Math.max(0,1-alt/LEIBNIZ.atmoH);
+      ctx.fillStyle=`rgba(80,140,220,${(f*f*0.85).toFixed(3)})`;
+      ctx.fillRect(0,0,W,H);
+    }
+    // Sterne
+    ctx.fillStyle="rgba(255,255,255,.7)";
+    for(let i=0;i<90;i++){
+      const sx=(i*97.3)%W, sy=(i*211.7)%H;
+      ctx.fillRect(sx,sy,(i%3===0?2:1),(i%3===0?2:1));
+    }
+    const scale = this.map ? Math.min(W,H)/(2.6*MONTI.orbitR)*this.zoom*30 : this.zoom;
+    const camX=this.x, camY=this.y;
+    const toScreen = (px,py)=>({
+      x: W/2 + (px-camX)*scale,
+      y: H/2 - (py-camY)*scale
+    });
+    // Planeten zeichnen
+    const drawBody=(b)=>{
+      const cpos=this.bodyCenter(b);
+      const s=toScreen(cpos.x,cpos.y);
+      const rp=b.R*scale;
+      if(rp<1){ ctx.fillStyle=b.color; ctx.fillRect(s.x-1.5,s.y-1.5,3,3); return; }
+      if(b===LEIBNIZ && b.atmoH*scale>2){
+        const g=ctx.createRadialGradient(s.x,s.y,rp,s.x,s.y,rp+b.atmoH*scale);
+        g.addColorStop(0,"rgba(110,170,255,.4)"); g.addColorStop(1,"rgba(110,170,255,0)");
+        ctx.fillStyle=g;
+        ctx.beginPath(); ctx.arc(s.x,s.y,rp+b.atmoH*scale,0,7); ctx.fill();
+      }
+      drawPlanetSurface(ctx, b, s.x, s.y, rp, this.t);
+      if(this.map){
+        ctx.fillStyle="#e8ecf5"; ctx.font="12px sans-serif";
+        ctx.fillText(b.name, s.x+rp+6, s.y);
+      }
+    };
+    // Monti-Orbitlinie in Karte
+    if(this.map){
+      ctx.strokeStyle="rgba(150,160,190,.35)";
+      const o0=toScreen(0,0);
+      ctx.beginPath(); ctx.arc(o0.x,o0.y,MONTI.orbitR*scale,0,7); ctx.stroke();
+      // SOI
+      const mp=montiPos(this.t), ms=toScreen(mp.x,mp.y);
+      ctx.strokeStyle="rgba(150,160,190,.25)";
+      ctx.beginPath(); ctx.arc(ms.x,ms.y,MONTI.soi*scale,0,7); ctx.stroke();
+    }
+    drawBody(LEIBNIZ);
+    drawBody(MONTI);
+    // Trajektorie
+    if(this.map && !this.landed && !this.crashed){
+      const pts=this.predict();
+      ctx.strokeStyle="var(--orange)";
+      ctx.strokeStyle="#f7941d";
+      ctx.lineWidth=1.5;
+      ctx.beginPath();
+      pts.forEach((p,i)=>{
+        const s=toScreen(p.x,p.y);
+        i?ctx.lineTo(s.x,s.y):ctx.moveTo(s.x,s.y);
+      });
+      ctx.stroke();
+    }
+    // Rakete
+    const rp=toScreen(this.x,this.y);
+    if(this.map){
+      ctx.fillStyle="#f7941d";
+      ctx.beginPath(); ctx.arc(rp.x,rp.y,4,0,7); ctx.fill();
+      ctx.strokeStyle="#fff";
+      ctx.beginPath(); ctx.arc(rp.x,rp.y,7,0,7); ctx.stroke();
+    } else if(!this.crashed){
+      const s=this.activeSeg();
+      const burning = s&&s.ignited;
+      const rscale = Math.max(0.6, Math.min(3.2, scale*1.0));
+      const up = Math.atan2(this.y,this.x);
+      const screenAngle = -(up - this.theta) + Math.PI/2;
+      drawRocketStack(ctx, this.v.stack, rp.x, rp.y, rscale, screenAngle,
+        {center:true,
+         flame: burning && s.fuelLeft>0 && this.throttle>0 && WARPS[this.warpI]<=2 ? this.throttle : 0,
+         srbFlame: burning && s.srbLeft>0 && WARPS[this.warpI]<=2 ? 1:0,
+         chuteOpen:this.chuteOpen});
+    } else {
+      ctx.fillStyle="#e05252"; ctx.font="40px sans-serif";
+      ctx.fillText("💥", rp.x-20, rp.y+10);
+    }
+  },
+  drawHUD(){
+    const o=this.orbit();
+    const fmt=(m)=> m>=10000 ? (m/1000).toFixed(1)+" km" : m.toFixed(0)+" m";
+    const fmtAp=(m)=> m<0 ? "– (Fluchtbahn)" : fmt(m);
+    const s=this.activeSeg();
+    const fuelPct = s ? ((s.fuelLeft+s.srbLeft)/Math.max(1,(s.fuel+s.srbFuel))*100) : 0;
+    document.getElementById("hudLeft").innerHTML = `
+      <div class="row"><span>Höhe (${o.body.name})</span><span>${fmt(Math.max(0,o.alt))}</span></div>
+      <div class="row"><span>Geschwindigkeit</span><span>${o.speed.toFixed(0)} m/s</span></div>
+      <div class="row"><span>Apoapsis</span><span>${fmtAp(o.ap)}</span></div>
+      <div class="row"><span>Periapsis</span><span>${o.pe<-o.body.R*0.99?"–":fmt(o.pe)}</span></div>
+      <div class="row"><span>Stufen übrig</span><span>${this.v.segs.length}</span></div>
+      <div class="row"><span>Treibstoff (Stufe)</span><span>${(s&&(s.fuel+s.srbFuel))?fuelPct.toFixed(0)+" %":"–"}</span></div>
+      <div class="row"><span>Masse</span><span>${(this.mass()/1000).toFixed(2)} t</span></div>
+      <div class="row"><span>Missionszeit</span><span>${this.t.toFixed(0)} s</span></div>`;
+    document.getElementById("hudRight").innerHTML = `
+      <b style="color:var(--orange)">⏩ Zeitraffer: ${WARPS[this.warpI]}×</b><br>
+      <small style="color:var(--muted)">←/→ drehen · ↑/↓ Schub<br>Z voll · X aus · Scrollen = Zoom</small><br>
+      ${Game.sandbox?"":"🧪 "+Game.science}`;
+    document.getElementById("throttleFill").style.height=(this.throttle*100)+"%";
+  }
+};
+
+/* =================================================================
+   Ladebildschirm & Musik
+   ================================================================= */
+const music = new Audio("space.mp3");
+music.loop = true;
+music.volume = 0.45;
+let musicOn = localStorage.getItem("lmgMusic") !== "0";
+
+function updateMusic(){
+  const inMenu = document.getElementById("menu").classList.contains("active");
+  const loading = !!document.getElementById("loader");
+  const btn = document.getElementById("musicBtn");
+  btn.textContent = musicOn ? "🔊 Musik" : "🔇 Musik";
+  if(musicOn && inMenu && !loading){
+    // Autoplay kann vom Browser blockiert werden – dann startet die Musik
+    // beim ersten Klick/Tastendruck (siehe Listener unten).
+    music.play().catch(()=>{});
+  } else {
+    music.pause();
+  }
+}
+function toggleMusic(){
+  musicOn = !musicOn;
+  localStorage.setItem("lmgMusic", musicOn ? "1" : "0");
+  updateMusic();
+}
+["pointerdown","keydown"].forEach(ev=>addEventListener(ev, updateMusic));
+
+// 4 Sekunden "Laden" simulieren, dann ausblenden
+(function(){
+  const bar = document.getElementById("loaderBar");
+  const texts = ["WIRD GELADEN …","TRIEBWERKE WERDEN GEZÜNDET …","ORBITS WERDEN BERECHNET …","FAST FERTIG …"];
+  let p = 0;
+  const iv = setInterval(()=>{
+    p += 100/(4000/50);
+    bar.style.width = Math.min(100,p)+"%";
+    document.getElementById("loaderText").textContent = texts[Math.min(3,Math.floor(p/25))];
+  }, 50);
+  setTimeout(()=>{
+    clearInterval(iv);
+    const l = document.getElementById("loader");
+    l.style.opacity = "0";
+    setTimeout(()=>{ l.remove(); updateMusic(); }, 800);
+  }, 4000);
+})();
+
+/* =================================================================
+   Init
+   ================================================================= */
+VAB.init();
+Flight.init();
+addEventListener("resize",()=>{ if(document.getElementById("vab").classList.contains("active")) VAB.draw(); });
+</script>
+</body>
+</html>
