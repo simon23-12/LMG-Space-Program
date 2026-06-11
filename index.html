@@ -82,7 +82,7 @@ button{cursor:pointer;font-family:inherit;}
 .node-row button{background:var(--panel2);color:var(--text);border:1px solid #2a3a64;
   border-radius:4px;padding:2px 5px;font-size:11px;}
 .node-row button:hover{border-color:var(--orange);}
-#tech,#missions,#universe{flex-direction:column;background:radial-gradient(ellipse at 50% -20%, #16335e 0%, #0a0e1a 60%);
+#tech,#missions,#universe,#tutorial{flex-direction:column;background:radial-gradient(ellipse at 50% -20%, #16335e 0%, #0a0e1a 60%);
   padding:30px;overflow-y:auto;align-items:center;}
 .page-head{display:flex;align-items:center;gap:20px;width:100%;max-width:900px;margin-bottom:20px;}
 .page-head h1{color:var(--orange);font-size:28px;margin-right:auto;}
@@ -121,6 +121,7 @@ input[type=file]{display:none;}
 <div id="menu" class="screen active">
   <button class="btn orange" onclick="UI.startCareer()">🚀 Karriere</button>
   <button class="btn" onclick="UI.startSandbox()">🛠️ Sandbox</button>
+  <button class="btn" onclick="UI.show('tutorial')">🎓 Tutorials</button>
   <button class="btn" onclick="UI.show('universe')">🪐 Universum ansehen</button>
   <button class="btn" onclick="UI.show('missions')">📋 Missionen</button>
   <button class="btn" onclick="UI.show('tech')">🔬 Forschung</button>
@@ -221,6 +222,29 @@ input[type=file]{display:none;}
     <button class="btn" onclick="UI.back()">← Zurück</button></div>
   <canvas id="universeCanvas" style="width:100%;max-width:900px;height:320px;border:1px solid var(--blue-dark);border-radius:10px;background:#04060e;"></canvas>
   <div id="universeCards" style="display:flex;flex-wrap:wrap;gap:14px;max-width:900px;justify-content:center;margin-top:16px;"></div>
+</div>
+
+<!-- TUTORIALS -->
+<div id="tutorial" class="screen">
+  <div class="page-head"><h1>🎓 Tutorials</h1>
+    <button class="btn" onclick="UI.back()">← Zurück</button></div>
+  <div class="tech-grid" id="tutGrid"></div>
+</div>
+
+<!-- TUTORIAL-SCHRITTE -->
+<div id="tutModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:60;
+  align-items:center;justify-content:center;">
+  <div style="background:var(--panel);border:2px solid var(--blue);border-radius:14px;
+    max-width:560px;width:90%;margin:20px;padding:24px;">
+    <h2 id="tutTitle" style="color:var(--orange);margin-bottom:4px;"></h2>
+    <div id="tutStep" style="color:var(--muted);font-size:13px;margin-bottom:12px;"></div>
+    <div id="tutText" style="font-size:15px;line-height:1.55;min-height:120px;"></div>
+    <div style="display:flex;gap:10px;margin-top:18px;">
+      <button class="btn" id="tutPrev" onclick="tutNav(-1)">← Zurück</button>
+      <button class="btn orange" id="tutNext" style="flex:1" onclick="tutNav(1)">Weiter →</button>
+      <button class="btn" onclick="document.getElementById('tutModal').style.display='none'">✕</button>
+    </div>
+  </div>
 </div>
 
 <!-- HINWEIS-DIALOG -->
@@ -430,6 +454,7 @@ const UI = {
     if(id==="tech") renderTech();
     if(id==="missions") renderMissions();
     if(id==="universe"){ renderUniverse(); showHint("universe"); }
+    if(id==="tutorial") renderTutorials();
     if(id==="menu") this.inGame = false;
     updateMusic();
   },
@@ -503,6 +528,123 @@ function closeHint(){
   if(document.getElementById("modalNoShow").checked)
     localStorage.setItem("lmgHint_"+m.dataset.hint, "1");
   m.style.display = "none";
+}
+
+/* ---------- Tutorials ---------- */
+const TUTORIALS = [
+  {id:"first", icon:"🚀", title:"Dein erster Start", sub:"Bauen, zünden, staunen.", steps:[
+    `Gehe in die <b>Montagehalle</b> (Karriere oder Sandbox). Links siehst du die Bauteile,
+     sortiert nach Zweck. Eine Mini-Rakete steht schon bereit: Kapsel, Fallschirm, Tank, Triebwerk.<br><br>
+     💡 Eine Rakete braucht mindestens eine <b>Kapsel</b> (oben) und ein <b>Triebwerk</b> (unten).`,
+    `Schau rechts auf die Stufen-Anzeige: <b>Δv</b> sagt dir, wie viel "Schwung" die Rakete
+     insgesamt aufbringen kann. <b>TWR</b> muss über 1 sein, sonst hebt sie nicht ab!<br><br>
+     Drücke <b>START</b>, wenn du bereit bist.`,
+    `Auf der Rampe: <b>[Leertaste]</b> zündet die erste Stufe. Die Rakete steigt senkrecht.
+     Mit <b>↑/↓</b> regelst du den Schub, <b>Z</b> = Vollgas, <b>X</b> = aus.<br><br>
+     Beobachte links die Höhe – bei 5 km wartet deine erste Mission! 🏆`,
+    `Wenn der Tank leer ist, fällt die Rakete zurück. Drücke rechtzeitig <b>[P]</b> für den
+     Fallschirm (unter 30 km, am besten beim Fallen). Unter 8 m/s Aufprall = sichere Landung!<br><br>
+     Danach: <b>Flug beenden</b> → zurück in die Halle. Glückwunsch! 🛬`]},
+  {id:"orbit", icon:"🛰️", title:"In den Orbit", sub:"Der wichtigste Trick der Raumfahrt.", steps:[
+    `Ein Orbit heißt nicht "hoch fliegen", sondern <b>schnell zur Seite fliegen</b> –
+     so schnell, dass du beim Fallen immer an der Erde vorbeifällst!<br><br>
+     Du brauchst ca. <b>3400 m/s Δv</b>. Baue zwei Stufen: unten Tank L + »Hauptstufe«,
+     dann Stufentrenner, oben Tank M + »Terrier«.`,
+    `Starte senkrecht. Ab etwa <b>1 km Höhe</b> neige die Rakete langsam mit <b>[D]</b>
+     nach Osten (auf dem Navball Richtung 90°). Das nennt man <b>Gravity Turn</b>.<br><br>
+     Faustregel: Bei 10 km ~ 20° Neigung, bei 30 km ~ 60°, bei 45 km fast waagerecht.`,
+    `Öffne die Karte mit <b>[M]</b>. Der blaue <b>Ap</b>-Marker zeigt den höchsten Punkt deiner
+     Bahn. Brenne, bis Ap über <b>75 km</b> liegt – dann Triebwerk aus mit <b>X</b>.`,
+    `Jetzt der Trick: Warte (Zeitraffer <b>[.]</b>), bis du fast am Ap bist. Dann drücke
+     <b>[T]</b> für SAS PROGRADE und gib Vollgas <b>Z</b>.<br><br>
+     Die Periapsis (Pe) steigt. Sobald <b>Pe über 70 km</b> ist: Triebwerk aus. DU BIST IM ORBIT! 🎉`,
+    `Du fliegst jetzt für immer im Kreis, ganz ohne Treibstoff. Zum Heimkehren: SAS auf
+     <b>RETROGRADE</b> ([T] mehrmals), brennen bis Pe unter ~35 km, dann bremst dich die
+     Atmosphäre. Fallschirm nicht vergessen! 🪂`]},
+  {id:"node", icon:"◆", title:"Manöverknoten & Flug zu Monti", sub:"Reisen planen wie die Profis.", steps:[
+    `Ein <b>Manöverknoten</b> plant ein zukünftiges Triebwerksmanöver, bevor du es fliegst.
+     Du siehst sofort, wohin die neue Bahn führt – ohne einen Tropfen Treibstoff!<br><br>
+     Voraussetzung: Du bist in einem stabilen Orbit (siehe Tutorial "In den Orbit").`,
+    `Öffne die Karte <b>[M]</b> und drücke <b>[K]</b>. Ein grüner Knoten erscheint auf deiner Bahn.
+     Im Panel rechts stellst du <b>Prograde</b>-Δv ein: Klicke ein paarmal <b>+10</b> und
+     beobachte, wie die grüne geplante Bahn wächst!`,
+    `Für Monti: Erhöhe Prograde-Δv (ca. <b>+850 m/s</b> aus einem 80-km-Orbit), bis die grüne
+     Bahn Montis Umlaufbahn kreuzt. Verschiebe den <b>Zeitpunkt</b> (±60s), bis die Bahn Monti
+     wirklich trifft – Monti bewegt sich ja weiter!`,
+    `Ausführen: Drücke <b>[T]</b> bis "SAS: auf Manöverknoten ausrichten". Das Panel zeigt die
+     <b>Brenndauer</b> – zünde etwa bei der halben Brenndauer VOR dem Knoten
+     (steht im Panel) und brenne, bis das geplante Δv erreicht ist.`,
+    `In Montis Gravitationssphäre angekommen? Mission geschafft! 🏆 Mit Retrograde-Brennen
+     an Montis tiefstem Punkt wirst du eingefangen → Monti-Orbit. Von dort: landen oder heimfliegen!`]},
+  {id:"sat", icon:"📡", title:"Satelliten & Fairing", sub:"Nutzlasten ins All bringen.", steps:[
+    `Satelliten bestehen aus: <b>Sondenkern »Pixel«</b> (das Gehirn – ersetzt die Kapsel),
+     <b>Solarpanele</b>, <b>Antenne</b>. Alles aus der Kategorie 📡.<br><br>
+     Erforsche dafür im Tech-Tree "Nutzlasten & Satelliten" (45 🧪).`,
+    `Baue von oben nach unten: Antenne, Solar, Sondenkern, dann ein <b>Nutzlast-Fairing</b>
+     darunter. Das Fairing verkleidet alles darüber – halber Luftwiderstand beim Aufstieg!<br><br>
+     Darunter kommt deine normale Rakete (z. B. Tank M + Terrier / Trenner / Tank L + Hauptstufe).`,
+    `Fliege in einen stabilen Orbit (Pe > 70 km). Über 55 km kannst du das Fairing mit
+     <b>[F]</b> absprengen – es wird im Vakuum nicht mehr gebraucht.`,
+    `Im Orbit: <b>[N]</b> setzt den Satelliten aus! Er fliegt ab jetzt selbstständig auf seiner
+     Bahn weiter (grüner Punkt in der Karte). Mission "Erster Satellit": +30 🧪 🏆<br><br>
+     Profi-Ziel: Bring einen Satelliten in einen Orbit um Monti oder Minzi!`]},
+  {id:"land", icon:"🛬", title:"Landen auf Monden", sub:"Ohne Atmosphäre wird's knifflig.", steps:[
+    `Auf Monti und Minzi gibt es <b>keine Atmosphäre</b> – Fallschirme sind dort nutzlos!
+     Du musst mit dem Triebwerk bremsen ("Suicide Burn" nennen das die Profis 😅).<br><br>
+     Packe <b>Landebeine</b> ein: Sie verzeihen Landungen bis 12 m/s (statt 8).`,
+    `Im Mond-Orbit: SAS auf <b>RETROGRADE</b> [T], dann brennen, bis die Bahn in die
+     Oberfläche zeigt (Pe unter 0). Jetzt fällst du auf den Mond zu.`,
+    `Der wichtigste Wert ist deine <b>Geschwindigkeit</b> links im HUD. Halte SAS auf
+     Retrograde – so bremst dein Triebwerk immer genau gegen die Fallrichtung.`,
+    `Faustregel: Über 2000 m Höhe fast frei fallen lassen, dann kräftig bremsen, ab 200 m
+     langsam wie ein Fahrstuhl sinken (5–10 m/s). Geringe Schwerkraft = wenig Schub nötig.
+     Bei Minzi (0,5 g!) reicht der kleinste Schubs.<br><br>
+     Aufsetzen unter 12 m/s = 🏆 Gelandet! Die Königsdisziplin ist geschafft.`]},
+  {id:"science", icon:"🔬", title:"Wissenschaft & Karriere", sub:"So schaltest du alles frei.", steps:[
+    `Im <b>Karrieremodus</b> verdienst du Wissenschaftspunkte 🧪 auf zwei Wegen:
+     <b>Missionen</b> (Höhenrekorde, Orbit, Mondlandungen …) und
+     <b>Experimente</b> mit dem Materiallabor.`,
+    `Das <b>Materiallabor »Curie«</b> (Tech "Grundlagen-Raketen") baust du einfach in die
+     Rakete ein. Drücke im Flug <b>[B]</b> – jeder neue Ort gibt einmalig Wissenschaft:<br><br>
+     Atmosphäre (6) · naher Weltraum (12) · hoher Orbit (15) · bei Monti (20) ·
+     auf Monti (30) · bei Minzi (25) · auf Minzi (40)!`,
+    `Punkte ausgeben: Unter <b>Forschung</b> schaltest du neue Bauteile frei. Empfohlene
+     Reihenfolge: Grundlagen (12) → Antrieb (30) → Nutzlasten (45) → Schwerlast (60) → Erkundung (100).`,
+    `Vergiss nicht zu <b>speichern</b> (Hauptmenü → Spielstand speichern)! Die Datei kannst
+     du mit nach Hause nehmen und dort weiterspielen – oder mit deinem Team teilen. 💾`]}
+];
+function renderTutorials(){
+  const grid = document.getElementById("tutGrid");
+  grid.innerHTML = "";
+  for(const t of TUTORIALS){
+    const div = document.createElement("div");
+    div.className = "tech-node";
+    div.innerHTML = `<h3>${t.icon} ${t.title}</h3>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:10px;">${t.sub}</p>
+      <button class="btn orange" onclick="openTutorial('${t.id}')">Starten (${t.steps.length} Schritte)</button>`;
+    grid.appendChild(div);
+  }
+}
+let tutCur = null, tutIdx = 0;
+function openTutorial(id){
+  tutCur = TUTORIALS.find(t=>t.id===id); tutIdx = 0;
+  document.getElementById("tutModal").style.display = "flex";
+  renderTutStep();
+}
+function renderTutStep(){
+  document.getElementById("tutTitle").textContent = tutCur.icon+" "+tutCur.title;
+  document.getElementById("tutStep").textContent = "Schritt "+(tutIdx+1)+" von "+tutCur.steps.length;
+  document.getElementById("tutText").innerHTML = tutCur.steps[tutIdx];
+  document.getElementById("tutPrev").style.visibility = tutIdx>0 ? "visible" : "hidden";
+  document.getElementById("tutNext").textContent = tutIdx<tutCur.steps.length-1 ? "Weiter →" : "Fertig ✓";
+}
+function tutNav(d){
+  tutIdx += d;
+  if(tutIdx >= tutCur.steps.length){
+    document.getElementById("tutModal").style.display = "none"; return;
+  }
+  tutIdx = Math.max(0, tutIdx);
+  renderTutStep();
 }
 
 /* ---------- Forschung & Missionen ---------- */
@@ -626,6 +768,18 @@ function buildPartMesh(id){
     case "chute":
       add(cylinder(r*0.45, r*0.6, h, MAT.orange), h/2);
       break;
+    case "lab":{
+      add(cylinder(r, r, h, MAT.white), h/2);
+      add(cylinder(r*1.01, r*1.01, h*0.25, MAT.orange), h*0.78);
+      for(let k=0;k<4;k++){
+        const win = new THREE.Mesh(new THREE.BoxGeometry(r*0.35, h*0.3, 0.3),
+          new THREE.MeshBasicMaterial({color:0x9fd8ff}));
+        const a = k*Math.PI/2;
+        win.position.set(Math.cos(a)*r*0.99, h*0.42, Math.sin(a)*r*0.99);
+        win.rotation.y = -a + Math.PI/2;
+        g.add(win);
+      }
+      break;}
     case "tank":{
       add(cylinder(r, r, h, MAT.white), h/2);
       const band = add(cylinder(r*1.01, r*1.01, h*0.16, MAT.orange), h*0.5);
@@ -1250,6 +1404,26 @@ const Flight = {
     const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.7,32,8),
       new THREE.MeshStandardMaterial({color:0x6f7686}));
     mast.position.set(-24,16,0); g.add(mast);
+    // --- LMG Space Center: Montagehalle, Tanks, Funkschüssel ---
+    const bldMat = new THREE.MeshStandardMaterial({color:0xd8dde8, roughness:.7});
+    const hall = new THREE.Mesh(new THREE.BoxGeometry(70,30,50), bldMat);
+    hall.position.set(-130,15,60); g.add(hall);
+    const roofStripe = new THREE.Mesh(new THREE.BoxGeometry(70,3,50),
+      new THREE.MeshStandardMaterial({color:0xf7941d}));
+    roofStripe.position.set(-130,31.5,60); g.add(roofStripe);
+    const tankMat = new THREE.MeshStandardMaterial({color:0xbfc4cf, roughness:.4, metalness:.5});
+    for(const dz of [-70,-90]){
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(7,7,20,16), tankMat);
+      tank.position.set(70,10,dz); g.add(tank);
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(7,16,8), tankMat);
+      cap.position.set(70,20,dz); g.add(cap);
+    }
+    const dishPole = new THREE.Mesh(new THREE.CylinderGeometry(1,1.4,18,8),
+      new THREE.MeshStandardMaterial({color:0x6f7686}));
+    dishPole.position.set(120,9,90); g.add(dishPole);
+    const dish = new THREE.Mesh(new THREE.SphereGeometry(9,16,8,0,Math.PI*2,0,Math.PI/2.6),
+      new THREE.MeshStandardMaterial({color:0xe8ecf5, side:THREE.DoubleSide}));
+    dish.position.set(120,19,90); dish.rotation.x = -Math.PI/3; g.add(dish);
     return g;
   },
   /* lokale Achsen am Punkt p */
@@ -1325,6 +1499,18 @@ const Flight = {
       const dropped = this.v.segs.shift();
       this.v.stack.splice(this.v.stack.length-dropped.parts.length, dropped.parts.length);
       this.rebuildRocket();
+      // abgeworfene Stufe wird zu physischem Trümmerteil
+      const debrisStack = [...dropped.parts].reverse();
+      const dMesh = buildRocketGroup(debrisStack, false);
+      this.world.add(dMesh);
+      const dir = V3(0,1,0).applyQuaternion(this.q);
+      this.debris.push({
+        pos: this.pos.clone().addScaledVector(dir, -(this.height()/2+5)),
+        vel: this.vel.clone().addScaledVector(dir, -4),
+        q: this.q.clone(),
+        spin: V3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).multiplyScalar(0.8),
+        mesh: dMesh, tEnd: this.t+300
+      });
       const n = this.activeSeg();
       if(n && (n.thrust||n.srbThrust)){ n.ignited=true; this.showMsg("Stufentrennung + Zündung!",2); }
       else this.showMsg("Stufentrennung!",2);
@@ -1701,7 +1887,8 @@ const Flight = {
     if(o.body===MONTI) this.visitedMonti = true;
     const state = {alt:o.alt, speed:o.speed, ap:o.ap, pe:o.pe, body:o.body,
       landed:this.landed, flew:this.flew,
-      satL:this.satL, satM:this.satM, visitedMonti:this.visitedMonti};
+      satL:this.satL, satM:this.satM, visitedMonti:this.visitedMonti,
+      labAny:Game.labDone.length>0};
     for(const ms of MISSIONS){
       if(!Game.done.includes(ms.id) && ms.check(state)){
         Game.done.push(ms.id); Game.science += ms.sci;
@@ -1714,6 +1901,10 @@ const Flight = {
     }
   },
   endFlight(){ this.ended = true; UI.show("vab"); },
+  revert(){
+    this.start(VAB.buildVessel());
+    this.showMsg("↩ Flug zurückgesetzt – bereit für einen neuen Versuch!",3);
+  },
   predict(){
     const posAttr = this.trajLine.geometry.attributes.position;
     let p = this.pos.clone(), v = this.vel.clone(), t = this.t;
@@ -1869,10 +2060,36 @@ const Flight = {
         }
       }
     }
+    // Wiedereintritts-Glühen: Plasma bei hoher Geschwindigkeit in dichter Luft
+    const vAir = this.vel.length();
+    if(!this.map && !this.landed && !this.crashed && alt<LEIBNIZ.atmoH && vAir>1200){
+      const rho = LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH);
+      const heat = rho*vAir*vAir*vAir;
+      if(heat > 3e7){
+        const vhat = this.vel.clone().normalize();
+        const n = Math.min(5, 1+Math.floor(heat/8e7));
+        for(let i=0;i<n;i++){
+          const jit = V3((Math.random()-0.5)*6,(Math.random()-0.5)*6,(Math.random()-0.5)*6);
+          this.spawnParticle(
+            this.pos.clone().addScaledVector(vhat, this.height()/2).add(jit),
+            this.vel.clone().addScaledVector(vhat, -(50+Math.random()*80)).add(jit),
+            0.25+Math.random()*0.35, 3+Math.random()*4,
+            i%2 ? 0xffd9a0 : 0xff7a30);
+        }
+      }
+    }
     // Triebwerks-Sound: lauter mit Schub, leiser mit dünner Luft (Vakuum = fast still)
     this.setRumble(burning ? (0.04+0.14*this.throttle)*(0.25+0.75*f) : 0);
     this.updateParticles(1/60);
     for(const sat of this.sats) sat.mesh.position.copy(sat.pos);
+    for(const d of this.debris){
+      d.mesh.visible = !this.map;
+      d.mesh.position.copy(d.pos);
+      const dq = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(d.spin.x/60, d.spin.y/60, d.spin.z/60));
+      d.q.multiply(dq);
+      d.mesh.quaternion.copy(d.q);
+    }
     if(this.map) this.predict();
     else {
       this.apMarker.visible = this.peMarker.visible = false;
@@ -1889,7 +2106,9 @@ const Flight = {
       .addScaledVector(fr.up, Math.sin(this.camEl));
     this.camera.position.copy(cdir).multiplyScalar(cd);
     this.camera.up.copy(fr.up);
-    this.camera.lookAt(this.map ? this.world.position : V3(0,0,0));
+    // Kamera schaut immer auf die Rakete (Ursprung) – auch in der Karte,
+    // damit der Zoom auf das Schiff statt auf den Planeten geht.
+    this.camera.lookAt(V3(0,0,0));
     this.renderer.setSize(w,h,false);
     this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
     this.renderer.render(this.scene, this.camera);
@@ -2013,6 +2232,13 @@ function toggleMusic(){
 }
 ["pointerdown","keydown"].forEach(ev=>addEventListener(ev, updateMusic));
 (function(){
+  // Ladebildschirm nur beim allerersten Öffnen zeigen, nicht bei jedem Refresh
+  if(localStorage.getItem("lmgLoadedOnce")){
+    document.getElementById("loader").remove();
+    updateMusic();
+    return;
+  }
+  localStorage.setItem("lmgLoadedOnce","1");
   const bar = document.getElementById("loaderBar");
   const texts = ["WIRD GELADEN …","TRIEBWERKE WERDEN GEZÜNDET …","ORBITS WERDEN BERECHNET …","FAST FERTIG …"];
   let p = 0;

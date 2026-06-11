@@ -1,10 +1,14 @@
 # LMG Space Program
 
-> **Neu: 3D-Version!** `index3d.html` öffnen (benötigt die mitgelieferte
-> `three.min.js` im selben Ordner). Volle 3D-Physik mit Navball:
+> Vollständige 3D-Simulation: `index.html` öffnen (benötigt die mitgelieferte
+> `three.min.js` im selben Ordner). Navball-Steuerung:
 > W/S = nicken, A/D = gieren, Q/E = rollen, ↑/↓ = Schub, Maus = Kamera.
-> Die 2D-Version (`index.html`) bleibt parallel spielbar; Spielstände sind
-> zwischen beiden Versionen kompatibel.
+>
+> **Features (v3):** Manöverknoten [K] mit Δv-Editor und Bahnvorschau ·
+> SAS [T] (Prograde/Retrograde/Knoten) · zweiter Mond **Minzi** (geneigte Bahn) ·
+> Materiallabor-Experimente [B] · physische Stufen-Trümmer · Wiedereintritts-Glühen ·
+> Flug-Neustart ↩ · LMG Space Center am Startplatz · **6 Tutorials** im Hauptmenü
+> (Start, Orbit, Manöverknoten, Satelliten, Mondlandung, Wissenschaft).
 
 Eine 2D-Raumfahrtsimulation im Stil von Kerbal Space Program für den Browser.
 Für die Raumfahrt-AG des Leibniz-Montessori-Gymnasiums Düsseldorf.
