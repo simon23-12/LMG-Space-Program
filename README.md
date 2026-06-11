@@ -12,8 +12,12 @@ läuft auf jedem Schulrechner mit Browser (Doppelklick genügt).
   Live-Anzeige von Δv und Schub-Gewichts-Verhältnis pro Stufe (Ziolkowski-Gleichung!).
 - **Echte Orbitalphysik:** Newtonsche Gravitation, Apoapsis/Periapsis, Atmosphäre
   mit Luftwiderstand, Planet *Leibniz* und Mond *Monti* mit eigener Gravitationssphäre.
-- **Karrieremodus:** Missionen/Meilensteine bringen Wissenschaftspunkte,
-  damit wird der Tech Tree freigeschaltet. Sandbox-Modus für freies Bauen.
+- **Karrieremodus:** 15 Missionen/Meilensteine bringen Wissenschaftspunkte,
+  damit werden 6 Tech-Tree-Stufen freigeschaltet. Sandbox-Modus für freies Bauen
+  (dort: Endlos-Treibstoff per [U] für Testflüge).
+- **Satelliten:** Sondenkern, Solarpanele und Antenne unter einem Nutzlast-Fairing
+  starten ([F] = Fairing absprengen, [N] = Satellit aussetzen). Ausgesetzte
+  Satelliten fliegen physikalisch korrekt weiter.
 - **Kartenansicht** mit Bahnvorhersage, **Zeitraffer** bis 1000×.
 - **Universum-Ansicht:** animiertes Leibniz-Monti-System mit Schwerkraft- und
   Δv-Vergleich – ideal als Physik-Gesprächsanlass in der AG.
