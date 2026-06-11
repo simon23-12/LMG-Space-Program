@@ -160,6 +160,9 @@ input[type=file]{display:none;}
   <div id="hudControls">
     <button class="btn" onclick="Flight.stage()">Stufe [Leertaste]</button>
     <button class="btn" onclick="Flight.toggleChute()">Fallschirm [P]</button>
+    <button class="btn" onclick="Flight.jettisonFairing()">Fairing [F]</button>
+    <button class="btn" onclick="Flight.deploySat()">Satellit [N]</button>
+    <button class="btn" id="infBtn" style="display:none" onclick="Flight.toggleInfinite()">∞ Tank [U]</button>
     <button class="btn" onclick="Flight.toggleMap()">Karte [M]</button>
     <button class="btn" onclick="Flight.warpDown()">⏪ [,]</button>
     <button class="btn" onclick="Flight.warpUp()">⏩ [.]</button>
@@ -337,6 +340,7 @@ function drawPlanetSurface(ctx, b, sx, sy, rp, t){
         struct = Struktur/Trennung · lower = 1. Stufe (Start) */
 const CATS = [
   {id:"cmd",    name:"🧑‍🚀 Kommando & Rückkehr", sub:"Gehört an die Spitze jeder Rakete."},
+  {id:"sat",    name:"📡 Nutzlast & Satelliten", sub:"Satellitenbau: Sonde, Strom, Antenne, Fairing."},
   {id:"upper",  name:"🛰️ 2. Stufe (Oberstufe)",  sub:"Leicht & effizient – arbeitet oben im Vakuum."},
   {id:"struct", name:"🔗 Struktur & Stufentrennung", sub:"Verbindet die Stufen miteinander."},
   {id:"lower",  name:"🚀 1. Stufe (Unterstufe)", sub:"Viel Schub – hebt die Rakete vom Boden."}
@@ -365,7 +369,21 @@ const PARTS = {
   tankL:     {name:"Treibstofftank L",          type:"tank",   cat:"lower", mass:800,  fuel:5600, w:12,h:42, tech:"heavy",
               info:"5,6 t Treibstoff – schwer, gehört nach unten."},
   engMain:   {name:"Triebwerk »Hauptstufe«",    type:"engine", cat:"lower", mass:1500, thrust:600000, isp:290, w:12,h:12, tech:"heavy",
-              info:"600 kN Schub für schwere Raketen."}
+              info:"600 kN Schub für schwere Raketen."},
+  srbL:      {name:"Feststoffbooster »Donner«", type:"srb",    cat:"lower", mass:900,  fuel:3800, thrust:480000, isp:230, w:12,h:34, tech:"heavy",
+              info:"Der große Bruder des Böllers – brachialer Startschub."},
+  probe:     {name:"Sondenkern »Pixel«",        type:"probe",  cat:"sat", mass:150, w:8,h:6, tech:"payload",
+              info:"Unbemanntes Gehirn für Satelliten – ersetzt die Kapsel."},
+  solar:     {name:"Solarpanele",               type:"solar",  cat:"sat", mass:60,  w:14,h:4, tech:"payload",
+              info:"Strom für deinen Satelliten."},
+  antenna:   {name:"Antenne »Quassel«",         type:"antenna",cat:"sat", mass:40,  w:6,h:8, tech:"payload",
+              info:"Funkt Daten zur Erde – äh, nach Leibniz."},
+  fairing:   {name:"Nutzlast-Fairing",          type:"fairing",cat:"sat", mass:120, w:12,h:5, tech:"payload",
+              info:"Verkleidet alles darüber gegen den Fahrtwind (halber Luftwiderstand). Mit [F] absprengen!"},
+  tankXS:    {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"payload",
+              info:"0,7 t Treibstoff für kleine Satelliten-Manöver."},
+  engT:      {name:"Triebwerk »Floh«",          type:"engine", cat:"sat", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"payload",
+              info:"Winziges Manövriertriebwerk (8 kN) für Satelliten."}
 };
 
 /* ---------- Tech Tree ---------- */
@@ -373,6 +391,7 @@ const TECH = [
   {id:"start",   name:"Startkapital",        cost:0,   desc:"Die ersten Schritte ins All."},
   {id:"basic",   name:"Grundlagen-Raketen",  cost:12,  desc:"Stufentrennung und Feststoffbooster."},
   {id:"adv",     name:"Fortgeschrittener Antrieb", cost:30, desc:"Effiziente Vakuum-Triebwerke."},
+  {id:"payload", name:"Nutzlasten & Satelliten", cost:45, desc:"Sondenkerne, Fairings und Satellitentechnik."},
   {id:"heavy",   name:"Schwerlast-Raketen",  cost:60,  desc:"Große Tanks, große Triebwerke."},
   {id:"explore", name:"Erkundung",           cost:100, desc:"Landetechnik für fremde Welten."}
 ];
@@ -383,20 +402,32 @@ const MISSIONS = [
    check:s=>s.alt>5000},
   {id:"alt20",   name:"Höhenrekord: 20 km",  desc:"Erreiche eine Höhe von 20 km.",  sci:8,
    check:s=>s.alt>20000},
+  {id:"alt40",   name:"Höhenrekord: 40 km",  desc:"Erreiche eine Höhe von 40 km.",  sci:10,
+   check:s=>s.alt>40000},
   {id:"space",   name:"Grenze zum Weltraum", desc:"Verlasse die Atmosphäre (70 km).", sci:15,
    check:s=>s.alt>70000},
   {id:"speed1k", name:"Schallmauer ade",     desc:"Erreiche 1000 m/s.",             sci:6,
    check:s=>s.speed>1000},
+  {id:"speed2k", name:"Fast Orbitalgeschwindigkeit", desc:"Erreiche 2200 m/s.",     sci:8,
+   check:s=>s.speed>2200},
   {id:"orbit",   name:"Orbit!",              desc:"Erreiche einen stabilen Orbit um Leibniz (Periapsis > 70 km).", sci:25,
    check:s=>s.body===LEIBNIZ && s.pe>LEIBNIZ.atmoH && s.ap>0},
   {id:"land",    name:"Sichere Rückkehr",    desc:"Lande sicher zurück auf Leibniz.", sci:12,
    check:s=>s.landed && s.body===LEIBNIZ && s.flew},
+  {id:"highOrbit",name:"Hoher Orbit",        desc:"Erreiche einen Orbit mit Periapsis über 250 km.", sci:20,
+   check:s=>s.body===LEIBNIZ && s.pe>250000},
+  {id:"sat1",    name:"Erster Satellit",     desc:"Setze einen Satelliten (Sondenkern!) in einem stabilen Orbit um Leibniz aus. [N]", sci:30,
+   check:s=>s.satL},
   {id:"montiSoi",name:"Hallo Monti!",        desc:"Erreiche die Gravitationssphäre des Mondes Monti.", sci:35,
    check:s=>s.body===MONTI},
   {id:"montiOrb",name:"Monti-Orbit",         desc:"Erreiche einen Orbit um Monti.", sci:40,
    check:s=>s.body===MONTI && s.pe>0 && s.ap>0 && s.ap<MONTI.soi},
+  {id:"satMonti",name:"Monti-Satellit",      desc:"Setze einen Satelliten in einem Orbit um Monti aus.", sci:45,
+   check:s=>s.satM},
   {id:"montiLand",name:"Monti-Landung",      desc:"Lande sicher auf Monti. Die Königsdisziplin!", sci:60,
-   check:s=>s.landed && s.body===MONTI}
+   check:s=>s.landed && s.body===MONTI},
+  {id:"montiReturn",name:"Heimkehr von Monti", desc:"Besuche Montis Gravitationssphäre und lande danach sicher auf Leibniz.", sci:70,
+   check:s=>s.landed && s.body===LEIBNIZ && s.visitedMonti}
 ];
 
 /* =================================================================
@@ -655,7 +686,8 @@ const VAB = {
   },
   remove(i){ this.stack.splice(i,1); this.refresh(); },
   validate(){
-    if(!this.stack.some(x=>PARTS[x].type==="pod")) return "Deine Rakete braucht eine Kommandokapsel!";
+    if(!this.stack.some(x=>["pod","probe"].includes(PARTS[x].type)))
+      return "Deine Rakete braucht eine Kommandokapsel oder einen Sondenkern!";
     if(!this.stack.some(x=>["engine","srb"].includes(PARTS[x].type))) return "Deine Rakete braucht ein Triebwerk!";
     return null;
   },
@@ -855,12 +887,57 @@ function drawRocketStack(ctx, stack, cx, topY, scale, angle, opts){
     ctx.strokeStyle="rgba(20,26,46,.55)"; ctx.lineWidth=1;
     ctx.beginPath(); ctx.ellipse(x+w/2,y,w/2,w*0.09,0,0,7); ctx.stroke();
   };
+  // Fairing: verdeckt alle Teile darüber mit einer aerodynamischen Hülle
+  const fIdx = stack.findIndex(id=>PARTS[id].type==="fairing");
   let y = topY;
   for(let i=0;i<stack.length;i++){
     const p = PARTS[stack[i]];
     const w = p.w*scale, h = p.h*scale, x = cx-w/2;
+    if(fIdx>0 && i<fIdx){ y+=h; continue; }  // unter der Hülle verborgen
     ctx.lineWidth = 1.5;
     switch(p.type){
+      case "probe":
+        ctx.fillStyle = cyl(x,w,"#e8d98a","#cdb84f","#8a7a2c");
+        ctx.fillRect(x,y,w,h);
+        ctx.fillStyle="#1c2030"; ctx.fillRect(x+w*0.15,y+h*0.25,w*0.7,h*0.2);
+        ctx.fillStyle="#5fc46a"; ctx.fillRect(x+w*0.72,y+h*0.6,w*0.14,h*0.18);
+        break;
+      case "solar":
+        ctx.fillStyle = cyl(x+w*0.38,w*0.24,"#d6dbe6","#b9c0cf","#7d8597");
+        ctx.fillRect(x+w*0.38,y,w*0.24,h);
+        for(const side of [-1,1]){
+          const px0 = cx + side*w*0.14, px1 = cx + side*w*0.62;
+          const g = ctx.createLinearGradient(Math.min(px0,px1),0,Math.max(px0,px1),0);
+          g.addColorStop(0,"#2d7ad0"); g.addColorStop(1,"#123a6e");
+          ctx.fillStyle = g;
+          ctx.fillRect(Math.min(px0,px1), y+h*0.1, Math.abs(px1-px0), h*0.8);
+        }
+        break;
+      case "antenna":
+        ctx.strokeStyle="#c6ccda"; ctx.lineWidth=Math.max(1,w*0.12);
+        ctx.beginPath(); ctx.moveTo(cx,y+h); ctx.lineTo(cx,y+h*0.25); ctx.stroke();
+        ctx.fillStyle="#f7941d";
+        ctx.beginPath(); ctx.arc(cx,y+h*0.2,w*0.2,0,7); ctx.fill();
+        break;
+      case "fairing":{
+        // Basisring
+        ctx.fillStyle = cyl(x,w,"#ffb45e","#f7941d","#9c5b0b");
+        ctx.fillRect(x,y,w,h);
+        // Hülle über den verdeckten Teilen
+        if(fIdx===i && fIdx>0){
+          const coveredH = stack.slice(0,fIdx).reduce((a,id)=>a+PARTS[id].h,0)*scale;
+          ctx.fillStyle = cyl(x,w,"#ffffff","#e8ecf5","#97a2ba");
+          ctx.beginPath();
+          ctx.moveTo(x,y);
+          ctx.lineTo(x, y-coveredH*0.55);
+          ctx.quadraticCurveTo(x, y-coveredH-6*scale, cx, y-coveredH-7*scale);
+          ctx.quadraticCurveTo(x+w, y-coveredH-6*scale, x+w, y-coveredH*0.55);
+          ctx.lineTo(x+w,y);
+          ctx.closePath(); ctx.fill();
+          ctx.strokeStyle="rgba(20,26,46,.4)"; ctx.lineWidth=1;
+          ctx.beginPath(); ctx.moveTo(cx,y); ctx.lineTo(cx,y-coveredH-6*scale); ctx.stroke();
+        }
+        break;}
       case "pod":
         ctx.fillStyle = cyl(x,w,"#f4f7fc","#d9dee8","#8a94ab");
         ctx.beginPath();
@@ -997,6 +1074,9 @@ const Flight = {
       this.keys[e.key]=true;
       if(e.key===" "){ e.preventDefault(); this.stage(); }
       if(e.key==="p"||e.key==="P") this.toggleChute();
+      if(e.key==="f"||e.key==="F") this.jettisonFairing();
+      if(e.key==="n"||e.key==="N") this.deploySat();
+      if(e.key==="u"||e.key==="U") this.toggleInfinite();
       if(e.key==="m"||e.key==="M") this.toggleMap();
       if(e.key===".") this.warpUp();
       if(e.key===",") this.warpDown();
@@ -1020,6 +1100,10 @@ const Flight = {
     this.map=false; this.zoom=1.6;
     this.landed = true; this.crashed=false; this.ended=false; this.flew=false;
     this.chuteOpen = false;
+    this.sats = []; this.satL=false; this.satM=false; this.visitedMonti=false;
+    this.infinite = false;
+    this.v.fairingIntact = this.v.stack.some(id=>PARTS[id].type==="fairing");
+    document.getElementById("infBtn").style.display = Game.sandbox ? "" : "none";
     this.showMsg("Bereit zum Start – [Leertaste] zündet die erste Stufe!", 5);
     if(!this.loop){ this.loop=true; requestAnimationFrame(()=>this.frame()); }
   },
@@ -1050,6 +1134,50 @@ const Flight = {
       if(n && (n.thrust||n.srbThrust)){ n.ignited=true; this.showMsg("Stufentrennung + Zündung!",2); }
       else this.showMsg("Stufentrennung!",2);
     }
+  },
+  toggleInfinite(){
+    if(!Game.sandbox) return;
+    this.infinite = !this.infinite;
+    this.showMsg(this.infinite ? "∞ Endlos-Treibstoff AN (Testmodus)" : "∞ Endlos-Treibstoff AUS", 2);
+  },
+  jettisonFairing(){
+    if(!this.v || !this.v.fairingIntact || this.crashed || this.ended) return;
+    this.v.fairingIntact = false;
+    for(const seg of this.v.segs){
+      let i;
+      while((i = seg.parts.findIndex(id=>PARTS[id].type==="fairing")) >= 0){
+        seg.dry -= PARTS[seg.parts[i]].mass;
+        seg.parts.splice(i,1);
+      }
+    }
+    let i;
+    while((i = this.v.stack.findIndex(id=>PARTS[id].type==="fairing")) >= 0)
+      this.v.stack.splice(i,1);
+    this.showMsg("Fairing abgesprengt! 💨",2);
+  },
+  deploySat(){
+    if(!this.v || this.crashed || this.ended) return;
+    if(this.landed){ this.showMsg("Erst starten – dann Satelliten aussetzen!",2); return; }
+    if(this.v.fairingIntact){ this.showMsg("Erst das Fairing absprengen! [F]",2); return; }
+    let seg = this.v.segs.find(s=>s.parts.includes("probe"));
+    if(!seg){ this.showMsg("Kein Sondenkern an Bord – baue einen Satelliten ein! 📡",3); return; }
+    // ein Satellit = 1× Sonde + (falls vorhanden) 1× Solar, 1× Antenne
+    for(const pid of ["probe","solar","antenna"]){
+      const i = seg.parts.indexOf(pid);
+      if(i>=0){
+        seg.dry -= PARTS[pid].mass;
+        seg.parts.splice(i,1);
+        const si = this.v.stack.indexOf(pid);
+        if(si>=0) this.v.stack.splice(si,1);
+      }
+    }
+    // leicht radial versetzt aussetzen
+    const up = Math.atan2(this.y,this.x);
+    this.sats.push({x:this.x+Math.cos(up)*20, y:this.y+Math.sin(up)*20, vx:this.vx, vy:this.vy});
+    const o = this.orbit();
+    if(o.body===LEIBNIZ && o.pe>LEIBNIZ.atmoH && o.ap>0) this.satL = true;
+    if(o.body===MONTI && o.pe>0 && o.ap>0 && o.ap<MONTI.soi) this.satM = true;
+    this.showMsg("📡 Satellit ausgesetzt!",3);
   },
   toggleChute(){
     const top = this.v.segs[this.v.segs.length-1];
@@ -1109,14 +1237,15 @@ const Flight = {
     // Schub
     let thrust = 0;
     if(s && s.ignited && warp<=2){
+      if(this.infinite){ s.fuelLeft = s.fuel; s.srbLeft = s.srbFuel; } // Sandbox-Testmodus
       if(s.fuelLeft>0 && s.thrust){
         thrust += s.thrust*this.throttle;
-        s.fuelLeft -= s.thrust*this.throttle/(s.isp*G0)*dt;
+        if(!this.infinite) s.fuelLeft -= s.thrust*this.throttle/(s.isp*G0)*dt;
         if(s.fuelLeft<0) s.fuelLeft=0;
       }
       if(s.srbLeft>0 && s.srbThrust){
         thrust += s.srbThrust;
-        s.srbLeft -= s.srbThrust/(220*G0)*dt;
+        if(!this.infinite) s.srbLeft -= s.srbThrust/(220*G0)*dt;
         if(s.srbLeft<0) s.srbLeft=0;
       }
     }
@@ -1134,6 +1263,7 @@ const Flight = {
       const v = Math.hypot(this.vx,this.vy);
       if(v>0.1){
         let cdA = 4 * (s&&s.hasFins?0.7:1);
+        if(this.v.fairingIntact) cdA *= 0.5;
         if(this.chuteOpen && alt<30000) cdA += 350;
         const fd = 0.5*rho*v*v*cdA;
         ax -= fd/m*this.vx/v; ay -= fd/m*this.vy/v;
@@ -1149,6 +1279,18 @@ const Flight = {
     this.vx += ax*dt; this.vy += ay*dt;
     this.x += this.vx*dt; this.y += this.vy*dt;
     this.t += dt;
+    // Ausgesetzte Satelliten weiterfliegen lassen
+    for(const sat of this.sats){
+      const a = this.accel(sat.x, sat.y, this.t);
+      sat.vx += a.ax*dt; sat.vy += a.ay*dt;
+      sat.x += sat.vx*dt; sat.y += sat.vy*dt;
+    }
+    if(this.sats.length){
+      const mp = montiPos(this.t);
+      this.sats = this.sats.filter(sat=>
+        Math.hypot(sat.x,sat.y) > LEIBNIZ.R &&
+        Math.hypot(sat.x-mp.x,sat.y-mp.y) > MONTI.R);
+    }
     // Bodenkontakt prüfen (Leibniz + Monti)
     this.checkContact();
     this.checkMissions();
@@ -1210,8 +1352,10 @@ const Flight = {
   checkMissions(){
     if(Game.sandbox || this.crashed) return;
     const o = this.orbit();
+    if(o.body===MONTI) this.visitedMonti = true;
     const state = {alt:o.alt, speed:o.speed, ap:o.ap, pe:o.pe, body:o.body,
-      landed:this.landed, flew:this.flew};
+      landed:this.landed, flew:this.flew,
+      satL:this.satL, satM:this.satM, visitedMonti:this.visitedMonti};
     for(const ms of MISSIONS){
       if(!Game.done.includes(ms.id) && ms.check(state)){
         Game.done.push(ms.id);
@@ -1425,6 +1569,21 @@ const Flight = {
       });
       ctx.stroke();
     }
+    // Ausgesetzte Satelliten
+    for(const sat of this.sats){
+      const sp = toScreen(sat.x, sat.y);
+      if(sp.x<-80||sp.x>W+80||sp.y<-80||sp.y>H+80) continue;
+      if(this.map){
+        ctx.fillStyle="#5fc46a";
+        ctx.fillRect(sp.x-3,sp.y-3,6,6);
+      } else {
+        const s2 = Math.max(1.2, Math.min(3, scale));
+        ctx.fillStyle="#cdb84f"; ctx.fillRect(sp.x-3*s2,sp.y-3*s2,6*s2,6*s2);
+        ctx.fillStyle="#2d7ad0";
+        ctx.fillRect(sp.x-10*s2,sp.y-1.5*s2,6*s2,3*s2);
+        ctx.fillRect(sp.x+4*s2,sp.y-1.5*s2,6*s2,3*s2);
+      }
+    }
     // Rakete
     const rp=toScreen(this.x,this.y);
     if(this.map){
@@ -1466,6 +1625,8 @@ const Flight = {
     document.getElementById("hudRight").innerHTML = `
       <b style="color:var(--orange)">⏩ Zeitraffer: ${WARPS[this.warpI]}×</b><br>
       <small style="color:var(--muted)">←/→ drehen · ↑/↓ Schub<br>Z voll · X aus · Scrollen = Zoom</small><br>
+      ${this.infinite?'<br><b style="color:var(--green)">∞ Endlos-Treibstoff</b>':""}
+      ${this.sats.length?'<br>📡 Satelliten: '+this.sats.length:""}
       ${Game.sandbox?"":"🧪 "+Game.science}`;
     document.getElementById("throttleFill").style.height=(this.throttle*100)+"%";
     document.getElementById("fuelFill").style.height=((s&&(s.fuel+s.srbFuel))?fuelPct:0)+"%";
