@@ -7,8 +7,13 @@
 > **Features (v3):** Manöverknoten [K] mit Δv-Editor und Bahnvorschau ·
 > SAS [T] (Prograde/Retrograde/Knoten) · zweiter Mond **Minzi** (geneigte Bahn) ·
 > Materiallabor-Experimente [B] · physische Stufen-Trümmer · Wiedereintritts-Glühen ·
-> Flug-Neustart ↩ · LMG Space Center am Startplatz · **6 Tutorials** im Hauptmenü
-> (Start, Orbit, Manöverknoten, Satelliten, Mondlandung, Wissenschaft).
+> Flug-Neustart ↩ · LMG Space Center am Startplatz · **6 interaktive Tutorials**
+> (`tutorials.js`): jedes wirft den Spieler in ein fertiges Szenario – z. B. direkt
+> im 80-km-Orbit für Manöverknoten oder im tiefen Monti-Orbit für die Mondlandung –
+> mit Live-Schritten, die sich automatisch abhaken.
+>
+> **Musik:** `space.mp3` (Menü) · `hangar.mp3` (Montagehalle) · `inspace.mp3`
+> (sobald der Weltraum erreicht ist).
 
 Eine 2D-Raumfahrtsimulation im Stil von Kerbal Space Program für den Browser.
 Für die Raumfahrt-AG des Leibniz-Montessori-Gymnasiums Düsseldorf.

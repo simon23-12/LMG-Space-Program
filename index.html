@@ -158,6 +158,18 @@ input[type=file]{display:none;}
   <div id="hudMsg" class="hud"></div>
   <div id="milestoneToast" class="hud"></div>
   <canvas id="navball" width="140" height="140"></canvas>
+  <div id="tutOverlay" class="hud" style="display:none;top:64px;left:50%;transform:translateX(-50%);
+    max-width:470px;width:90%;border-color:var(--green);">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+      <b id="tutOvTitle" style="color:var(--green)"></b>
+      <span id="tutOvProgress" style="color:var(--muted);font-size:12px;white-space:nowrap;"></span>
+    </div>
+    <div id="tutOvText" style="font-size:14px;line-height:1.5;margin-top:6px;"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end;">
+      <button class="btn" style="padding:4px 10px;font-size:12px;" onclick="Tut.stop()">Tutorial beenden</button>
+      <button class="btn orange" id="tutOvNext" style="padding:4px 14px;font-size:12px;" onclick="Tut.next()">Weiter →</button>
+    </div>
+  </div>
   <div id="nodeUI" class="hud" style="display:none;right:12px;bottom:12px;width:230px;font-size:13px;">
     <b style="color:var(--green)">◆ Manöverknoten</b>
     <div id="nodeStats" style="margin:6px 0;color:var(--muted);"></div>
@@ -531,7 +543,7 @@ function closeHint(){
 }
 
 /* ---------- Tutorials ---------- */
-const TUTORIALS = [
+const TUTORIALS_LEGACY = [   // alt & ungenutzt – die interaktiven Tutorials liegen in tutorials.js
   {id:"first", icon:"🚀", title:"Dein erster Start", sub:"Bauen, zünden, staunen.", steps:[
     `Gehe in die <b>Montagehalle</b> (Karriere oder Sandbox). Links siehst du die Bauteile,
      sortiert nach Zweck. Eine Mini-Rakete steht schon bereit: Kapsel, Fallschirm, Tank, Triebwerk.<br><br>
@@ -621,10 +633,84 @@ function renderTutorials(){
     div.className = "tech-node";
     div.innerHTML = `<h3>${t.icon} ${t.title}</h3>
       <p style="font-size:13px;color:var(--muted);margin-bottom:10px;">${t.sub}</p>
-      <button class="btn orange" onclick="openTutorial('${t.id}')">Starten (${t.steps.length} Schritte)</button>`;
+      <button class="btn orange" onclick="Tut.start('${t.id}')">▶ Szenario starten</button>`;
     grid.appendChild(div);
   }
 }
+/* Tutorial-Runner: baut das Szenario auf und begleitet mit Live-Schritten */
+const Tut = {
+  active:null, idx:0, prevSandbox:false,
+  start(id){
+    const t = TUTORIALS.find(x=>x.id===id);
+    if(!t) return;
+    this.active = t; this.idx = 0;
+    this.prevSandbox = Game.sandbox;
+    Game.sandbox = true;          // Training zählt nicht für die Karriere
+    UI.inGame = true;
+    VAB.stack = [...t.scenario.stack];
+    Flight.start(VAB.buildVessel());
+    if(t.scenario.orbit){
+      // Spieler direkt in einen Kreisorbit setzen
+      const b = t.scenario.orbit.body==="MONTI" ? MONTI :
+                t.scenario.orbit.body==="MINZI" ? MINZI : LEIBNIZ;
+      const c = bodyPos(b,0), bv = bodyVel(b,0);
+      const r = b.R + t.scenario.orbit.alt;
+      const vc = Math.sqrt(b.mu/r);
+      const radial = V3(1,0,0), tang = V3(0,0,-1);
+      Flight.pos = c.clone().addScaledVector(radial, r);
+      Flight.vel = bv.clone().addScaledVector(tang, vc);
+      Flight.landed = false; Flight.flew = true;
+      Flight.throttle = 0;
+      const s = Flight.activeSeg(); if(s) s.ignited = true;
+      Flight.q.setFromUnitVectors(V3(0,1,0), tang);   // Nase zeigt prograde
+    }
+    Flight.showMsg(t.icon+" Tutorial-Szenario geladen – viel Erfolg!", 3);
+    UI.show("flight");
+    this.render();
+  },
+  stop(){
+    if(!this.active) return;
+    Game.sandbox = this.prevSandbox;
+    this.active = null;
+    document.getElementById("tutOverlay").style.display = "none";
+  },
+  render(){
+    const el = document.getElementById("tutOverlay");
+    if(!this.active){ el.style.display = "none"; return; }
+    el.style.display = "block";
+    const t = this.active;
+    const title = document.getElementById("tutOvTitle");
+    const next = document.getElementById("tutOvNext");
+    if(this.idx >= t.steps.length){
+      title.innerHTML = t.icon+" Geschafft!";
+      document.getElementById("tutOvText").innerHTML = t.done;
+      document.getElementById("tutOvProgress").textContent = "Tutorial abgeschlossen 🎉";
+      next.style.display = "inline-block";
+      next.textContent = "Fertig ✓";
+      return;
+    }
+    const st = t.steps[this.idx];
+    title.innerHTML = t.icon+" "+t.title;
+    document.getElementById("tutOvProgress").textContent = "Schritt "+(this.idx+1)+" / "+t.steps.length;
+    document.getElementById("tutOvText").innerHTML = st.text;
+    next.style.display = st.check ? "none" : "inline-block";
+    next.textContent = "Weiter →";
+  },
+  next(){
+    if(!this.active) return;
+    if(this.idx >= this.active.steps.length){ this.stop(); return; }
+    this.idx++; this.render();
+  },
+  frame(){
+    if(!this.active || this.idx >= this.active.steps.length) return;
+    const st = this.active.steps[this.idx];
+    if(st.check){
+      let ok = false;
+      try{ ok = st.check(Flight.orbit(), Flight); }catch(e){}
+      if(ok){ this.idx++; this.render(); }
+    }
+  }
+};
 let tutCur = null, tutIdx = 0;
 function openTutorial(id){
   tutCur = TUTORIALS.find(t=>t.id===id); tutIdx = 0;
@@ -1449,7 +1535,7 @@ const Flight = {
     this.chuteOpen=false; this.infinite=false;
     this.sats.forEach(s=>this.world.remove(s.mesh));
     this.sats = []; this.satL=false; this.satM=false; this.visitedMonti=false;
-    this.sas = "off"; this._cd = 0;
+    this.sas = "off"; this._cd = 0; this.expCount = 0; this._wasSpace = undefined;
     this.node = null; this.nodeDir = null;
     this.debris.forEach(d=>this.world.remove(d.mesh));
     this.debris = [];
@@ -1701,7 +1787,8 @@ const Flight = {
     if(!this.v || this.crashed || this.ended) return;
     const hasLab = this.v.segs.some(s=>s.parts.includes("lab"));
     if(!hasLab){ this.showMsg("Kein Materiallabor an Bord! 🔬",2); return; }
-    if(Game.sandbox){ this.showMsg("🔬 Experiment durchgeführt (Sandbox: keine Wissenschaft).",2); return; }
+    this.expCount = (this.expCount||0)+1;
+    if(Game.sandbox){ this.showMsg("🔬 Experiment durchgeführt! (Im Training/Sandbox ohne Wissenschaft.)",2); return; }
     const sit = this.situation();
     if(Game.labDone.includes(sit.id)){
       this.showMsg("Diesen Ort hast du schon erforscht – flieg woanders hin! 🔭",3); return;
@@ -1900,8 +1987,13 @@ const Flight = {
       }
     }
   },
-  endFlight(){ this.ended = true; UI.show("vab"); },
+  endFlight(){
+    this.ended = true;
+    if(Tut.active){ const back = Tut.prevSandbox; Tut.stop(); Game.sandbox = back; UI.show("tutorial"); return; }
+    UI.show("vab");
+  },
   revert(){
+    if(Tut.active){ const id = Tut.active.id; Tut.stop(); Tut.start(id); return; }
     this.start(VAB.buildVessel());
     this.showMsg("↩ Flug zurückgesetzt – bereit für einen neuen Versuch!",3);
   },
@@ -2024,6 +2116,9 @@ const Flight = {
     for(const m of MOONS) this.moonMeshes.get(m).position.copy(bodyPos(m, this.t));
     this.cloudShell.rotation.y = this.t*2*Math.PI/14000;
     const alt = this.pos.length()-LEIBNIZ.R;
+    // Musikwechsel beim Erreichen/Verlassen des Weltraums
+    const inSpace = !this.landed && !this.crashed && alt >= LEIBNIZ.atmoH;
+    if(inSpace !== this._wasSpace){ this._wasSpace = inSpace; updateMusic(); }
     const f = Math.max(0, 1-Math.max(0,alt)/LEIBNIZ.atmoH);
     const sky = new THREE.Color(0x04060e).lerp(new THREE.Color(0x87b6ea), this.map?0:f*f);
     this.scene.background = sky;
@@ -2114,6 +2209,7 @@ const Flight = {
     this.renderer.render(this.scene, this.camera);
     this.drawNavball();
     this.drawHUD();
+    Tut.frame();
   },
   /* ---------- Navball ---------- */
   drawNavball(){
@@ -2215,15 +2311,42 @@ const Flight = {
 /* =================================================================
    Musik & Ladebildschirm
    ================================================================= */
-const music = new Audio("space.mp3");
+/* Drei Tracks: Menü, Montagehalle, Weltraum */
+const TRACKS = {menu:"space.mp3", hangar:"hangar.mp3", space:"inspace.mp3"};
+const music = new Audio();
 music.loop = true; music.volume = 0.45;
 let musicOn = localStorage.getItem("lmgMusic") !== "0";
+let curTrack = null;
+function setTrack(name){
+  if(curTrack === name){
+    if(name && music.paused) music.play().catch(()=>{});  // Autoplay-Retry nach Klick
+    return;
+  }
+  curTrack = name;
+  if(!name){ music.pause(); return; }
+  music.src = TRACKS[name];
+  music.play().catch(()=>{});
+}
 function updateMusic(){
-  const loading = !!document.getElementById("loader");
   const btn = document.getElementById("musicBtn");
   btn.textContent = musicOn ? "🔊 Musik" : "🔇 Musik";
-  if(musicOn && !UI.inGame && !loading) music.play().catch(()=>{});
-  else music.pause();
+  let want = null;
+  if(!document.getElementById("loader")){
+    const act = document.querySelector(".screen.active");
+    if(act){
+      if(act.id === "flight"){
+        // Im Flug: Musik erst, wenn der Weltraum erreicht ist
+        const inSpace = Flight.v && !Flight.landed && !Flight.crashed &&
+          Flight.pos.length()-LEIBNIZ.R >= LEIBNIZ.atmoH;
+        want = inSpace ? "space" : null;
+      }
+      else if(act.id === "vab") want = "hangar";
+      else if(UI.inGame) want = "hangar";   // Forschung/Missionen aus der Halle heraus
+      else want = "menu";
+    }
+  }
+  if(!musicOn) want = null;
+  setTrack(want);
 }
 function toggleMusic(){
   musicOn = !musicOn;
@@ -2268,5 +2391,6 @@ Flight.init();
   else if(active.id==="flight") Flight.frame();
 })();
 </script>
+<script src="tutorials.js"></script>
 </body>
 </html>
