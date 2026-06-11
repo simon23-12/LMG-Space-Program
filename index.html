@@ -772,11 +772,65 @@ const VAB = {
   draw(){
     const c=this.canvas, ctx=this.ctx;
     c.width=c.clientWidth; c.height=c.clientHeight;
-    ctx.clearRect(0,0,c.width,c.height);
-    drawRocketStack(ctx, this.stack, c.width/2, 60, 3.2, 0, {});
-    // Boden
-    ctx.fillStyle="#223052";
-    ctx.fillRect(0,c.height-30,c.width,30);
+    const W=c.width, H=c.height;
+    ctx.clearRect(0,0,W,H);
+    const floorY = H*0.82;
+    // --- Hangar-Rückwand ---
+    const wg = ctx.createLinearGradient(0,0,0,floorY);
+    wg.addColorStop(0,"#141d36"); wg.addColorStop(1,"#1f2b4d");
+    ctx.fillStyle = wg; ctx.fillRect(0,0,W,floorY);
+    // Wandpaneele
+    ctx.strokeStyle = "rgba(255,255,255,.05)"; ctx.lineWidth = 2;
+    for(let x=0;x<W;x+=90){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,floorY); ctx.stroke(); }
+    // Dach-Fachwerkträger
+    ctx.strokeStyle = "#2f3f6a"; ctx.lineWidth = 3;
+    for(const ty of [26,78]){
+      ctx.beginPath(); ctx.moveTo(0,ty); ctx.lineTo(W,ty);
+      ctx.moveTo(0,ty+26); ctx.lineTo(W,ty+26); ctx.stroke();
+      for(let x=0;x<W;x+=52){
+        ctx.beginPath(); ctx.moveTo(x,ty); ctx.lineTo(x+26,ty+26); ctx.lineTo(x+52,ty); ctx.stroke();
+      }
+    }
+    // Hallenlampen
+    for(let x=60;x<W;x+=180){
+      ctx.fillStyle = "#39496f"; ctx.fillRect(x-16,104,32,8);
+      ctx.fillStyle = "rgba(255,244,200,.85)"; ctx.fillRect(x-12,112,24,5);
+    }
+    // großes Hangartor (links hinten)
+    const dw = Math.min(W*0.3,260), dh = floorY*0.62;
+    ctx.fillStyle = "#101729"; ctx.fillRect(40,floorY-dh,dw,dh);
+    ctx.strokeStyle = "#2f3f6a"; ctx.lineWidth = 4; ctx.strokeRect(40,floorY-dh,dw,dh);
+    ctx.lineWidth = 1.5;
+    for(let y=floorY-dh+14;y<floorY;y+=14){
+      ctx.beginPath(); ctx.moveTo(44,y); ctx.lineTo(36+dw,y); ctx.stroke();
+    }
+    // Logo + Schriftzug an der Wand
+    ctx.fillStyle = "rgba(247,148,29,.16)";
+    ctx.font = "900 90px sans-serif"; ctx.textAlign = "right";
+    ctx.fillText("LMG", W-40, 210);
+    ctx.fillStyle = "rgba(232,236,245,.22)"; ctx.font = "700 16px sans-serif";
+    ctx.fillText("M O N T A G E H A L L E  1", W-42, 236);
+    ctx.textAlign = "left";
+    // --- Boden mit Fluchtlinien ---
+    const fg = ctx.createLinearGradient(0,floorY,0,H);
+    fg.addColorStop(0,"#2b3658"); fg.addColorStop(1,"#1a2240");
+    ctx.fillStyle = fg; ctx.fillRect(0,floorY,W,H-floorY);
+    ctx.strokeStyle = "rgba(255,255,255,.06)";
+    for(let i=-6;i<=6;i++){
+      ctx.beginPath(); ctx.moveTo(W/2+i*60,floorY); ctx.lineTo(W/2+i*200,H); ctx.stroke();
+    }
+    // Warnstreifen an der Bodenkante
+    for(let x=0;x<W;x+=28){
+      ctx.fillStyle = x%56===0 ? "#f7941d" : "#10182e";
+      ctx.fillRect(x,floorY-5,28,5);
+    }
+    // Montage-Markierung unter der Rakete
+    ctx.strokeStyle = "rgba(247,148,29,.5)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(W/2,floorY+14,90,14,0,0,7); ctx.stroke();
+    // --- Rakete: steht auf dem Boden, skaliert auf Hallenhöhe ---
+    const totalH = this.stack.reduce((a,id)=>a+PARTS[id].h,0) || 1;
+    const scale = Math.min(3.2, (floorY-70)/totalH);
+    drawRocketStack(ctx, this.stack, W/2, floorY-totalH*scale, scale, 0, {});
   }
 };
 
@@ -1197,6 +1251,76 @@ const Flight = {
     this.draw();
     this.drawHUD();
   },
+  /* ---- Wolken in der Aufstiegsregion (Weltkoordinaten, feste Positionen) ---- */
+  drawClouds(toScreen, scale, alt, W, H){
+    if(alt > 30000 || scale < 0.02) return;
+    if(!Flight._clouds){
+      const rnd = seededRand(55), clouds = [];
+      for(let i=0;i<90;i++){
+        const ang = Math.PI/2 + (rnd()-0.5)*0.09;          // ±27 km um den Startplatz
+        const cAlt = 1200 + rnd()*10000;
+        const r = LEIBNIZ.R + cAlt;
+        const size = 35 + rnd()*95;                         // Meter
+        const puffs = [];
+        for(let k=0;k<5;k++)
+          puffs.push({dx:(rnd()-0.5)*size*2.4, dy:(rnd()-0.5)*size*0.6, r:size*(0.35+rnd()*0.3)});
+        clouds.push({x:Math.cos(ang)*r, y:Math.sin(ang)*r, op:0.25+rnd()*0.35, puffs});
+      }
+      Flight._clouds = clouds;
+    }
+    const ctx = this.ctx;
+    for(const c of Flight._clouds){
+      const s = toScreen(c.x, c.y);
+      if(s.x<-600||s.x>W+600||s.y<-400||s.y>H+400) continue;
+      ctx.fillStyle = `rgba(255,255,255,${c.op})`;
+      for(const p of c.puffs){
+        const rr = p.r*scale;
+        if(rr < 1.5) continue;
+        ctx.beginPath();
+        ctx.ellipse(s.x+p.dx*scale, s.y+p.dy*scale, rr, rr*0.55, 0, 0, 7);
+        ctx.fill();
+      }
+    }
+  },
+  /* ---- Startrampe am Startplatz (Weltpunkt (0, R), lokale Achsen: x=Ost, y=Hoch) ---- */
+  drawPad(toScreen, scale, alt){
+    if(alt > 20000) return;
+    const ctx = this.ctx;
+    const P = (dx,dy)=>toScreen(dx, LEIBNIZ.R+dy);
+    const poly = (pts, fill)=>{
+      ctx.beginPath();
+      pts.forEach((p,i)=>{ const s=P(p[0],p[1]); i?ctx.lineTo(s.x,s.y):ctx.moveTo(s.x,s.y); });
+      ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+    };
+    const line = (a,b,wMeter)=>{
+      const s1=P(a[0],a[1]), s2=P(b[0],b[1]);
+      ctx.lineWidth = Math.max(1, wMeter*scale);
+      ctx.beginPath(); ctx.moveTo(s1.x,s1.y); ctx.lineTo(s2.x,s2.y); ctx.stroke();
+    };
+    // Betonplattform mit Fundament
+    poly([[-34,0],[34,0],[34,-2.5],[-34,-2.5]], "#8d94a6");
+    poly([[-38,-2.5],[38,-2.5],[42,-7],[-42,-7]], "#6f7686");
+    // Flammengraben
+    poly([[-10,-2.5],[10,-2.5],[7,-7],[-7,-7]], "#2a2f3c");
+    // Startturm rechts neben der Rakete
+    ctx.strokeStyle = "#b8434f";
+    line([12,0],[12,42],1.6); line([19,0],[19,42],1.6);
+    for(let y=0;y<42;y+=7){
+      line([12,y],[19,y+7],0.8); line([19,y],[12,y+7],0.8);
+      line([12,y],[19,y],0.8);
+    }
+    poly([[11,42],[20,42],[20,44],[11,44]], "#b8434f");
+    // Zugangssteg zur Rakete
+    ctx.strokeStyle = "#8d94a6";
+    line([12,36],[5,36],1.4);
+    // Blitzableiter-Mast links
+    ctx.strokeStyle = "#6f7686";
+    line([-24,0],[-24,30],1.2);
+    line([-24,30],[-22,33],0.8); line([-24,30],[-26,33],0.8);
+    // Fahne
+    ctx.strokeStyle = "#e8ecf5"; line([-15,0],[-15,8],0.5);
+    poly([[-15,8],[-10,7],[-15,6]], "#f7941d");
+  },
   /* ---- Trajektorien-Vorhersage ---- */
   predict(){
     const pts=[];
@@ -1229,17 +1353,23 @@ const Flight = {
     const W=c.width,H=c.height;
     ctx.fillStyle="#04060e"; ctx.fillRect(0,0,W,H);
     const alt = Math.hypot(this.x,this.y)-LEIBNIZ.R;
-    // Atmosphären-Himmel
+    // Atmosphären-Himmel: unten hell, oben dunkler – verblasst mit der Höhe bis ins All
     if(!this.map && alt<LEIBNIZ.atmoH){
-      const f = Math.max(0,1-alt/LEIBNIZ.atmoH);
-      ctx.fillStyle=`rgba(80,140,220,${(f*f*0.85).toFixed(3)})`;
-      ctx.fillRect(0,0,W,H);
+      const f = Math.max(0,1-alt/LEIBNIZ.atmoH);   // 1 = Boden, 0 = Weltraum
+      const sg = ctx.createLinearGradient(0,0,0,H);
+      sg.addColorStop(0,`rgba(22,62,150,${(f*f*0.92).toFixed(3)})`);
+      sg.addColorStop(0.55,`rgba(62,118,200,${(f*f*0.95).toFixed(3)})`);
+      sg.addColorStop(1,`rgba(132,186,235,${(Math.min(1,f*1.15)*0.97).toFixed(3)})`);
+      ctx.fillStyle = sg; ctx.fillRect(0,0,W,H);
     }
-    // Sterne
-    ctx.fillStyle="rgba(255,255,255,.7)";
-    for(let i=0;i<90;i++){
-      const sx=(i*97.3)%W, sy=(i*211.7)%H;
-      ctx.fillRect(sx,sy,(i%3===0?2:1),(i%3===0?2:1));
+    // Sterne: tauchen erst mit zunehmender Höhe auf
+    const starA = this.map ? 0.7 : 0.75*Math.min(1, Math.max(0, alt/LEIBNIZ.atmoH+0.05));
+    if(starA > 0.02){
+      ctx.fillStyle = `rgba(255,255,255,${starA.toFixed(2)})`;
+      for(let i=0;i<90;i++){
+        const sx=(i*97.3)%W, sy=(i*211.7)%H;
+        ctx.fillRect(sx,sy,(i%3===0?2:1),(i%3===0?2:1));
+      }
     }
     const scale = this.map ? Math.min(W,H)/(2.6*MONTI.orbitR)*this.zoom*30 : this.zoom;
     const camX=this.x, camY=this.y;
@@ -1277,6 +1407,11 @@ const Flight = {
     }
     drawBody(LEIBNIZ);
     drawBody(MONTI);
+    // Wolken & Startrampe (nur in der Nahansicht)
+    if(!this.map){
+      this.drawClouds(toScreen, scale, alt, W, H);
+      this.drawPad(toScreen, scale, alt);
+    }
     // Trajektorie
     if(this.map && !this.landed && !this.crashed){
       const pts=this.predict();
