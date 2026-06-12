@@ -123,6 +123,33 @@ const TUTORIALS = [
    done:`DER ADLER IST GELANDET! 🦅 Mondlandung gemeistert – die Königsdisziplin.
      (Crash gehabt? <b>↩ Neustart</b> setzt das Szenario zurück.)`},
 
+  {id:"reentry", icon:"🔥", title:"Wiedereintritt überleben", sub:"Stufe abtrennen, Schild ausrichten, Schirm ziehen.",
+   scenario:{stack:["chute","pod","shield","decoupler","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:75000, pe:28000}},
+   steps:[
+    {text:`Rückkehr vom Orbit! Deine Bahn taucht bereits in die Atmosphäre
+      (Periapsis 28 km – sieh in der Karte <b>[M]</b> nach).<br><br>
+      Die verbrauchte Antriebsstufe brauchst du nicht mehr – und sie hat keinen
+      Hitzeschutz. <b>Trenne sie ab mit der [Leertaste]!</b>`,
+     check:(o,F)=>F.v.segs.length===1},
+    {text:`Jetzt bist du nur noch Kapsel + Hitzeschild + Fallschirm. 👍<br><br>
+      Der <b>Hitzeschild zeigt nach unten</b> – also muss die Kapsel <b>gegen die
+      Flugrichtung</b> zeigen: Drücke <b>[T]</b> bis <b>SAS: RETROGRADE</b>.`,
+     check:(o,F)=>F.sas==="retro"},
+    {text:`Perfekt ausgerichtet! Warte nun auf die Atmosphäre (Zeitraffer <b>[.]</b>,
+      bei Bedarf [,] zurück).<br><br>
+      Gleich wird es heiß: Der Schild glüht, das Plasma leuchtet – aber er hält stand.
+      Überstehe den Feuerritt, bis du unter <b>30 km</b> und langsamer als
+      <b>1200 m/s</b> bist!`,
+     check:o=>o.alt<30000 && o.speed<1200},
+    {text:`Geschafft – das Schlimmste ist vorbei! 🔥➡️💨<br><br>
+      Die Luft bremst dich weiter ab. Unter <b>5 km Höhe</b>: Fallschirm mit <b>[P]</b>!`,
+     check:(o,F)=>F.chuteOpen},
+    {text:`🪂 Sanft schweben… warte auf die Landung.`,
+     check:(o,F)=>F.landed},
+   ],
+   done:`Wiedereintritt gemeistert! 🏅 Merke: <b>Stufe abwerfen → Retrograde mit
+     Hitzeschild voraus → unter 5 km Fallschirm</b>. Ohne Schild = 💥, ohne
+     Retrograde-Ausrichtung riskierst du die Crew. Jetzt bist du bereit für echte Orbit-Missionen!`},
   {id:"science", icon:"🔬", title:"Wissenschaft sammeln", sub:"Du startest im Orbit mit Labor an Bord.",
    scenario:{stack:["chute","pod","lab","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:100000}},
    steps:[
