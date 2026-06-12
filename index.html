@@ -61,7 +61,7 @@ button{cursor:pointer;font-family:inherit;}
 #hudLeft .row{display:flex;justify-content:space-between;gap:16px;}
 #hudLeft .row span:last-child{color:var(--orange);font-variant-numeric:tabular-nums;}
 #hudRight{top:12px;right:12px;text-align:right;}
-#hudMsg{bottom:236px;left:50%;transform:translateX(-50%);font-size:18px;font-weight:700;
+#hudMsg{bottom:310px;z-index:6;left:50%;transform:translateX(-50%);font-size:18px;font-weight:700;
   color:var(--orange);display:none;text-align:center;}
 #hudControls{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
 #hudControls .btn{padding:8px 14px;font-size:13px;}
@@ -208,6 +208,7 @@ input[type=file]{display:none;}
     <button class="btn" onclick="Flight.deploySat()">Satellit [N]</button>
     <button class="btn" onclick="Flight.togglePanels()">☀️ Panele [G]</button>
     <button class="btn" onclick="Flight.toggleEVA()">🧑‍🚀 EVA [V]</button>
+    <button class="btn" onclick="Flight.toggleBays()">📦 Bucht [O]</button>
     <button class="btn" id="infBtn" style="display:none" onclick="Flight.toggleInfinite()">∞ Tank [U]</button>
     <button class="btn" onclick="Flight.addNode()">Manöver [K]</button>
     <button class="btn" onclick="Flight.runExperiment()">Experiment [B]</button>
@@ -416,6 +417,8 @@ const PARTS = {
   engNuc: {name:"Atom-Triebwerk »Einstein«", type:"engine", cat:"upper", mass:1200, thrust:55000, isp:520, w:10,h:14, tech:"future", info:"Isp 520 s! Schwach, aber extrem sparsam – das Triebwerk für Minzi und darüber hinaus."},
   decoupler:{name:"Stufentrenner",           type:"decoupler", cat:"struct", mass:50, w:10,h:4, tech:"struct", info:"Trennt Stufen voneinander. [Leertaste]"},
   legs:   {name:"Landebeine",                type:"legs",   cat:"struct", mass:120,  w:14,h:6, tech:"explore", info:"Erlauben Landungen bis 12 m/s (sonst 8 m/s)."},
+  rcs:    {name:"RCS-Steuerdüsen",           type:"rcs",    cat:"struct", mass:70,   w:11,h:2.5, tech:"advProp",
+           info:"Düsenring fürs schnelle Wenden im All – ohne RCS dreht das Schiff nur träge!"},
   srb:    {name:"Feststoffbooster »Böller«", type:"srb",    cat:"lower", mass:450,  fuel:1700, thrust:230000, isp:220, w:10,h:24, tech:"basic", info:"Viel Schub, nicht drosselbar!"},
   fin:    {name:"Stabilisierungsflosse",     type:"fin",    cat:"lower", mass:40,   w:14,h:6, tech:"basic", info:"Verringert den Luftwiderstand."},
   tankL:  {name:"Treibstofftank L",          type:"tank",   cat:"lower", mass:800,  fuel:5600, w:12,h:42, tech:"heavy", info:"5,6 t Treibstoff – schwer, gehört nach unten."},
@@ -426,7 +429,7 @@ const PARTS = {
   battery:{name:"Batterie",                  type:"battery",cat:"sat", mass:60,  w:8,h:5, tech:"payload", charge:500, info:"Speichert 500 ⚡ für Sonden, SAS und Experimente."},
   bay:    {name:"Servicebucht",              type:"bay",    cat:"sat", mass:80,  w:11,h:9, tech:"payload",
            info:"Aerodynamischer Stauraum: verkleidet das Bauteil DIREKT DARÜBER (Batterie, Labor …) und senkt den Luftwiderstand."},
-  antenna:{name:"Antenne »Quassel«",         type:"antenna",cat:"sat", mass:40,  w:6,h:8, tech:"payload", info:"Funkt Daten nach Leibniz."},
+  antenna:{name:"Antenne »Quassel«",         type:"antenna",cat:"sat", mass:40,  w:4,h:5, tech:"payload", info:"Funkt Daten nach Leibniz."},
   fairing:{name:"Nutzlast-Fairing",          type:"fairing",cat:"sat", mass:120, w:12,h:5, tech:"payload", info:"Halber Luftwiderstand. Mit [F] absprengen!"},
   tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"fine", info:"0,7 t für Satelliten-Manöver."},
   engT:   {name:"Triebwerk »Floh«",          type:"engine", cat:"sat", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"fine", info:"Winziges Manövriertriebwerk (8 kN)."}
@@ -1105,13 +1108,25 @@ function buildPartMesh(id){
         new THREE.MeshStandardMaterial({color:0xe8c540, roughness:.5})), h*0.5);
       break;
     case "antenna":{
-      add(cylinder(0.25,0.25,h,MAT.gray,8), h/2);
-      const ball = new THREE.Mesh(new THREE.SphereGeometry(r*0.5,10,10), MAT.orange);
+      add(cylinder(0.12,0.18,h,MAT.gray,6), h/2);
+      const ball = new THREE.Mesh(new THREE.SphereGeometry(r*0.18,8,8), MAT.orange);
       ball.position.y = h; g.add(ball);
+      const dish = new THREE.Mesh(new THREE.SphereGeometry(r*0.45,10,6,0,Math.PI*2,0,Math.PI/2.4),
+        new THREE.MeshStandardMaterial({color:0xd6dbe6, side:THREE.DoubleSide}));
+      dish.position.y = h*0.45; dish.rotation.x = Math.PI*0.55; g.add(dish);
       break;}
     case "fairing":
       add(cylinder(r,r,h,MAT.orange), h/2);
       break;
+    case "rcs":{
+      add(cylinder(r*1.02, r*1.02, h, MAT.gray), h/2);
+      for(let k=0;k<4;k++){
+        const a = k*Math.PI/2 + Math.PI/4;
+        const noz = new THREE.Mesh(new THREE.BoxGeometry(1.1, h*0.9, 1.1), MAT.dark);
+        noz.position.set(Math.cos(a)*r*1.05, h/2, Math.sin(a)*r*1.05);
+        g.add(noz);
+      }
+      break;}
     case "bay":{
       // Achteckige Bucht mit Tor-Streifen
       add(cylinder(r, r, h, MAT.white, 8), h/2);
@@ -1139,11 +1154,22 @@ function buildRocketGroup(stack, fairingIntact){
     grp.add(mesh);
     if(p.type==="bay" && i>0 && inBay.has(i-1)){
       const hh2 = PARTS[stack[i-1]].h;
+      const bayIdx = grp.userData.nBays = (grp.userData.nBays||0)+1;
+      // Inhalt (z. B. Batterie/Labor): unsichtbar bis die Bucht öffnet
+      const content = buildPartMesh(stack[i-1]);
+      content.position.y = y + p.h;
+      content.name = "bayContent"; content.userData.bayIdx = bayIdx-1;
+      content.visible = false;
+      grp.add(content);
       const shell = new THREE.Mesh(new THREE.CylinderGeometry(p.w/2, p.w/2, hh2+0.6, 8), MAT.white);
       shell.position.y = y + p.h + hh2/2;
+      shell.name = "bayShell";
+      shell.userData = {baseY: y + p.h + hh2/2, slide: hh2+1.4, bayIdx: bayIdx-1};
       grp.add(shell);
       const lid = new THREE.Mesh(new THREE.CylinderGeometry(p.w*0.35, p.w/2, 1.2, 8), MAT.gray);
       lid.position.y = y + p.h + hh2 + 0.9;
+      lid.name = "bayShell";
+      lid.userData = {baseY: y + p.h + hh2 + 0.9, slide: hh2+1.4, bayIdx: bayIdx-1};
       grp.add(lid);
     }
     if(fairingIntact && fIdx===i && fIdx>0){
@@ -1253,20 +1279,20 @@ function buildChuteMesh(){
   if(!_chuteTex) _chuteTex = makeChuteTexture();
   const g = new THREE.Group();
   g.name = "chuteVis";
-  const R = 13, H = 22;   // Kappenradius / Höhe über Befestigung
-  // Aerodynamisch geschwungenes Profil (Lathe): prall gefüllte Kuppel
+  const R = 9.5, H = 17;   // Kappenradius / Höhe über Befestigung (schlank & anliegend)
+  // Aerodynamisch gestrecktes Profil (Lathe): hohe, prall gefüllte Kuppel
   // mit nach innen gerollter Unterkante – wie ein echter Apollo-Schirm.
   const prof = [
-    [0.00, 1.00],[0.30, 0.985],[0.55, 0.93],[0.74, 0.84],
-    [0.88, 0.71],[0.965, 0.56],[1.00, 0.40],[0.985, 0.30],[0.94, 0.255]
-  ].map(p=>new THREE.Vector2(p[0]*R, p[1]*R*0.85));
+    [0.00, 1.00],[0.26, 0.98],[0.50, 0.91],[0.70, 0.80],
+    [0.86, 0.64],[0.95, 0.47],[1.00, 0.32],[0.98, 0.22],[0.93, 0.18]
+  ].map(p=>new THREE.Vector2(p[0]*R, p[1]*R*1.15));
   const canopy = new THREE.Mesh(
     new THREE.LatheGeometry(prof, 36),
     new THREE.MeshStandardMaterial({map:_chuteTex, side:THREE.DoubleSide, roughness:.75}));
-  canopy.position.y = H - R*0.3;
+  canopy.position.y = H - R*0.25;
   g.add(canopy);
   // Leinen von der eingerollten Kante zur Spitze
-  const rimR = 0.94*R, rimY = H - R*0.3 + 0.255*R*0.85;
+  const rimR = 0.93*R, rimY = H - R*0.25 + 0.18*R*1.15;
   const pts = [];
   for(let i=0;i<12;i++){
     const a = i/12*Math.PI*2;
@@ -1349,9 +1375,9 @@ const VAB = {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w,h), wallMat);
       m.position.set(x,h/2,z); m.rotation.y = ry; this.scene.add(m);
     };
-    mkWall(360,120,0,-180,0);
-    mkWall(360,120,-180,0,Math.PI/2);
-    mkWall(360,120,180,0,-Math.PI/2);
+    mkWall(360,190,0,-180,0);
+    mkWall(360,190,-180,0,Math.PI/2);
+    mkWall(360,190,180,0,-Math.PI/2);
     const door = new THREE.Mesh(new THREE.PlaneGeometry(110,90),
       new THREE.MeshStandardMaterial({color:0x101729, side:THREE.DoubleSide}));
     door.position.set(0,45,-179.4); this.scene.add(door);
@@ -1361,18 +1387,28 @@ const VAB = {
     const tMat = new THREE.MeshStandardMaterial({color:0x2f3f6a, roughness:.6, metalness:.4});
     for(let z=-150;z<=150;z+=60){
       const tr = new THREE.Mesh(new THREE.BoxGeometry(360,3,3), tMat);
-      tr.position.set(0,118,z); this.scene.add(tr);
+      tr.position.set(0,188,z); this.scene.add(tr);
     }
     for(let xx=-150;xx<=150;xx+=60){
       const tr = new THREE.Mesh(new THREE.BoxGeometry(3,3,360), tMat);
-      tr.position.set(xx,118,0); this.scene.add(tr);
+      tr.position.set(xx,188,0); this.scene.add(tr);
     }
     for(let xx=-120;xx<=120;xx+=80)
       for(let zz=-120;zz<=120;zz+=120){
         const l = new THREE.Mesh(new THREE.BoxGeometry(14,1.5,6),
           new THREE.MeshBasicMaterial({color:0xfff4c8}));
-        l.position.set(xx,114,zz); this.scene.add(l);
+        l.position.set(xx,184,zz); this.scene.add(l);
       }
+    // Kerbals beleben die Halle: laufen zwischen Wegpunkten umher
+    this.kerbals = [];
+    for(let k=0;k<6;k++){
+      const ker = buildAstronaut();
+      ker.scale.set(2.4,2.4,2.4);
+      const ang = Math.random()*Math.PI*2, rad = 35+Math.random()*100;
+      ker.position.set(Math.cos(ang)*rad, 1.6, Math.sin(ang)*rad);
+      this.scene.add(ker);
+      this.kerbals.push({mesh:ker, target:null, speed:5+Math.random()*4, pause:Math.random()*2});
+    }
     const lc = document.createElement("canvas"); lc.width=512; lc.height=128;
     const lx = lc.getContext("2d");
     lx.fillStyle="rgba(247,148,29,.85)"; lx.font="900 86px sans-serif"; lx.textAlign="center";
@@ -1559,6 +1595,20 @@ const VAB = {
     if(w<2||h<2) return;
     this.renderer.setSize(w,h,false);
     this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
+    // Kerbals laufen durch die Halle
+    for(const k of this.kerbals){
+      if(k.pause > 0){ k.pause -= 1/60; continue; }
+      if(!k.target || k.mesh.position.distanceTo(k.target) < 3){
+        const ang = Math.random()*Math.PI*2, rad = 30+Math.random()*110;
+        k.target = new THREE.Vector3(Math.cos(ang)*rad, 1.6, Math.sin(ang)*rad);
+        k.pause = Math.random()*3;
+        continue;
+      }
+      const dir = k.target.clone().sub(k.mesh.position).normalize();
+      k.mesh.position.addScaledVector(dir, k.speed/60);
+      k.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+      k.mesh.position.y = 1.6 + Math.abs(Math.sin(performance.now()/130))*0.5;  // Hüpf-Gang
+    }
     const th = this.rocket ? this.rocket.userData.height/2 : 20;
     const cx = Math.cos(this.camEl)*Math.cos(this.camAz)*this.camDist;
     const cz = Math.cos(this.camEl)*Math.sin(this.camAz)*this.camDist;
@@ -1753,6 +1803,7 @@ const Flight = {
       if(e.key==="n"||e.key==="N") this.deploySat();
       if(e.key==="u"||e.key==="U") this.toggleInfinite();
       if(e.key==="g"||e.key==="G") this.togglePanels();
+      if(e.key==="o"||e.key==="O") this.toggleBays();
       if(e.key==="t"||e.key==="T") this.toggleSAS();
       if(e.key==="k"||e.key==="K") this.addNode();
       if(e.key==="b"||e.key==="B") this.runExperiment();
@@ -1861,6 +1912,7 @@ const Flight = {
     this.maxCharge = vessel.stack.reduce((a,id)=>a+(PARTS[id].charge||0), 0);
     this.charge = this.maxCharge;
     this.panelsOut = false; this.panelsBroken = false; this.powerDead = false;
+    this.bayOpen = false; this.bayAnim = 0;
     this._escWarned = false; this.nodeBurned = 0; this.gLoad = 0;
     // Statistik für den Flugbericht
     this.statMaxAlt = 0; this.statMaxSpeed = 0;
@@ -1955,6 +2007,14 @@ const Flight = {
     const btn = document.getElementById("hudToggle");
     btn.textContent = this.hudMode===0 ? "⌨ [H]" :
       this.hudMode===1 ? "⌨ HUD aus [H]" : "⌨ alles zeigen [H]";
+  },
+  toggleBays(){
+    if(this.crashed||this.ended) return;
+    if(!this.v.stack.some(id=>PARTS[id].type==="bay")){
+      this.showMsg("Keine Servicebucht an Bord! 📦",2); return;
+    }
+    this.bayOpen = !this.bayOpen;
+    this.showMsg(this.bayOpen ? "📦 Servicebuchten öffnen sich …" : "📦 Servicebuchten schließen.",2);
   },
   toggleEVA(){
     if(this.crashed||this.ended) return;
@@ -2077,6 +2137,7 @@ const Flight = {
   spawnParticle(pos, vel, life, size, color){
     const p = this.particles.find(p=>p.life<=0);
     if(!p) return;
+    p.fresh = true;   // erstes Update überspringen (sonst 1 Frame Versatz zur Rakete)
     p.life = p.maxLife = life;
     p.vel.copy(vel);
     p.spr.position.copy(pos);
@@ -2089,6 +2150,7 @@ const Flight = {
   updateParticles(dt){
     for(const p of this.particles){
       if(p.life<=0) continue;
+      if(p.fresh){ p.fresh = false; continue; }
       p.life -= dt;
       if(p.life<=0){ p.spr.visible=false; continue; }
       p.spr.position.addScaledVector(p.vel, dt);
@@ -2237,8 +2299,11 @@ const Flight = {
   step(dt){
     if(this.crashed||this.ended) return;
     const warp = WARPS[this.warpI];
+    // Wendigkeit: Basis-Reaktionsräder sind träge, RCS-Ringe machen agil
+    const nRcs = this.v.stack.filter(id=>PARTS[id].type==="rcs").length;
+    const agility = Math.min(1.8, 0.35 + 0.65*nRcs);
     if(warp<=2 && !this.powerDead && !this.eva){
-      const rot = 1.2*dt, k=this.keys;
+      const rot = agility*dt, k=this.keys;
       const dq = new THREE.Quaternion();
       const apply=(axis,ang)=>{ dq.setFromAxisAngle(axis,ang); this.q.multiply(dq); };
       if(k["w"]) apply(V3(1,0,0), rot);
@@ -2257,7 +2322,7 @@ const Flight = {
         else { target = sasRelVel.clone().normalize(); if(this.sas==="retro") target.negate(); }
         const nose = V3(0,1,0).applyQuaternion(this.q);
         const full = new THREE.Quaternion().setFromUnitVectors(nose, target);
-        const stepQ = new THREE.Quaternion().slerp(full, Math.min(1, 2.2*dt));
+        const stepQ = new THREE.Quaternion().slerp(full, Math.min(1, agility*1.6*dt));
         this.q.premultiply(stepQ);
       }
       if(k["arrowup"])   this.throttle=Math.min(1,this.throttle+1.2*dt);
@@ -2460,7 +2525,7 @@ const Flight = {
     }
     const oAlt = rL - LEIBNIZ.R;
     if(oAlt > this.statMaxAlt) this.statMaxAlt = oAlt;
-    const sp = this.vel.length();
+    const sp = this.vel.clone().sub(bodyVel(LEIBNIZ,this.t)).length();
     if(sp > this.statMaxSpeed) this.statMaxSpeed = sp;
   },
   checkContact(){
@@ -2769,6 +2834,23 @@ const Flight = {
       this.rocketGroup.position.copy(dir).multiplyScalar(-hh);
       this.rocketGroup.quaternion.copy(this.q);
       setFlames(this.rocketGroup, !!burning, Math.max(0.3,this.throttle));
+      // Servicebuchten: nacheinander auf-/zufahren (Hülle gleitet nach unten)
+      const nB = this.rocketGroup.userData.nBays||0;
+      if(nB){
+        this.bayAnim = this.bayAnim||0;
+        const target = this.bayOpen ? 1 : 0;
+        this.bayAnim += Math.sign(target-this.bayAnim)*Math.min(0.012, Math.abs(target-this.bayAnim));
+        this.rocketGroup.traverse(o=>{
+          if(o.name==="bayShell"){
+            const f = THREE.MathUtils.clamp(this.bayAnim*nB - o.userData.bayIdx, 0, 1);
+            o.position.y = o.userData.baseY - o.userData.slide*f;
+          }
+          if(o.name==="bayContent"){
+            const f = THREE.MathUtils.clamp(this.bayAnim*nB - o.userData.bayIdx, 0, 1);
+            o.visible = f > 0.45;
+          }
+        });
+      }
       // Solarpanele aus-/einfahren (sanfte Animation)
       const wingTarget = this.panelsOut ? 1 : 0.1;
       this.rocketGroup.traverse(o=>{
