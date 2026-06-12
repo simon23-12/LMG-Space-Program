@@ -2251,19 +2251,28 @@ const Flight = {
     const posAttr = this.trajLine.geometry.attributes.position;
     let p = this.pos.clone(), v = this.vel.clone(), t = this.t;
     const o = this.orbit();
-    let period = 2*Math.PI*Math.sqrt(Math.pow(Math.max(o.alt+o.body.R, o.body.R),3)/o.body.mu);
-    if(!isFinite(period)||period<=0) period = 40000;
-    const total = Math.min(period*1.2, 400000), n = 600, dt = total/n;
+    // Umlaufzeit aus der großen Halbachse (nicht aus dem aktuellen Radius!),
+    // sonst endet die Linie bei elliptischen Bahnen zu früh.
+    let period;
+    if(o.ap >= 0){
+      const sma = (o.ap + o.pe)/2 + o.body.R;
+      period = 2*Math.PI*Math.sqrt(Math.pow(sma,3)/o.body.mu);
+    }
+    if(!isFinite(period)||!period||period<=0) period = 40000;
+    const total = Math.min(period*1.08, 600000), n = 600, dt = total/n;
     let count = 0;
     const bc = this.bodyCenter(o.body);
     let rMin=Infinity, rMax=-Infinity, pMin=null, pMax=null;
     for(let i=0;i<n;i++){
-      const a1 = this.accel(p,t);
-      const pm = p.clone().addScaledVector(v, dt/2);
-      const a2 = this.accel(pm, t+dt/2);
-      p.addScaledVector(v,dt).addScaledVector(a1, dt*dt/2);
-      v.addScaledVector(a2, dt);
-      t += dt;
+      for(let sub=0;sub<3;sub++){
+        const d = dt/3;
+        const a1 = this.accel(p,t);
+        const pm = p.clone().addScaledVector(v, d/2);
+        const a2 = this.accel(pm, t+d/2);
+        p.addScaledVector(v,d).addScaledVector(a1, d*d/2);
+        v.addScaledVector(a2, d);
+        t += d;
+      }
       posAttr.setXYZ(count++, p.x, p.y, p.z);
       const rr = p.distanceTo(bc);
       if(rr<rMin){ rMin=rr; pMin=p.clone(); }
@@ -2313,18 +2322,29 @@ const Flight = {
       // geplante Bahn (grün)
       const nAttr = this.nodeTrajLine.geometry.attributes.position;
       let pp = np.clone(), pv = nv.clone().add(dvWorld), pt = nt;
-      const o2mu = this.body().mu;
-      let per2 = 2*Math.PI*Math.sqrt(Math.pow(Math.max(pp.distanceTo(this.bodyCenter(this.body(),pt)), 1e5),3)/o2mu);
-      if(!isFinite(per2)||per2<=0) per2 = 60000;
-      const tot2 = Math.min(per2*1.3, 600000), n2 = 600, dt2 = tot2/n2;
+      // Umlaufzeit der GEPLANTEN Bahn aus deren Energie (große Halbachse)
+      const b2 = this.body(), o2mu = b2.mu;
+      const c2v = this.bodyCenter(b2, pt);
+      const r2 = pp.distanceTo(c2v);
+      const E2 = pv.clone().sub(bodyVel(b2,pt)).lengthSq()/2 - o2mu/r2;
+      let per2;
+      if(E2 < 0){
+        const sma2 = -o2mu/(2*E2);
+        per2 = 2*Math.PI*Math.sqrt(Math.pow(sma2,3)/o2mu);
+      }
+      if(!isFinite(per2)||!per2||per2<=0) per2 = 120000;
+      const tot2 = Math.min(per2*1.08, 600000), n2 = 600, dt2 = tot2/n2;
       let c2 = 0;
       for(let i=0;i<n2;i++){
-        const a1 = this.accel(pp,pt);
-        const pm2 = pp.clone().addScaledVector(pv, dt2/2);
-        const a2 = this.accel(pm2, pt+dt2/2);
-        pp.addScaledVector(pv,dt2).addScaledVector(a1, dt2*dt2/2);
-        pv.addScaledVector(a2, dt2);
-        pt += dt2;
+        for(let sub=0;sub<3;sub++){
+          const d2 = dt2/3;
+          const a1 = this.accel(pp,pt);
+          const pm2 = pp.clone().addScaledVector(pv, d2/2);
+          const a2 = this.accel(pm2, pt+d2/2);
+          pp.addScaledVector(pv,d2).addScaledVector(a1, d2*d2/2);
+          pv.addScaledVector(a2, d2);
+          pt += d2;
+        }
         nAttr.setXYZ(c2++, pp.x, pp.y, pp.z);
         if(pp.length()<LEIBNIZ.R) break;
         if(MOONS.some(m=>pp.distanceTo(bodyPos(m,pt))<m.R)) break;
