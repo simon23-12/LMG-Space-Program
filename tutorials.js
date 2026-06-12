@@ -29,9 +29,10 @@ const TUTORIALS = [
      Nächster Schritt: das Tutorial <b>In den Orbit</b>!`},
 
   {id:"orbit", icon:"🛰️", title:"In den Orbit", sub:"Zweistufige Rakete steht bereit – flieg den Gravity Turn.",
-   scenario:{stack:["chute","pod","tankM","engVac","decoupler","tankL","tankL","engMain"]},
+   scenario:{stack:["chute","pod","shield","tankM","engVac","decoupler","tankL","tankL","engMain"]},
    steps:[
-    {text:`Diese zweistufige Rakete hat genug Δv für einen Orbit (~3400 m/s).<br><br>
+    {text:`Diese zweistufige Rakete hat genug Δv für einen Orbit (~3400 m/s) – und einen
+      <b>Hitzeschild</b> unter der Kapsel für die Rückkehr!<br><br>
       Ein Orbit heißt: <b>so schnell zur Seite fliegen</b>, dass man beim Fallen immer an der
       Erde vorbeifällt!<br><br>Zünde mit <b>[Leertaste]</b> und steig senkrecht.`,
      check:(o,F)=>!F.landed && F.flew},
@@ -51,7 +52,8 @@ const TUTORIALS = [
      check:o=>o.pe>70000},
    ],
    done:`DU BIST IM ORBIT! 🎉 Du fliegst jetzt ohne Treibstoff für immer im Kreis.
-     Heimweg: SAS Retrograde, brennen bis Pe < 35 km, Atmosphäre bremst, Fallschirm [P].`},
+     Heimweg: SAS Retrograde, brennen bis Pe < 35 km – dein <b>Hitzeschild</b> übersteht
+     das Feuer des Wiedereintritts (ohne ihn: 💥!), dann Fallschirm [P].`},
 
   {id:"node", icon:"◆", title:"Manöverknoten: Reise nach Monti", sub:"Du startest direkt im Orbit – plane den Transfer.",
    scenario:{stack:["chute","pod","tankM","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:80000}},
@@ -81,7 +83,7 @@ const TUTORIALS = [
      RETROGRADE, bis Ap unter Montis SOI fällt – dann bist du eingefangen (Monti-Orbit)!`},
 
   {id:"sat", icon:"📡", title:"Satellit aussetzen", sub:"Du startest im Orbit – mit Satellit unter dem Fairing.",
-   scenario:{stack:["antenna","solar","probe","fairing","pod","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:90000}},
+   scenario:{stack:["antenna","solar","battery","probe","fairing","pod","solar","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:90000}},
    steps:[
     {text:`Du bist im 90-km-Orbit. An der Spitze deiner Rakete sitzt ein kompletter Satellit
       (Antenne + Solar + Sondenkern) unter einem weißen <b>Nutzlast-Fairing</b>.<br><br>
@@ -90,8 +92,12 @@ const TUTORIALS = [
     {text:`Da kommt der Satellit zum Vorschein! ✨<br><br>
       Setze ihn jetzt mit <b>[N]</b> aus.`,
      check:(o,F)=>F.sats.length>0},
-    {text:`📡 Der Satellit fliegt ab jetzt selbstständig auf seiner Bahn – schau ihn dir an
-      (Maus ziehen) und öffne die Karte <b>[M]</b>: Er erscheint als grüner Punkt.`,
+    {text:`📡 Der Satellit fliegt ab jetzt selbstständig weiter!<br><br>
+      Wichtig für eigene Missionen: Sonden brauchen <b>Strom</b> (⚡-Balken links unten).
+      Fahre die Solarpanele mit <b>[G]</b> aus – aber nur im Vakuum, im Fahrtwind reißen sie ab!`,
+     check:(o,F)=>F.panelsOut},
+    {text:`☀️ Die Panele laden die Batterie (+3 ⚡/s). Öffne noch die Karte <b>[M]</b>:
+      Dein Satellit erscheint als grüner Punkt auf seiner Bahn.`,
      check:(o,F)=>F.map},
    ],
    done:`Mission erfüllt! In der Karriere gibt es dafür die Mission "Erster Satellit" (+30 🧪).

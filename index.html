@@ -127,6 +127,7 @@ input[type=file]{display:none;}
   <button class="btn" onclick="UI.show('tech')">🔬 Forschung</button>
   <button class="btn" onclick="UI.saveGame()">💾 Spielstand speichern</button>
   <button class="btn" onclick="document.getElementById('loadFile').click()">📂 Spielstand laden</button>
+  <button class="btn" style="font-size:12px;padding:6px 14px;opacity:.7" onclick="resetProgress()">🗑 Fortschritt zurücksetzen</button>
   <input type="file" id="loadFile" accept=".json" onchange="UI.loadGame(this)">
   <button id="musicBtn" class="btn" style="position:absolute;top:14px;right:14px;padding:8px 14px;" onclick="toggleMusic()">🔊 Musik</button>
   <div class="tip">💡 TIPP: 3D-Steuerung – W/S nicken, A/D gieren, Q/E rollen.</div>
@@ -194,13 +195,17 @@ input[type=file]{display:none;}
   <div id="gauges">
     <div class="gauge"><div class="bar"><div id="throttleFill" class="fill"></div></div><label>Schub</label></div>
     <div class="gauge"><div class="bar"><div id="fuelFill" class="fill"></div></div><label>Tank</label></div>
+    <div class="gauge"><div class="bar"><div id="powerFill" class="fill" style="background:linear-gradient(180deg,#e8c540,#a8861a);"></div></div><label>⚡</label></div>
   </div>
+  <canvas id="crewCam" width="180" height="92" style="position:absolute;right:12px;top:150px;
+    background:rgba(10,16,32,.82);border:1px solid var(--blue-dark);border-radius:8px;display:none;"></canvas>
   <div id="hudControls">
     <button class="btn" onclick="Flight.stage()">Stufe [Leer]</button>
     <button class="btn" id="sasBtn" onclick="Flight.toggleSAS()">SAS [T]</button>
     <button class="btn" onclick="Flight.toggleChute()">Schirm [P]</button>
     <button class="btn" onclick="Flight.jettisonFairing()">Fairing [F]</button>
     <button class="btn" onclick="Flight.deploySat()">Satellit [N]</button>
+    <button class="btn" onclick="Flight.togglePanels()">☀️ Panele [G]</button>
     <button class="btn" id="infBtn" style="display:none" onclick="Flight.toggleInfinite()">∞ Tank [U]</button>
     <button class="btn" onclick="Flight.addNode()">Manöver [K]</button>
     <button class="btn" onclick="Flight.runExperiment()">Experiment [B]</button>
@@ -264,7 +269,7 @@ input[type=file]{display:none;}
   <div style="background:var(--panel);border:2px solid var(--orange);border-radius:14px;max-width:480px;margin:20px;padding:24px;">
     <h2 id="modalTitle" style="color:var(--orange);margin-bottom:12px;"></h2>
     <div id="modalText" style="font-size:15px;line-height:1.5;"></div>
-    <label style="display:flex;align-items:center;gap:8px;margin:18px 0 14px;color:var(--muted);font-size:13px;cursor:pointer;">
+    <label id="modalNoShowLabel" style="display:flex;align-items:center;gap:8px;margin:18px 0 14px;color:var(--muted);font-size:13px;cursor:pointer;">
       <input type="checkbox" id="modalNoShow" style="width:16px;height:16px;"> Nicht wieder anzeigen
     </label>
     <button class="btn orange" style="width:100%" onclick="closeHint()">Los geht's!</button>
@@ -382,14 +387,17 @@ const CATS = [
   {id:"lower",  name:"🚀 1. Stufe (Unterstufe)", sub:"Viel Schub – hebt die Rakete vom Boden."}
 ];
 const PARTS = {
-  pod:    {name:"Kommandokapsel »Leibniz I«", type:"pod",    cat:"cmd", mass:800,  w:10,h:14, tech:"start", info:"Sitz für eine mutige Pilotin / einen mutigen Piloten."},
+  pod:    {name:"Kommandokapsel »Leibniz I«", type:"pod",    cat:"cmd", mass:800,  w:10,h:14, tech:"start", charge:150, info:"Sitz für eine mutige Pilotin / einen mutigen Piloten. Interne Batterie: 150 ⚡."},
   chute:  {name:"Fallschirm Mk1",            type:"chute",  cat:"cmd", mass:100,  w:10,h:5,  tech:"start", info:"Für die sichere Landung. Mit [P] auslösen."},
   lab:    {name:"Materiallabor »Curie«",     type:"lab",    cat:"cmd", mass:180,  w:10,h:7,  tech:"basic",
            info:"Führt Experimente durch [B] – jeder neue Ort bringt einmalig Wissenschaft!"},
+  shield: {name:"Hitzeschild",               type:"shield", cat:"cmd", mass:200,  w:11,h:3,  tech:"basic",
+           info:"Ablativer Schutzschild – ohne ihn verglüht die Rakete beim Wiedereintritt aus dem Orbit!"},
   tankS:  {name:"Treibstofftank S",          type:"tank",   cat:"upper", mass:250,  fuel:1400, w:10,h:16, tech:"start", info:"1,4 t Treibstoff – klein und leicht."},
   engS:   {name:"Triebwerk »Funke«",         type:"engine", cat:"upper", mass:200,  thrust:45000, isp:300, w:10,h:8, tech:"start", info:"45 kN Schub, drosselbar."},
   tankM:  {name:"Treibstofftank M",          type:"tank",   cat:"upper", mass:450,  fuel:2800, w:10,h:28, tech:"adv", info:"2,8 t Treibstoff."},
   engVac: {name:"Triebwerk »Terrier«",       type:"engine", cat:"upper", mass:500,  thrust:60000, isp:345, w:10,h:9, tech:"adv", info:"Sehr effizient im Vakuum (Isp 345 s)."},
+  engNuc: {name:"Atom-Triebwerk »Einstein«", type:"engine", cat:"upper", mass:1200, thrust:55000, isp:520, w:10,h:14, tech:"future", info:"Isp 520 s! Schwach, aber extrem sparsam – das Triebwerk für Minzi und darüber hinaus."},
   decoupler:{name:"Stufentrenner",           type:"decoupler", cat:"struct", mass:50, w:10,h:4, tech:"basic", info:"Trennt Stufen voneinander. [Leertaste]"},
   legs:   {name:"Landebeine",                type:"legs",   cat:"struct", mass:120,  w:14,h:6, tech:"explore", info:"Erlauben Landungen bis 12 m/s (sonst 8 m/s)."},
   srb:    {name:"Feststoffbooster »Böller«", type:"srb",    cat:"lower", mass:450,  fuel:1700, thrust:230000, isp:220, w:10,h:24, tech:"basic", info:"Viel Schub, nicht drosselbar!"},
@@ -397,8 +405,9 @@ const PARTS = {
   tankL:  {name:"Treibstofftank L",          type:"tank",   cat:"lower", mass:800,  fuel:5600, w:12,h:42, tech:"heavy", info:"5,6 t Treibstoff – schwer, gehört nach unten."},
   engMain:{name:"Triebwerk »Hauptstufe«",    type:"engine", cat:"lower", mass:1500, thrust:600000, isp:290, w:12,h:12, tech:"heavy", info:"600 kN Schub für schwere Raketen."},
   srbL:   {name:"Feststoffbooster »Donner«", type:"srb",    cat:"lower", mass:900,  fuel:3800, thrust:480000, isp:230, w:12,h:34, tech:"heavy", info:"Brachialer Startschub."},
-  probe:  {name:"Sondenkern »Pixel«",        type:"probe",  cat:"sat", mass:150, w:8,h:6, tech:"payload", info:"Unbemanntes Gehirn für Satelliten."},
-  solar:  {name:"Solarpanele",               type:"solar",  cat:"sat", mass:60,  w:14,h:4, tech:"payload", info:"Strom für deinen Satelliten."},
+  probe:  {name:"Sondenkern »Pixel«",        type:"probe",  cat:"sat", mass:150, w:8,h:6, tech:"payload", charge:80, info:"Unbemanntes Gehirn – braucht ständig Strom (0,25 ⚡/s)! Interne Batterie: 80 ⚡."},
+  solar:  {name:"Solarpanele (ausfahrbar)",  type:"solar",  cat:"sat", mass:60,  w:14,h:4, tech:"payload", info:"Mit [G] ausfahren: +3 ⚡/s. Vorsicht: reißen im Fahrtwind ab!"},
+  battery:{name:"Batterie",                  type:"battery",cat:"sat", mass:60,  w:8,h:5, tech:"payload", charge:500, info:"Speichert 500 ⚡ für Sonden, SAS und Experimente."},
   antenna:{name:"Antenne »Quassel«",         type:"antenna",cat:"sat", mass:40,  w:6,h:8, tech:"payload", info:"Funkt Daten nach Leibniz."},
   fairing:{name:"Nutzlast-Fairing",          type:"fairing",cat:"sat", mass:120, w:12,h:5, tech:"payload", info:"Halber Luftwiderstand. Mit [F] absprengen!"},
   tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"payload", info:"0,7 t für Satelliten-Manöver."},
@@ -410,7 +419,8 @@ const TECH = [
   {id:"adv",     name:"Fortgeschrittener Antrieb", cost:30, desc:"Effiziente Vakuum-Triebwerke."},
   {id:"payload", name:"Nutzlasten & Satelliten", cost:45, desc:"Sondenkerne, Fairings und Satellitentechnik."},
   {id:"heavy",   name:"Schwerlast-Raketen",  cost:60,  desc:"Große Tanks, große Triebwerke."},
-  {id:"explore", name:"Erkundung",           cost:100, desc:"Landetechnik für fremde Welten."}
+  {id:"explore", name:"Erkundung",           cost:100, desc:"Landetechnik für fremde Welten."},
+  {id:"future",  name:"Zukunftstechnik",     cost:140, desc:"Atomare Antriebe für die ganz großen Reisen."}
 ];
 const MISSIONS = [
   {id:"alt5",    name:"Höhenrekord: 5 km",   desc:"Erreiche eine Höhe von 5 km.",   sci:5,  check:s=>s.alt>5000},
@@ -448,8 +458,24 @@ const MISSIONS = [
 /* ---------- Spielstand ---------- */
 let Game = newGame();
 function newGame(){
-  return {science:0, unlocked:["start"], done:[], labDone:[], sandbox:false,
+  return {science:0, unlocked:["start"], done:[], labDone:[], tutsDone:[], sandbox:false,
     design:["pod","chute","tankS","engS"]};
+}
+/* Auto-Save: Fortschritt überlebt das Schließen des Browsers.
+   (Der JSON-Download bleibt für Backups & Rechnerwechsel.) */
+function autoSave(){
+  try{ localStorage.setItem("lmgAutoSave", JSON.stringify(Game)); }catch(e){}
+}
+try{
+  const d = JSON.parse(localStorage.getItem("lmgAutoSave"));
+  if(d && Array.isArray(d.unlocked)) Game = Object.assign(newGame(), d);
+}catch(e){}
+function resetProgress(){
+  if(!confirm("Wirklich den GESAMTEN Fortschritt löschen? (Wissenschaft, Forschung, Missionen, Tutorials)")) return;
+  localStorage.removeItem("lmgAutoSave");
+  Game = newGame();
+  VAB.stack = [...Game.design];
+  alert("Fortschritt zurückgesetzt. Viel Spaß beim Neustart! 🚀");
 }
 
 /* =================================================================
@@ -469,6 +495,7 @@ const UI = {
     if(id==="tutorial") renderTutorials();
     if(id==="menu") this.inGame = false;
     updateMusic();
+    if(id!=="flight" && typeof Flight!=="undefined" && Flight.setRumble) Flight.setRumble(0);
   },
   back(){ this.show(this.prev==="flight"?"menu":this.prev); },
   startCareer(){ Game.sandbox=false; this.inGame=true; this.show("vab"); showHint("career"); },
@@ -477,6 +504,7 @@ const UI = {
     const v = VAB.validate();
     if(v){ alert(v); return; }
     Game.design = [...VAB.stack];
+    autoSave();
     Flight.start(VAB.buildVessel());
     this.show("flight");
     showHint("flight3d");
@@ -537,9 +565,10 @@ function showHint(id){
 }
 function closeHint(){
   const m = document.getElementById("modal");
-  if(document.getElementById("modalNoShow").checked)
+  if(m.dataset.hint !== "__summary" && document.getElementById("modalNoShow").checked)
     localStorage.setItem("lmgHint_"+m.dataset.hint, "1");
   m.style.display = "none";
+  document.getElementById("modalNoShowLabel").style.display = "";
 }
 
 /* ---------- Tutorials ---------- */
@@ -629,11 +658,12 @@ function renderTutorials(){
   const grid = document.getElementById("tutGrid");
   grid.innerHTML = "";
   for(const t of TUTORIALS){
+    const done = Game.tutsDone.includes(t.id);
     const div = document.createElement("div");
-    div.className = "tech-node";
-    div.innerHTML = `<h3>${t.icon} ${t.title}</h3>
+    div.className = "tech-node"+(done?" unlocked":"");
+    div.innerHTML = `<h3>${done?"✅ ":""}${t.icon} ${t.title}</h3>
       <p style="font-size:13px;color:var(--muted);margin-bottom:10px;">${t.sub}</p>
-      <button class="btn orange" onclick="Tut.start('${t.id}')">▶ Szenario starten</button>`;
+      <button class="btn ${done?"":"orange"}" onclick="Tut.start('${t.id}')">${done?"↻ Nochmal üben":"▶ Szenario starten"}</button>`;
     grid.appendChild(div);
   }
 }
@@ -673,6 +703,11 @@ const Tut = {
     Game.sandbox = this.prevSandbox;
     this.active = null;
     document.getElementById("tutOverlay").style.display = "none";
+    // Aus dem Flug zurück in die Tutorial-Übersicht
+    if(document.getElementById("flight").classList.contains("active")){
+      Flight.ended = true;
+      UI.show("tutorial");
+    }
   },
   render(){
     const el = document.getElementById("tutOverlay");
@@ -682,6 +717,7 @@ const Tut = {
     const title = document.getElementById("tutOvTitle");
     const next = document.getElementById("tutOvNext");
     if(this.idx >= t.steps.length){
+      if(!Game.tutsDone.includes(t.id)){ Game.tutsDone.push(t.id); autoSave(); }
       title.innerHTML = t.icon+" Geschafft!";
       document.getElementById("tutOvText").innerHTML = t.done;
       document.getElementById("tutOvProgress").textContent = "Tutorial abgeschlossen 🎉";
@@ -751,7 +787,7 @@ function renderTech(){
 function unlockTech(id){
   const t = TECH.find(x=>x.id===id);
   if(Game.science>=t.cost && !Game.unlocked.includes(id)){
-    Game.science -= t.cost; Game.unlocked.push(id); renderTech();
+    Game.science -= t.cost; Game.unlocked.push(id); autoSave(); renderTech();
   }
 }
 function renderMissions(){
@@ -854,6 +890,11 @@ function buildPartMesh(id){
     case "chute":
       add(cylinder(r*0.45, r*0.6, h, MAT.orange), h/2);
       break;
+    case "shield":{
+      // ablativer Schild: flacher brauner Kegelstumpf mit Goldrand
+      add(cylinder(r*0.92, r, h, new THREE.MeshStandardMaterial({color:0x6b4a26, roughness:.55})), h/2);
+      add(cylinder(r*1.02, r*1.02, h*0.3, MAT.gold), h*0.85);
+      break;}
     case "lab":{
       add(cylinder(r, r, h, MAT.white), h/2);
       add(cylinder(r*1.01, r*1.01, h*0.25, MAT.orange), h*0.78);
@@ -918,9 +959,17 @@ function buildPartMesh(id){
       add(cylinder(r*0.3,r*0.3,h,MAT.gray), h/2);
       for(const side of [-1,1]){
         const pan = new THREE.Mesh(new THREE.BoxGeometry(p.w*0.9, h*0.7, 0.25), MAT.panel);
-        pan.position.set(side*p.w*0.75, h/2, 0); g.add(pan);
+        pan.name = "wing";
+        // Drehpunkt an der Innenkante, damit das Ausfahren von innen nach außen wächst
+        pan.geometry.translate(side*p.w*0.45, 0, 0);
+        pan.position.set(side*p.w*0.3, h/2, 0); g.add(pan);
       }
       break;}
+    case "battery":
+      add(new THREE.Mesh(new THREE.BoxGeometry(p.w*0.85,h,p.w*0.85), MAT.dark), h/2);
+      add(new THREE.Mesh(new THREE.BoxGeometry(p.w*0.87,h*0.3,p.w*0.87),
+        new THREE.MeshStandardMaterial({color:0xe8c540, roughness:.5})), h*0.5);
+      break;
     case "antenna":{
       add(cylinder(0.25,0.25,h,MAT.gray,8), h/2);
       const ball = new THREE.Mesh(new THREE.SphereGeometry(r*0.5,10,10), MAT.orange);
@@ -1033,6 +1082,41 @@ function makeCloudTexture(){
       x.ellipse ? (x.beginPath(), x.ellipse(cx+(rnd()-0.5)*s*2, cy+(rnd()-0.5)*s*0.6, s*(0.4+rnd()*0.4), s*(0.2+rnd()*0.2), 0,0,7), x.fill()) : 0;
   }
   return new THREE.CanvasTexture(c);
+}
+/* NASA-Style Fallschirmkappe: rot-weiße Längsstreifen */
+function makeChuteTexture(){
+  const c = document.createElement("canvas"); c.width=256; c.height=64;
+  const x = c.getContext("2d");
+  for(let i=0;i<16;i++){
+    x.fillStyle = i%2 ? "#ffffff" : "#d23b2e";
+    x.fillRect(i*16, 0, 16, 64);
+  }
+  return new THREE.CanvasTexture(c);
+}
+let _chuteTex = null;
+/* Fallschirm-Gruppe: Kappe + Leinen; Ursprung = Befestigungspunkt (Raketenspitze) */
+function buildChuteMesh(){
+  if(!_chuteTex) _chuteTex = makeChuteTexture();
+  const g = new THREE.Group();
+  g.name = "chuteVis";
+  const R = 13, H = 22;   // Kappenradius / Höhe über Befestigung
+  const canopy = new THREE.Mesh(
+    new THREE.SphereGeometry(R, 24, 10, 0, Math.PI*2, 0, Math.PI/2),
+    new THREE.MeshStandardMaterial({map:_chuteTex, side:THREE.DoubleSide, roughness:.8}));
+  canopy.position.y = H;
+  g.add(canopy);
+  // Leinen von der Kappenkante zur Spitze
+  const pts = [];
+  for(let i=0;i<10;i++){
+    const a = i/10*Math.PI*2;
+    pts.push(new THREE.Vector3(Math.cos(a)*R*0.97, H+0.4, Math.sin(a)*R*0.97));
+    pts.push(new THREE.Vector3(0, 0, 0));
+  }
+  const lines = new THREE.LineSegments(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({color:0xe8ecf5, transparent:true, opacity:.75}));
+  g.add(lines);
+  return g;
 }
 function makeCloudSpriteTexture(){
   const c = document.createElement("canvas"); c.width=128; c.height=64;
@@ -1312,7 +1396,7 @@ const Flight = {
   t:0, throttle:1, warpI:0, map:false,
   landed:true, crashed:false, ended:false, flew:false,
   chuteOpen:false, infinite:false, msgTimer:0,
-  sats:[], debris:[], satL:false, satM:false, visitedMonti:false,
+  sats:[], debris:[], crew:[], satL:false, satM:false, visitedMonti:false,
   node:null, nodeDir:null,
   camAz:0.5, camEl:0.18, camDist:40,
   keys:{},
@@ -1445,6 +1529,7 @@ const Flight = {
       if(e.key==="f"||e.key==="F") this.jettisonFairing();
       if(e.key==="n"||e.key==="N") this.deploySat();
       if(e.key==="u"||e.key==="U") this.toggleInfinite();
+      if(e.key==="g"||e.key==="G") this.togglePanels();
       if(e.key==="t"||e.key==="T") this.toggleSAS();
       if(e.key==="k"||e.key==="K") this.addNode();
       if(e.key==="b"||e.key==="B") this.runExperiment();
@@ -1453,6 +1538,10 @@ const Flight = {
       if(e.key===",") this.warpDown();
       if(e.key==="x"||e.key==="X") this.throttle=0;
       if(e.key==="z"||e.key==="Z") this.throttle=1;
+      if(e.key==="Escape"){
+        this.paused = !this.paused;
+        this.showMsg(this.paused ? "⏸ PAUSE – weiter mit [Esc]" : "▶ Weiter geht's!", this.paused?999:1.5);
+      }
     });
     addEventListener("keyup", e=>this.keys[e.key.toLowerCase()]=false);
     // Kamera
@@ -1536,6 +1625,24 @@ const Flight = {
     this.sats.forEach(s=>this.world.remove(s.mesh));
     this.sats = []; this.satL=false; this.satM=false; this.visitedMonti=false;
     this.sas = "off"; this._cd = 0; this.expCount = 0; this._wasSpace = undefined;
+    this.heatDmg = 0; this._heatMsgT = undefined;
+    this.paused = false;
+    // Strom: Kapazität aus Kapsel/Sonde/Batterien, Panels starten eingeklappt
+    this.maxCharge = vessel.stack.reduce((a,id)=>a+(PARTS[id].charge||0), 0);
+    this.charge = this.maxCharge;
+    this.panelsOut = false; this.panelsBroken = false; this.powerDead = false;
+    this._escWarned = false; this.nodeBurned = 0; this.gLoad = 0;
+    // Statistik für den Flugbericht
+    this.statMaxAlt = 0; this.statMaxSpeed = 0;
+    this.statSci = Game.science; this.statMissions = Game.done.length;
+    // Crew: Kapsel = Pilot*in, Labor = zusätzlich Wissenschaftler*in
+    const NAMES = ["Alex","Bo","Charlie","Deniz","Eli","Fynn","Gül","Hanna","Ilias","Juno","Kim","Luca","Mika","Nova","Ola","Pia"];
+    this.crew = [];
+    if(vessel.stack.some(id=>PARTS[id].type==="pod")){
+      const pick = ()=>NAMES.splice(Math.floor(Math.random()*NAMES.length),1)[0];
+      this.crew.push("🧑‍🚀 "+pick());
+      if(vessel.stack.includes("lab")) this.crew.push("🥼 Dr. "+pick());
+    }
     this.node = null; this.nodeDir = null;
     this.debris.forEach(d=>this.world.remove(d.mesh));
     this.debris = [];
@@ -1572,6 +1679,7 @@ const Flight = {
     if(this.rocketGroup) this.scene.remove(this.rocketGroup);
     this.rocketGroup = buildRocketGroup(this.v.stack, this.v.fairingIntact);
     this.scene.add(this.rocketGroup);
+    this.attachChute();   // offener Fallschirm überlebt Stufentrennung
   },
   stage(){
     if(this.crashed||this.ended) return;
@@ -1607,6 +1715,15 @@ const Flight = {
     this.infinite = !this.infinite;
     this.showMsg(this.infinite?"∞ Endlos-Treibstoff AN (Testmodus)":"∞ Endlos-Treibstoff AUS",2);
   },
+  togglePanels(){
+    if(this.crashed||this.ended) return;
+    if(!this.v.stack.some(id=>PARTS[id].type==="solar")){
+      this.showMsg("Keine Solarpanele an Bord! ☀️",2); return;
+    }
+    if(this.panelsBroken){ this.showMsg("Die Panele sind abgerissen… 😬",2); return; }
+    this.panelsOut = !this.panelsOut;
+    this.showMsg(this.panelsOut ? "☀️ Solarpanele ausgefahren (+3 ⚡/s)" : "Solarpanele eingeklappt.",2);
+  },
   toggleSAS(){
     const order = this.node ? ["off","pro","retro","node"] : ["off","pro","retro"];
     this.sas = order[(order.indexOf(this.sas)+1) % order.length];
@@ -1619,6 +1736,7 @@ const Flight = {
     if(this.crashed||this.ended||this.landed){ this.showMsg("Manöverknoten gibt es nur im Flug!",2); return; }
     if(this.node){ this.removeNode(); return; }
     this.node = {t: this.t+120, pro:0, nor:0, rad:0};
+    this.nodeBurned = 0;
     if(!this.map) this.toggleMap();
     this.showMsg("Manöverknoten erstellt (in 2 min). Δv im Panel rechts einstellen!",4);
     this.updateNodeUI();
@@ -1654,10 +1772,13 @@ const Flight = {
     const F = s ? (s.thrust + s.srbThrust) : 0;
     const burn = F>0 ? dv*this.mass()/F : 0;
     const tTo = n.t - this.t;
+    const rest = Math.max(0, dv-(this.nodeBurned||0));
     document.getElementById("nodeStats").innerHTML =
       `Δv gesamt: <b style="color:var(--green)">${dv.toFixed(1)} m/s</b><br>
        Zeit bis Knoten: <b>${tTo>=0?tTo.toFixed(0):"VORBEI ("+(-tTo).toFixed(0)+")"} s</b><br>
-       Brenndauer ≈ <b>${burn.toFixed(0)} s</b> → bei T-${(burn/2).toFixed(0)} s zünden`;
+       Brenndauer ≈ <b>${burn.toFixed(0)} s</b> → bei T-${(burn/2).toFixed(0)} s zünden`+
+      (this.nodeBurned>0.5?`<br><b style="color:var(--orange)">Rest: ${rest.toFixed(1)} m/s</b> (Auto-Stopp bei 0)`:"")+
+      `<br><small>SAS [T] auf Knoten → Triebwerk stoppt automatisch!</small>`;
     document.getElementById("nodePro").textContent = n.pro.toFixed(0);
     document.getElementById("nodeNor").textContent = n.nor.toFixed(0);
     document.getElementById("nodeRad").textContent = n.rad.toFixed(0);
@@ -1768,8 +1889,19 @@ const Flight = {
   toggleChute(){
     const top = this.v.segs[this.v.segs.length-1];
     if(top && top.hasChute && !this.chuteOpen){
-      this.chuteOpen = true; this.showMsg("Fallschirm ausgelöst! 🪂",2);
+      this.chuteOpen = true;
+      this.chuteOpenT = this.t;
+      this.attachChute();
+      this.showMsg("Fallschirm ausgelöst! 🪂",2);
     }
+  },
+  attachChute(){
+    if(!this.chuteOpen || !this.rocketGroup) return;
+    if(this.rocketGroup.getObjectByName("chuteVis")) return;
+    const chute = buildChuteMesh();
+    chute.position.y = this.rocketGroup.userData.height;  // an der Spitze
+    chute.scale.set(0.05, 0.05, 0.05);
+    this.rocketGroup.add(chute);
   },
   /* ---------- Wissenschafts-Experimente ---------- */
   situation(){
@@ -1787,6 +1919,8 @@ const Flight = {
     if(!this.v || this.crashed || this.ended) return;
     const hasLab = this.v.segs.some(s=>s.parts.includes("lab"));
     if(!hasLab){ this.showMsg("Kein Materiallabor an Bord! 🔬",2); return; }
+    if(this.charge < 15){ this.showMsg("🪫 Zu wenig Strom – das Experiment braucht 15 ⚡!",3); return; }
+    this.charge -= 15;
     this.expCount = (this.expCount||0)+1;
     if(Game.sandbox){ this.showMsg("🔬 Experiment durchgeführt! (Im Training/Sandbox ohne Wissenschaft.)",2); return; }
     const sit = this.situation();
@@ -1795,6 +1929,7 @@ const Flight = {
     }
     Game.labDone.push(sit.id);
     Game.science += sit.sci;
+    autoSave();
     this.showMsg("🔬 Experiment "+sit.name+": +"+sit.sci+" 🧪!",4);
   },
   toggleMap(){
@@ -1833,7 +1968,7 @@ const Flight = {
   step(dt){
     if(this.crashed||this.ended) return;
     const warp = WARPS[this.warpI];
-    if(warp<=2){
+    if(warp<=2 && !this.powerDead){
       const rot = 1.2*dt, k=this.keys;
       const dq = new THREE.Quaternion();
       const apply=(axis,ang)=>{ dq.setFromAxisAngle(axis,ang); this.q.multiply(dq); };
@@ -1857,9 +1992,25 @@ const Flight = {
       if(k["arrowup"])   this.throttle=Math.min(1,this.throttle+1.2*dt);
       if(k["arrowdown"]) this.throttle=Math.max(0,this.throttle-1.2*dt);
     }
+    // --- Strom-Haushalt ---
+    const hasPod = this.v.stack.some(id=>PARTS[id].type==="pod");
+    const nSolar = this.v.stack.filter(id=>PARTS[id].type==="solar").length;
+    const gen = (this.panelsOut && !this.panelsBroken) ? 3*nSolar : 0;
+    let use = 0;
+    if(!hasPod && !this.landed) use += 0.25;       // Sondensteuerung
+    if(this.sas!=="off") use += 0.3;               // SAS
+    this.charge = Math.min(this.maxCharge, this.charge + (gen-use)*dt);
+    if(this.charge <= 0){
+      this.charge = 0;
+      if(this.sas!=="off"){ this.sas = "off"; this.showMsg("🪫 Strom leer – SAS abgeschaltet!",3); }
+      if(!hasPod && !this.powerDead){
+        this.powerDead = true;
+        this.showMsg("🪫 STROM LEER – die Sonde reagiert nicht mehr! (Panele ausfahren? [G])",4);
+      }
+    } else if(this.powerDead && this.charge > 5) this.powerDead = false;
     const m = this.mass(), s = this.activeSeg();
     let thrust = 0;
-    if(s && s.ignited && warp<=2){
+    if(s && s.ignited && warp<=2 && !this.powerDead){
       if(this.infinite){ s.fuelLeft=s.fuel; s.srbLeft=s.srbFuel; }
       if(s.fuelLeft>0 && s.thrust){
         thrust += s.thrust*this.throttle;
@@ -1872,9 +2023,19 @@ const Flight = {
         if(s.srbLeft<0) s.srbLeft=0;
       }
     }
+    // Auto-Cutoff am Manöverknoten: exakt das geplante Δv brennen, kein Überschießen
+    if(this.node && this.sas==="node" && thrust>0){
+      this.nodeBurned = (this.nodeBurned||0) + thrust/m*dt;
+      if(this.nodeBurned >= this.nodeDvTotal()){
+        thrust = 0; this.throttle = 0;
+        this.showMsg("✅ Manöver exakt abgeschlossen – Triebwerk gestoppt!",3);
+        this.removeNode();
+      }
+    }
     const dir = V3(0,1,0).applyQuaternion(this.q);
     const a = this.accel(this.pos, this.t);
     a.addScaledVector(dir, thrust/m);
+    this.gLoad = thrust/(m*G0);
     const r = this.pos.length(), alt = r-LEIBNIZ.R;
     if(alt < LEIBNIZ.atmoH){
       const rho = LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH);
@@ -1882,9 +2043,37 @@ const Flight = {
       if(v>0.1){
         let cdA = 4*(s&&s.hasFins?0.7:1);
         if(this.v.fairingIntact) cdA *= 0.5;
-        if(this.chuteOpen && alt<30000) cdA += 350;
+        if(this.chuteOpen && alt<30000) cdA += 850;
         const fd = 0.5*rho*v*v*cdA;
         a.addScaledVector(this.vel, -fd/(m*v));
+        this.gLoad = (thrust/m + fd/m)/G0;
+        // Ausgefahrene Solarpanele reißen im Fahrtwind ab
+        if(this.panelsOut && !this.panelsBroken && rho*v*v > 12000){
+          this.panelsBroken = true; this.panelsOut = false;
+          this.showMsg("💥 Solarpanele im Fahrtwind abgerissen! (Erst im Vakuum ausfahren!)",4);
+        }
+      }
+      // --- Wiedereintrittshitze: beim schnellen Sinkflug ohne Hitzeschild tödlich ---
+      const descending = this.vel.dot(this.pos) < 0;
+      const heat = rho*v*v*v;
+      if(!this.landed && descending && v>1700 && heat>5e7){
+        const shielded = this.v.stack.some(id=>PARTS[id].type==="shield");
+        if(this._heatMsgT===undefined || this.t-this._heatMsgT>4){
+          this._heatMsgT = this.t;
+          this.showMsg(shielded
+            ? "🔥 Wiedereintritt – der Hitzeschild glüht!"
+            : "⚠️🔥 KEIN HITZESCHILD – die Struktur verglüht!", 3);
+        }
+        if(!shielded){
+          this.heatDmg = (this.heatDmg||0) + heat/1.5e9*dt;
+          if(this.heatDmg>=1 && !this.crashed){
+            this.crashed = true;
+            this.warpI = 0;
+            this.explode();
+            this.showMsg("💥 Beim Wiedereintritt verglüht! Nächstes Mal einen Hitzeschild einbauen."+
+              (this.crew&&this.crew.length?" Die Crew rettet sich per Schleudersitz! 🪂":""), 99);
+          }
+        }
       }
     }
     if(this.landed){
@@ -1929,6 +2118,17 @@ const Flight = {
     }
     this.checkContact();
     this.checkMissions();
+    // Warnung beim Überschreiten der Fluchtgeschwindigkeit (relativ zu Leibniz)
+    const rL = this.pos.length();
+    const eL = this.vel.lengthSq()/2 - LEIBNIZ.mu/rL;
+    if(eL >= 0 && !this._escWarned && !this.landed){
+      this._escWarned = true;
+      this.showMsg("⚠️ FLUCHTGESCHWINDIGKEIT! Du verlässt Leibniz für immer – RETROGRADE bremsen!",5);
+    } else if(eL < -1e4) this._escWarned = false;
+    const oAlt = this.pos.length()-LEIBNIZ.R;
+    if(oAlt > this.statMaxAlt) this.statMaxAlt = oAlt;
+    const sp = this.vel.length();
+    if(sp > this.statMaxSpeed) this.statMaxSpeed = sp;
   },
   checkContact(){
     for(const b of [LEIBNIZ, ...MOONS]){
@@ -1947,10 +2147,13 @@ const Flight = {
           this.crashed = true;
           this.rocketGroup.visible = false;
           this.explode();
-          this.showMsg("💥 KABUMM! Aufschlag mit "+vrel.toFixed(0)+" m/s. Zurück ans Reißbrett!",99);
+          this.showMsg("💥 KABUMM! Aufschlag mit "+vrel.toFixed(0)+" m/s."+
+            (this.crew.length?" Die Crew rettet sich per Schleudersitz! 🪂":"")+
+            " Zurück ans Reißbrett!",99);
         } else if(!this.landed){
           this.landed = true;
-          this.showMsg("🛬 Gelandet auf "+b.name+"! ("+vrel.toFixed(1)+" m/s)",5);
+          this.showMsg("🛬 Gelandet auf "+b.name+"! ("+vrel.toFixed(1)+" m/s)"+
+            (this.crew.length?" Die Crew ist wohlauf! 👋":""),5);
         }
       }
     }
@@ -1979,6 +2182,7 @@ const Flight = {
     for(const ms of MISSIONS){
       if(!Game.done.includes(ms.id) && ms.check(state)){
         Game.done.push(ms.id); Game.science += ms.sci;
+        autoSave();
         const t = document.getElementById("milestoneToast");
         t.innerHTML = "🏆 "+ms.name+" &nbsp;+"+ms.sci+" 🧪";
         t.style.display="block";
@@ -1989,8 +2193,34 @@ const Flight = {
   },
   endFlight(){
     this.ended = true;
-    if(Tut.active){ const back = Tut.prevSandbox; Tut.stop(); Game.sandbox = back; UI.show("tutorial"); return; }
+    if(Tut.active){ Tut.stop(); return; }   // führt zurück zur Tutorial-Übersicht
     UI.show("vab");
+    this.showSummary();
+  },
+  showSummary(){
+    if(!this.flew) return;   // ohne Start kein Bericht
+    const sci = Game.science - this.statSci;
+    const missions = Game.done.length - this.statMissions;
+    const status = this.crashed ? "💥 Verloren (Crash)" :
+      this.landed ? "🛬 Sicher gelandet" : "🛰️ Im All zurückgelassen";
+    const fmt = m=> m>=10000 ? (m/1000).toFixed(1)+" km" : m.toFixed(0)+" m";
+    document.getElementById("modalTitle").innerHTML = "📋 Flugbericht";
+    document.getElementById("modalText").innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr auto;gap:4px 16px;">
+        <span>Status</span><b>${status}</b>
+        <span>Crew</span><b>${this.crew.length?this.crew.join(", ")+(this.crashed?" (per Schleudersitz gerettet 🪂)":" 👋"):"🤖 unbemannt"}</b>
+        <span>Missionszeit</span><b>${this.t.toFixed(0)} s</b>
+        <span>Maximale Höhe</span><b>${fmt(this.statMaxAlt)}</b>
+        <span>Höchstgeschwindigkeit</span><b>${this.statMaxSpeed.toFixed(0)} m/s</b>
+        <span>Satelliten ausgesetzt</span><b>${this.sats.length}</b>
+        ${Game.sandbox?"":`<span>Wissenschaft verdient</span><b style="color:var(--orange)">+${sci} 🧪</b>
+        <span>Neue Missionen</span><b style="color:var(--green)">${missions} 🏆</b>`}
+      </div>`;
+    const lbl = document.getElementById("modalNoShowLabel");
+    if(lbl) lbl.style.display = "none";
+    const m = document.getElementById("modal");
+    m.dataset.hint = "__summary";
+    m.style.display = "flex";
   },
   revert(){
     if(Tut.active){ const id = Tut.active.id; Tut.stop(); Tut.start(id); return; }
@@ -2096,9 +2326,9 @@ const Flight = {
     const host = document.getElementById("flight3d");
     const w = host.clientWidth, h = host.clientHeight;
     if(w<2||h<2) return;
-    // Physik
+    // Physik (steht still bei Pause)
     const warp = WARPS[this.warpI];
-    const frameT = warp/60;
+    const frameT = this.paused ? 0 : warp/60;
     const maxDt = warp<=2 ? 0.02 : 1.0;
     let remaining = frameT, guard=0;
     while(remaining>1e-9 && guard++<200){
@@ -2138,6 +2368,19 @@ const Flight = {
       this.rocketGroup.position.copy(dir).multiplyScalar(-hh);
       this.rocketGroup.quaternion.copy(this.q);
       setFlames(this.rocketGroup, !!burning, Math.max(0.3,this.throttle));
+      // Solarpanele aus-/einfahren (sanfte Animation)
+      const wingTarget = this.panelsOut ? 1 : 0.1;
+      this.rocketGroup.traverse(o=>{
+        if(o.name==="wing") o.scale.x += (wingTarget-o.scale.x)*0.08;
+      });
+      // Fallschirm entfaltet sich in ~1 Sekunde
+      if(this.chuteOpen){
+        const cv = this.rocketGroup.getObjectByName("chuteVis");
+        if(cv){
+          const sc = Math.min(1, 0.05 + (this.t-this.chuteOpenT)*1.1);
+          cv.scale.set(sc, sc, sc);
+        }
+      }
       // Abgas-Partikel
       if(burning && !this.map){
         const nozzle = this.pos.clone().addScaledVector(dir, -hh);
@@ -2210,6 +2453,55 @@ const Flight = {
     this.drawNavball();
     this.drawHUD();
     Tut.frame();
+  },
+  /* ---------- Kerbal-Style Crew-Porträts ---------- */
+  drawCrew(){
+    const c = document.getElementById("crewCam");
+    if(!this.crew.length || this.map){ c.style.display="none"; return; }
+    c.style.display = "block";
+    c.width = 20 + this.crew.length*84;
+    const x = c.getContext("2d");
+    x.clearRect(0,0,c.width,92);
+    // Stimmung: panisch bei hoher Belastung/Hitze/Sturz, glücklich bei Orbit/Landung
+    const o = this.orbit();
+    let mood = "neutral";
+    if(this.crashed) mood = "panic";
+    else if(this.gLoad>3 || (this._heatMsgT!==undefined && this.t-this._heatMsgT<4)) mood = "panic";
+    else if(this.landed && this.flew) mood = "happy";
+    else if(o.pe>LEIBNIZ.atmoH) mood = "happy";
+    this.crew.forEach((name, i)=>{
+      const cx = 20+i*84+32, cy = 38;
+      const seed = name.charCodeAt(name.length-1)+name.length;
+      // Helm
+      x.fillStyle = "#e8ecf5";
+      x.beginPath(); x.arc(cx,cy,30,0,7); x.fill();
+      x.fillStyle = "#9aa5bd";
+      x.beginPath(); x.arc(cx,cy,30,Math.PI*0.15,Math.PI*0.85); x.fill();
+      // Gesicht (Kerbal-grün)
+      x.fillStyle = "#7fb648";
+      x.beginPath(); x.arc(cx,cy+2,22,0,7); x.fill();
+      // Augen (groß, Kerbal-Style)
+      const blink = (performance.now()/1000 + seed) % 4 > 3.85;
+      const eyeY = cy - 2, eyeDx = 9;
+      for(const sgn of [-1,1]){
+        x.fillStyle = "#fff";
+        x.beginPath(); x.ellipse(cx+sgn*eyeDx, eyeY, 6.5, blink?1:8, 0, 0, 7); x.fill();
+        if(!blink){
+          x.fillStyle = "#222";
+          const px = mood==="panic" ? (Math.random()-0.5)*3 : 0;
+          x.beginPath(); x.arc(cx+sgn*eyeDx+px, eyeY+(mood==="panic"?-2:1), 3, 0, 7); x.fill();
+        }
+      }
+      // Mund
+      x.strokeStyle = "#2c4a12"; x.lineWidth = 2.5; x.beginPath();
+      if(mood==="happy") x.arc(cx, cy+10, 9, 0.15*Math.PI, 0.85*Math.PI);
+      else if(mood==="panic") x.ellipse(cx, cy+14, 5, 6.5, 0, 0, 7);
+      else x.moveTo(cx-7, cy+14), x.lineTo(cx+7, cy+14);
+      x.stroke();
+      // Name
+      x.fillStyle = "#e8ecf5"; x.font = "10px sans-serif"; x.textAlign = "center";
+      x.fillText(name.replace(/^[^ ]+ /,""), cx, 84);
+    });
   },
   /* ---------- Navball ---------- */
   drawNavball(){
@@ -2286,6 +2578,29 @@ const Flight = {
     const fmtAp = m=> m<0 ? "– (Fluchtbahn)" : fmt(m);
     const s = this.activeSeg();
     const fuelPct = s ? ((s.fuelLeft+s.srbLeft)/Math.max(1,(s.fuel+s.srbFuel))*100) : 0;
+    // Rest-Δv der aktiven Stufe (Ziolkowski)
+    const mNow = this.mass();
+    let dvLeft = 0;
+    if(s && s.isp){
+      const mDry = mNow - (s.fuelLeft + s.srbLeft);
+      if(mDry>0 && mNow>mDry) dvLeft = s.isp*G0*Math.log(mNow/mDry);
+    }
+    // Bremsweg-Anzeige beim Sinkflug ohne Atmosphäre (Landehilfe)
+    let brakeRow = "";
+    if(!this.landed && !this.crashed && o.body.atmoH===0 && o.alt<25000){
+      const c = this.bodyCenter(o.body);
+      const rhat = this.pos.clone().sub(c).normalize();
+      const vDown = -(this.vel.clone().sub(bodyVel(o.body,this.t)).dot(rhat));
+      if(vDown > 2){
+        const F = s ? (s.thrust+s.srbThrust) : 0;
+        const g = o.body.mu/Math.pow(o.body.R+o.alt,2);
+        const aNet = F/mNow - g;
+        const dist = aNet>0 ? vDown*vDown/(2*aNet) : Infinity;
+        const danger = dist > Math.max(0,o.alt-100);
+        brakeRow = `<div class="row"><span>Bremsweg (Vollgas)</span>
+          <span style="${danger?'color:var(--red);font-weight:700':''}">${isFinite(dist)?(dist<10000?dist.toFixed(0)+" m":(dist/1000).toFixed(1)+" km"):"∞"}</span></div>`;
+      }
+    }
     document.getElementById("hudLeft").innerHTML = `
       <div class="row"><span>Höhe (${o.body.name})</span><span>${fmt(Math.max(0,o.alt))}</span></div>
       <div class="row"><span>Geschwindigkeit</span><span>${o.speed.toFixed(0)} m/s</span></div>
@@ -2293,18 +2608,26 @@ const Flight = {
       <div class="row"><span>Periapsis</span><span>${o.pe<-o.body.R*0.99?"–":fmt(o.pe)}</span></div>
       <div class="row"><span>Stufen übrig</span><span>${this.v.segs.length}</span></div>
       <div class="row"><span>Treibstoff (Stufe)</span><span>${(s&&(s.fuel+s.srbFuel))?fuelPct.toFixed(0)+" %":"–"}</span></div>
-      <div class="row"><span>Masse</span><span>${(this.mass()/1000).toFixed(2)} t</span></div>
-      <div class="row"><span>Missionszeit</span><span>${this.t.toFixed(0)} s</span></div>`;
+      <div class="row"><span>Δv (Stufe)</span><span>${dvLeft>0?dvLeft.toFixed(0)+" m/s":"–"}</span></div>
+      ${brakeRow}
+      <div class="row"><span>Masse</span><span>${(mNow/1000).toFixed(2)} t</span></div>
+      <div class="row"><span>Missionszeit</span><span>${this.t.toFixed(0)} s</span></div>
+      <div class="row" style="margin-top:4px;border-top:1px solid var(--blue-dark);padding-top:4px;">
+        <span>${this.crew.length ? this.crew.join("<br>") : "🤖 unbemannte Sonde"}</span></div>`;
     document.getElementById("hudRight").innerHTML = `
       <b style="color:var(--orange)">⏩ Zeitraffer: ${WARPS[this.warpI]}×</b><br>
       <small style="color:var(--muted)">W/S nicken · A/D gieren · Q/E rollen<br>
       ↑/↓ Schub · Z voll · X aus · T = SAS<br>Maus = Kamera · Rad = Zoom</small>
       ${this.sas!=="off"?'<br><b style="color:var(--green)">SAS: '+(this.sas==="pro"?"PROGRADE ▲":"RETROGRADE ▼")+'</b>':""}
+      <br>⚡ ${this.charge.toFixed(0)}/${this.maxCharge}${this.panelsOut?" ☀️":""}${this.powerDead?' <b style="color:var(--red)">STROM LEER</b>':""}
       ${this.infinite?'<br><b style="color:var(--green)">∞ Endlos-Treibstoff</b>':""}
       ${this.sats.length?'<br>📡 Satelliten: '+this.sats.length:""}
       ${Game.sandbox?"":"<br>🧪 "+Game.science}`;
     document.getElementById("throttleFill").style.height=(this.throttle*100)+"%";
     document.getElementById("fuelFill").style.height=((s&&(s.fuel+s.srbFuel))?fuelPct:0)+"%";
+    document.getElementById("powerFill").style.height=(this.maxCharge?this.charge/this.maxCharge*100:0)+"%";
+    if(this.node) this.updateNodeUI();   // Countdown auch außerhalb der Karte aktuell halten
+    this.drawCrew();
   }
 };
 

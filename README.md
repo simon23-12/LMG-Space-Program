@@ -14,6 +14,18 @@
 >
 > **Musik:** `space.mp3` (Menü) · `hangar.mp3` (Montagehalle) · `inspace.mp3`
 > (sobald der Weltraum erreicht ist).
+>
+> **v3.3:** Auto-Save im Browser (JSON-Export bleibt für Backups) · Flugbericht
+> nach jedem Flug · Hitzeschild-Pflicht beim Orbital-Wiedereintritt · bemannte
+> Kapseln mit Crew · sichtbarer rot-weißer Fallschirm · Bremsweg-Anzeige bei
+> Mondlandungen · Rest-Δv der Stufe im HUD · Pause [Esc] · Atom-Triebwerk
+> »Einstein« (Tech "Zukunftstechnik").
+>
+> **v3.4:** ⚡ Strom-System (Batterien, ausfahrbare Solarpanele [G] – reißen im
+> Fahrtwind ab! – Sonden ohne Strom sind unsteuerbar, Experimente kosten 15 ⚡) ·
+> Auto-Cutoff am Manöverknoten (brennt exakt das geplante Δv – nie wieder
+> versehentlich auf Fluchtbahn!) · Fluchtgeschwindigkeits-Warnung ·
+> Kerbal-Style Crew-Porträts mit Live-Mimik (neutral/glücklich/Panik).
 
 Eine 2D-Raumfahrtsimulation im Stil von Kerbal Space Program für den Browser.
 Für die Raumfahrt-AG des Leibniz-Montessori-Gymnasiums Düsseldorf.
