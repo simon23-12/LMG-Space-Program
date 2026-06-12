@@ -150,6 +150,61 @@ const TUTORIALS = [
    done:`Wiedereintritt gemeistert! 🏅 Merke: <b>Stufe abwerfen → Retrograde mit
      Hitzeschild voraus → unter 5 km Fallschirm</b>. Ohne Schild = 💥, ohne
      Retrograde-Ausrichtung riskierst du die Crew. Jetzt bist du bereit für echte Orbit-Missionen!`},
+  {id:"burns", icon:"🧭", title:"Burn-Manöver & SAS verstehen", sub:"Prograde, Retrograde & Co. – die Sprache der Raumfahrt.",
+   scenario:{stack:["chute","pod","shield","tankM","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:100000}},
+   steps:[
+    {text:`Du bist im 100-km-Orbit. Auf dem <b>Navball</b> siehst du das grüne Symbol:
+      das ist <b>PROGRADE</b> – die Richtung, in die du gerade fliegst.<br><br>
+      Merksatz: <b>Prograde brennen = schneller werden = Bahn wird GRÖSSER</b>
+      (auf der gegenüberliegenden Seite!).<br><br>
+      Drücke <b>[T]</b>, bis SAS: PROGRADE aktiv ist.`,
+     check:(o,F)=>F.sas==="pro"},
+    {text:`Das SAS hält die Nase jetzt automatisch auf Prograde. 🎯<br><br>
+      Gib Vollgas <b>[Z]</b> und beobachte links die <b>Apoapsis</b>:
+      Sie wächst – aber nicht hier, sondern auf der GEGENSEITE deiner Bahn!
+      (Karte [M] zeigt es live.)<br><br>
+      Brenne, bis <b>Ap über 200 km</b> liegt, dann Triebwerk aus [X].`,
+     check:o=>o.ap>200000},
+    {text:`Jetzt das Gegenteil: <b>RETROGRADE</b> = gegen die Flugrichtung brennen
+      = langsamer werden = <b>Bahn wird KLEINER</b>.<br><br>
+      Drücke <b>[T]</b>, bis SAS: RETROGRADE aktiv ist – die Rakete dreht sich um 180°.`,
+     check:(o,F)=>F.sas==="retro"},
+    {text:`Vollgas <b>[Z]</b> – und sieh zu, wie die Apoapsis wieder schrumpft!<br><br>
+      Brenne, bis <b>Ap wieder unter 130 km</b> liegt, dann [X].<br><br>
+      💡 So funktioniert ALLES in der Raumfahrt: höher = prograde, runter = retrograde,
+      immer am richtigen Punkt der Bahn.`,
+     check:o=>o.ap>0 && o.ap<130000},
+    {text:`Die letzten zwei Richtungen (für Profis):<br><br>
+      <b>NORMAL</b> (senkrecht zur Bahnebene) kippt deine Bahnneigung –
+      wichtig für Minzis geneigte Bahn.<br>
+      <b>RADIAL</b> (zum Planeten hin/weg) dreht die Bahn, ohne die Größe stark zu ändern.<br><br>
+      Beides stellst du am <b>Manöverknoten [K]</b> ein – dort heißen die Regler genauso!`},
+   ],
+   done:`Du sprichst jetzt Raumfahrt! 🧭 Prograde = größer, Retrograde = kleiner,
+     Normal = Neigung, Radial = Drehung. Mit [T] hält das SAS jede Richtung automatisch –
+     und am Manöverknoten brennt das Triebwerk exakt das geplante Δv.`},
+
+  {id:"evatut", icon:"🧑‍🚀", title:"Außeneinsatz (EVA)", sub:"Aussteigen, schweben, sicher zurückkommen.",
+   scenario:{stack:["chute","pod","shield","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:120000}},
+   steps:[
+    {text:`Du bist im 120-km-Orbit – Zeit für den berühmtesten Moment der Raumfahrt:
+      den <b>Weltraumspaziergang</b>!<br><br>
+      Öffne die Luke mit <b>[V]</b>.`,
+     check:(o,F)=>!!F.eva},
+    {text:`Da schwebt deine Pilotin / dein Pilot! 🧑‍🚀<br><br>
+      Das <b>Jetpack</b> steuert sich kamera-relativ: <b>W/S</b> = vor/zurück,
+      <b>A/D</b> = links/rechts, <b>↑/↓</b> = hoch/runter. Die Maus dreht die Kamera.<br><br>
+      Entferne dich mindestens <b>40 m</b> vom Schiff (Abstand oben rechts).`,
+     check:(o,F)=>F.eva && F.eva.pos.distanceTo(F.pos)>40},
+    {text:`Schau dir dein Schiff von außen an – und Leibniz unter dir! 🌍<br><br>
+      Aber Vorsicht: Wer zu weit abdriftet, kommt nicht zurück.
+      Flieg jetzt <b>zurück zum Schiff</b> (unter 60 m) und steig mit <b>[V]</b> wieder ein.`,
+     check:(o,F)=>!F.eva},
+   ],
+   done:`Sicher zurück an Bord! 🛰️ Merke: Im Orbit bewegt sich die Astronautin mit
+     derselben Bahngeschwindigkeit wie das Schiff – kleine Jetpack-Stöße reichen.
+     EVA geht nur mit Crew (Kommandokapsel) und nur im Weltraum.`},
+
   {id:"science", icon:"🔬", title:"Wissenschaft sammeln", sub:"Du startest im Orbit mit Labor an Bord.",
    scenario:{stack:["chute","pod","lab","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:100000}},
    steps:[
