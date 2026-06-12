@@ -29,7 +29,7 @@ const TUTORIALS = [
      Nächster Schritt: das Tutorial <b>In den Orbit</b>!`},
 
   {id:"orbit", icon:"🛰️", title:"In den Orbit", sub:"Zweistufige Rakete steht bereit – flieg den Gravity Turn.",
-   scenario:{stack:["chute","pod","shield","tankM","engVac","decoupler","tankL","tankL","engMain"]},
+   scenario:{stack:["chute","pod","shield","rcs","tankM","engVac","decoupler","tankL","tankL","engMain"]},
    steps:[
     {text:`Diese zweistufige Rakete hat genug Δv für einen Orbit (~3400 m/s) – und einen
       <b>Hitzeschild</b> unter der Kapsel für die Rückkehr!<br><br>
@@ -56,7 +56,7 @@ const TUTORIALS = [
      das Feuer des Wiedereintritts (ohne ihn: 💥!), dann Fallschirm [P].`},
 
   {id:"node", icon:"◆", title:"Manöverknoten: Reise nach Monti", sub:"Du startest direkt im Orbit – plane den Transfer.",
-   scenario:{stack:["chute","pod","tankM","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:80000}},
+   scenario:{stack:["chute","pod","rcs","tankM","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:80000}},
    steps:[
     {text:`Du bist bereits in einem 80-km-Orbit – mit vollen Tanks (~2600 m/s Δv).
       Ziel: der Mond <b>Monti</b>!<br><br>Öffne zuerst die Karte mit <b>[M]</b>.`,
@@ -83,7 +83,7 @@ const TUTORIALS = [
      RETROGRADE, bis Ap unter Montis SOI fällt – dann bist du eingefangen (Monti-Orbit)!`},
 
   {id:"sat", icon:"📡", title:"Satellit aussetzen", sub:"Du startest im Orbit – mit Satellit unter dem Fairing.",
-   scenario:{stack:["antenna","solar","battery","probe","fairing","pod","solar","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:90000}},
+   scenario:{stack:["antenna","solar","battery","probe","fairing","pod","rcs","solar","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:90000}},
    steps:[
     {text:`Du bist im 90-km-Orbit. An der Spitze deiner Rakete sitzt ein kompletter Satellit
       (Antenne + Solar + Sondenkern) unter einem weißen <b>Nutzlast-Fairing</b>.<br><br>
@@ -104,7 +104,7 @@ const TUTORIALS = [
      Profi-Ziel: ein Satellit im Orbit um Monti oder Minzi!`},
 
   {id:"land", icon:"🛬", title:"Mondlandung auf Monti", sub:"Du startest im tiefen Monti-Orbit – setz den Lander auf.",
-   scenario:{stack:["pod","tankM","engVac","legs"], orbit:{body:"MONTI", alt:15000}},
+   scenario:{stack:["pod","rcs","tankM","engVac","legs"], orbit:{body:"MONTI", alt:15000}},
    steps:[
     {text:`Du umkreist Monti in 15 km Höhe. Dein Lander hat Landebeine (verzeihen bis 12 m/s)
       – aber Monti hat <b>keine Atmosphäre</b>: kein Fallschirm, nur Triebwerksbremsen!<br><br>
@@ -124,7 +124,7 @@ const TUTORIALS = [
      (Crash gehabt? <b>↩ Neustart</b> setzt das Szenario zurück.)`},
 
   {id:"reentry", icon:"🔥", title:"Wiedereintritt überleben", sub:"Stufe abtrennen, Schild ausrichten, Schirm ziehen.",
-   scenario:{stack:["chute","pod","shield","decoupler","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:75000, pe:28000}},
+   scenario:{stack:["chute","pod","shield","rcs","decoupler","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:75000, pe:28000}},
    steps:[
     {text:`Rückkehr vom Orbit! Deine Bahn taucht bereits in die Atmosphäre
       (Periapsis 28 km – sieh in der Karte <b>[M]</b> nach).<br><br>
@@ -151,7 +151,7 @@ const TUTORIALS = [
      Hitzeschild voraus → unter 5 km Fallschirm</b>. Ohne Schild = 💥, ohne
      Retrograde-Ausrichtung riskierst du die Crew. Jetzt bist du bereit für echte Orbit-Missionen!`},
   {id:"burns", icon:"🧭", title:"Burn-Manöver & SAS verstehen", sub:"Prograde, Retrograde & Co. – die Sprache der Raumfahrt.",
-   scenario:{stack:["chute","pod","shield","tankM","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:100000}},
+   scenario:{stack:["chute","pod","shield","rcs","tankM","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:100000}},
    steps:[
     {text:`Du bist im 100-km-Orbit. Auf dem <b>Navball</b> siehst du das grüne Symbol:
       das ist <b>PROGRADE</b> – die Richtung, in die du gerade fliegst.<br><br>
@@ -185,7 +185,7 @@ const TUTORIALS = [
      und am Manöverknoten brennt das Triebwerk exakt das geplante Δv.`},
 
   {id:"evatut", icon:"🧑‍🚀", title:"Außeneinsatz (EVA)", sub:"Aussteigen, schweben, sicher zurückkommen.",
-   scenario:{stack:["chute","pod","shield","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:120000}},
+   scenario:{stack:["chute","pod","shield","rcs","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:120000}},
    steps:[
     {text:`Du bist im 120-km-Orbit – Zeit für den berühmtesten Moment der Raumfahrt:
       den <b>Weltraumspaziergang</b>!<br><br>
@@ -206,7 +206,7 @@ const TUTORIALS = [
      EVA geht nur mit Crew (Kommandokapsel) und nur im Weltraum.`},
 
   {id:"science", icon:"🔬", title:"Wissenschaft sammeln", sub:"Du startest im Orbit mit Labor an Bord.",
-   scenario:{stack:["chute","pod","lab","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:100000}},
+   scenario:{stack:["chute","pod","lab","rcs","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:100000}},
    steps:[
     {text:`Dein Schiff hat ein <b>Materiallabor »Curie«</b> an Bord (das Modul mit den
       leuchtenden Fenstern). Du bist im nahen Weltraum über Leibniz.<br><br>
