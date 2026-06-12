@@ -207,6 +207,7 @@ input[type=file]{display:none;}
     <button class="btn" onclick="Flight.jettisonFairing()">Fairing [F]</button>
     <button class="btn" onclick="Flight.deploySat()">Satellit [N]</button>
     <button class="btn" onclick="Flight.togglePanels()">☀️ Panele [G]</button>
+    <button class="btn" onclick="Flight.toggleEVA()">🧑‍🚀 EVA [V]</button>
     <button class="btn" id="infBtn" style="display:none" onclick="Flight.toggleInfinite()">∞ Tank [U]</button>
     <button class="btn" onclick="Flight.addNode()">Manöver [K]</button>
     <button class="btn" onclick="Flight.runExperiment()">Experiment [B]</button>
@@ -400,7 +401,9 @@ const CATS = [
   {id:"lower",  name:"🚀 1. Stufe (Unterstufe)", sub:"Viel Schub – hebt die Rakete vom Boden."}
 ];
 const PARTS = {
-  pod:    {name:"Kommandokapsel »Leibniz I«", type:"pod",    cat:"cmd", mass:800,  w:10,h:14, tech:"start", charge:150, info:"Sitz für eine mutige Pilotin / einen mutigen Piloten. Interne Batterie: 150 ⚡."},
+  probePod:{name:"Sondenkapsel »Fernblick«",  type:"probe",  cat:"cmd", mass:400,  w:10,h:10, tech:"start", charge:200,
+            info:"Ferngesteuerte Kapsel – fliegt unbemannt. Braucht Strom (0,25 ⚡/s)! Interne Batterie: 200 ⚡."},
+  pod:    {name:"Kommandokapsel »Leibniz I«", type:"pod",    cat:"cmd", mass:800,  w:10,h:14, tech:"crewed", charge:150, info:"Sitz für eine mutige Pilotin / einen mutigen Piloten. Interne Batterie: 150 ⚡."},
   chute:  {name:"Fallschirm Mk1",            type:"chute",  cat:"cmd", mass:100,  w:10,h:5,  tech:"start", info:"Für die sichere Landung. Mit [P] auslösen."},
   lab:    {name:"Materiallabor »Curie«",     type:"lab",    cat:"cmd", mass:180,  w:10,h:7,  tech:"surv",
            info:"Führt Experimente durch [B] – jeder neue Ort bringt einmalig Wissenschaft!"},
@@ -421,6 +424,8 @@ const PARTS = {
   probe:  {name:"Sondenkern »Pixel«",        type:"probe",  cat:"sat", mass:150, w:8,h:6, tech:"payload", charge:80, info:"Unbemanntes Gehirn – braucht ständig Strom (0,25 ⚡/s)! Interne Batterie: 80 ⚡."},
   solar:  {name:"Solarpanele (ausfahrbar)",  type:"solar",  cat:"sat", mass:60,  w:14,h:4, tech:"payload", info:"Mit [G] ausfahren: +3 ⚡/s. Vorsicht: reißen im Fahrtwind ab!"},
   battery:{name:"Batterie",                  type:"battery",cat:"sat", mass:60,  w:8,h:5, tech:"payload", charge:500, info:"Speichert 500 ⚡ für Sonden, SAS und Experimente."},
+  bay:    {name:"Servicebucht",              type:"bay",    cat:"sat", mass:80,  w:11,h:9, tech:"payload",
+           info:"Aerodynamischer Stauraum: verkleidet das Bauteil DIREKT DARÜBER (Batterie, Labor …) und senkt den Luftwiderstand."},
   antenna:{name:"Antenne »Quassel«",         type:"antenna",cat:"sat", mass:40,  w:6,h:8, tech:"payload", info:"Funkt Daten nach Leibniz."},
   fairing:{name:"Nutzlast-Fairing",          type:"fairing",cat:"sat", mass:120, w:12,h:5, tech:"payload", info:"Halber Luftwiderstand. Mit [F] absprengen!"},
   tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"fine", info:"0,7 t für Satelliten-Manöver."},
@@ -432,6 +437,7 @@ const TECH = [
   {id:"basic",     name:"Feststoffraketen",       cost:10,  req:["start"],              desc:"Booster und Flossen für stabile Starts."},
   {id:"struct",    name:"Strukturbau",            cost:12,  req:["start"],              desc:"Stufentrennung – der Schlüssel zu großen Raketen."},
   {id:"surv",      name:"Überleben & Forschung",  cost:18,  req:["basic"],              desc:"Hitzeschild für die Rückkehr, Labor für die Wissenschaft."},
+  {id:"crewed",    name:"Bemannte Raumfahrt",     cost:25,  req:["surv"],               desc:"Lebenserhaltung & Sitze: Jetzt fliegen echte Pilot*innen mit!"},
   {id:"advProp",   name:"Flüssigtriebwerke II",   cost:30,  req:["basic","struct"],     desc:"Effiziente Vakuum-Triebwerke und mittlere Tanks."},
   {id:"payload",   name:"Satellitentechnik",      cost:45,  req:["advProp"],            desc:"Sondenkerne, Solarpanele, Batterien, Fairings."},
   {id:"fine",      name:"Feinwerktechnik",        cost:40,  req:["payload"],            desc:"Miniatur-Antriebe für präzise Satelliten-Manöver."},
@@ -809,22 +815,51 @@ function tutNav(d){
 /* ---------- Forschung & Missionen ---------- */
 function renderTech(){
   document.getElementById("techSci").textContent = sciBadge();
-  const grid = document.getElementById("techGrid"); grid.innerHTML = "";
+  const grid = document.getElementById("techGrid");
+  // KSP-Style: Spalten = Abhängigkeitstiefe, Verbindungslinien zeigen die Äste
+  const depth = {};
+  const calc = t => depth[t.id] ?? (depth[t.id] =
+    t.req.length ? Math.max(...t.req.map(id=>calc(TECH.find(x=>x.id===id))))+1 : 0);
+  TECH.forEach(calc);
+  const cols = [];
+  for(const t of TECH) (cols[depth[t.id]] = cols[depth[t.id]]||[]).push(t);
+  const row = {};
+  cols.forEach((col,ci)=>{
+    if(ci>0) col.sort((a,b)=>{
+      const avg = t=>t.req.reduce((s,id)=>s+(row[id]??0),0)/Math.max(1,t.req.length);
+      return avg(a)-avg(b);
+    });
+    col.forEach((t,ri)=>row[t.id]=ri);
+  });
+  const CW=255, CH=225, NW=215;
+  const W = cols.length*CW+20, H = Math.max(...cols.map(c=>c.length))*CH+20;
+  document.getElementById("tech").style.overflowX = "auto";
+  grid.style.cssText = `position:relative;width:${W}px;height:${H}px;max-width:none;flex:none;align-self:flex-start;margin:0 auto;`;
+  // Verbindungslinien (Äste)
+  grid.innerHTML = `<svg width="${W}" height="${H}" style="position:absolute;left:0;top:0;pointer-events:none;">`+
+    TECH.flatMap(t=>t.req.map(rid=>{
+      const x1=depth[rid]*CW+10+NW, y1=row[rid]*CH+55;
+      const x2=depth[t.id]*CW+10,  y2=row[t.id]*CH+55;
+      const ok = isUnlocked(rid) && isUnlocked(t.id);
+      const half = isUnlocked(rid) && !isUnlocked(t.id);
+      return `<path d="M${x1},${y1} C${x1+45},${y1} ${x2-45},${y2} ${x2},${y2}"
+        fill="none" stroke="${ok?"#4caf50":half?"#f7941d":"#2a3a64"}" stroke-width="2.5"/>`;
+    })).join("")+`</svg>`;
   for(const t of TECH){
     const parts = Object.values(PARTS).filter(p=>p.tech===t.id).map(p=>"<li>"+p.name+"</li>").join("");
     const un = isUnlocked(t.id);
     const reqOk = t.req.every(id=>isUnlocked(id));
     const can = !un && reqOk && Game.science>=t.cost;
-    const reqNames = t.req.map(id=>TECH.find(x=>x.id===id).name).join(" + ");
     const div = document.createElement("div");
     div.className = "tech-node"+(un?" unlocked":"");
-    if(!un && !reqOk) div.style.opacity = ".45";
-    div.innerHTML = `<h3>${un?"✅ ":!reqOk?"🔒 ":""}${t.name}</h3>
-      <p style="font-size:13px">${t.desc}</p>
-      ${t.req.length?`<p style="font-size:11px;color:var(--muted)">⬑ benötigt: ${reqNames}</p>`:""}
-      <ul>${parts}</ul>` +
-      (un ? `<b style="color:var(--green)">Freigeschaltet</b>`
-          : `<button class="btn orange" ${can?"":"disabled"} onclick="unlockTech('${t.id}')">Erforschen (🧪 ${t.cost})</button>`);
+    div.style.cssText = `position:absolute;left:${depth[t.id]*CW+10}px;top:${row[t.id]*CH+10}px;width:${NW}px;padding:10px;`;
+    if(!un && !reqOk) div.style.opacity = ".5";
+    div.innerHTML = `<h3 style="font-size:14px">${un?"✅ ":!reqOk?"🔒 ":""}${t.name}</h3>
+      <p style="font-size:11px;color:var(--muted)">${t.desc}</p>
+      <ul style="font-size:11px;margin:4px 0 8px 16px">${parts}</ul>` +
+      (un ? `<b style="color:var(--green);font-size:12px">Freigeschaltet</b>`
+          : `<button class="btn orange" style="padding:5px 10px;font-size:12px" ${can?"":"disabled"}
+              onclick="unlockTech('${t.id}')">Erforschen (🧪 ${t.cost})</button>`);
     grid.appendChild(div);
   }
 }
@@ -968,6 +1003,17 @@ function buildPartMesh(id){
   const p = PARTS[id], g = new THREE.Group();
   const r = p.w/2, h = p.h;
   const add = (m,y)=>{ m.position.y = y; g.add(m); return m; };
+  if(id==="probePod"){
+    // Sondenkapsel: gedrungener Kegel, dunkler, mit Antennenstummel & Sensorauge
+    add(cylinder(r*0.35, r, h, new THREE.MeshStandardMaterial({color:0xb9c0cf, roughness:.4, metalness:.4})), h/2);
+    add(cylinder(r*1.01, r*1.01, h*0.18, MAT.red), h*0.18);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(r*0.22,10,10),
+      new THREE.MeshBasicMaterial({color:0x9fd8ff}));
+    eye.position.set(0, h*0.55, r*0.6); g.add(eye);
+    const ant = cylinder(0.2,0.2,h*0.5,MAT.gray,6);
+    ant.position.set(0, h*1.2, 0); g.add(ant);
+    return g;
+  }
   switch(p.type){
     case "pod":{
       add(cylinder(r*0.22, r, h, MAT.white), h/2);
@@ -1066,6 +1112,13 @@ function buildPartMesh(id){
     case "fairing":
       add(cylinder(r,r,h,MAT.orange), h/2);
       break;
+    case "bay":{
+      // Achteckige Bucht mit Tor-Streifen
+      add(cylinder(r, r, h, MAT.white, 8), h/2);
+      add(cylinder(r*1.01, r*1.01, h*0.18, MAT.orange, 8), h*0.5);
+      add(cylinder(r*1.02, r*1.02, h*0.08, MAT.dark, 8), h*0.06);
+      add(cylinder(r*1.02, r*1.02, h*0.08, MAT.dark, 8), h*0.94);
+      break;}
   }
   return g;
 }
@@ -1073,13 +1126,26 @@ function buildPartMesh(id){
 function buildRocketGroup(stack, fairingIntact){
   const grp = new THREE.Group();
   const fIdx = stack.findIndex(id=>PARTS[id].type==="fairing");
+  // Servicebuchten verkleiden das Bauteil direkt darüber
+  const inBay = new Set();
+  stack.forEach((id,i)=>{ if(PARTS[id].type==="bay" && i>0) inBay.add(i-1); });
   let y = 0;
   for(let i=stack.length-1; i>=0; i--){
     const id = stack[i], p = PARTS[id];
     if(fairingIntact && fIdx>=0 && i<fIdx){ y += p.h; continue; } // unter der Hülle
+    if(inBay.has(i)){ y += p.h; continue; }   // sitzt unsichtbar in der Bucht
     const mesh = buildPartMesh(id);
     mesh.position.y = y;
     grp.add(mesh);
+    if(p.type==="bay" && i>0 && inBay.has(i-1)){
+      const hh2 = PARTS[stack[i-1]].h;
+      const shell = new THREE.Mesh(new THREE.CylinderGeometry(p.w/2, p.w/2, hh2+0.6, 8), MAT.white);
+      shell.position.y = y + p.h + hh2/2;
+      grp.add(shell);
+      const lid = new THREE.Mesh(new THREE.CylinderGeometry(p.w*0.35, p.w/2, 1.2, 8), MAT.gray);
+      lid.position.y = y + p.h + hh2 + 0.9;
+      grp.add(lid);
+    }
     if(fairingIntact && fIdx===i && fIdx>0){
       const coveredH = stack.slice(0,fIdx).reduce((a,pid)=>a+PARTS[pid].h,0);
       const shell = new THREE.Mesh(
@@ -1188,22 +1254,51 @@ function buildChuteMesh(){
   const g = new THREE.Group();
   g.name = "chuteVis";
   const R = 13, H = 22;   // Kappenradius / Höhe über Befestigung
+  // Aerodynamisch geschwungenes Profil (Lathe): prall gefüllte Kuppel
+  // mit nach innen gerollter Unterkante – wie ein echter Apollo-Schirm.
+  const prof = [
+    [0.00, 1.00],[0.30, 0.985],[0.55, 0.93],[0.74, 0.84],
+    [0.88, 0.71],[0.965, 0.56],[1.00, 0.40],[0.985, 0.30],[0.94, 0.255]
+  ].map(p=>new THREE.Vector2(p[0]*R, p[1]*R*0.85));
   const canopy = new THREE.Mesh(
-    new THREE.SphereGeometry(R, 24, 10, 0, Math.PI*2, 0, Math.PI/2),
-    new THREE.MeshStandardMaterial({map:_chuteTex, side:THREE.DoubleSide, roughness:.8}));
-  canopy.position.y = H;
+    new THREE.LatheGeometry(prof, 36),
+    new THREE.MeshStandardMaterial({map:_chuteTex, side:THREE.DoubleSide, roughness:.75}));
+  canopy.position.y = H - R*0.3;
   g.add(canopy);
-  // Leinen von der Kappenkante zur Spitze
+  // Leinen von der eingerollten Kante zur Spitze
+  const rimR = 0.94*R, rimY = H - R*0.3 + 0.255*R*0.85;
   const pts = [];
-  for(let i=0;i<10;i++){
-    const a = i/10*Math.PI*2;
-    pts.push(new THREE.Vector3(Math.cos(a)*R*0.97, H+0.4, Math.sin(a)*R*0.97));
+  for(let i=0;i<12;i++){
+    const a = i/12*Math.PI*2;
+    pts.push(new THREE.Vector3(Math.cos(a)*rimR, rimY, Math.sin(a)*rimR));
     pts.push(new THREE.Vector3(0, 0, 0));
   }
   const lines = new THREE.LineSegments(
     new THREE.BufferGeometry().setFromPoints(pts),
     new THREE.LineBasicMaterial({color:0xe8ecf5, transparent:true, opacity:.75}));
   g.add(lines);
+  return g;
+}
+/* Astronaut*in für Außeneinsätze (EVA) – ca. 2 m groß */
+function buildAstronaut(){
+  const g = new THREE.Group();
+  const suit = new THREE.MeshStandardMaterial({color:0xe8ecf5, roughness:.6});
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.42,1.1,10), suit);
+  body.position.y = 0.55; g.add(body);
+  for(const s of [-1,1]){
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,0.8,6), suit);
+    arm.position.set(s*0.48,0.7,0); arm.rotation.z = s*0.5; g.add(arm);
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.7,6), suit);
+    leg.position.set(s*0.18,-0.3,0); g.add(leg);
+  }
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.42,14,12), suit);
+  helmet.position.y = 1.5; g.add(helmet);
+  const face = new THREE.Mesh(new THREE.SphereGeometry(0.3,12,10),
+    new THREE.MeshStandardMaterial({color:0x7fb648}));
+  face.position.set(0,1.5,0.17); g.add(face);
+  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.9,0.32),
+    new THREE.MeshStandardMaterial({color:0x3a4254}));
+  pack.position.set(0,0.75,-0.42); g.add(pack);
   return g;
 }
 function makeCloudSpriteTexture(){
@@ -1664,8 +1759,9 @@ const Flight = {
       if(e.key==="m"||e.key==="M") this.toggleMap();
       if(e.key===".") this.warpUp();
       if(e.key===",") this.warpDown();
-      if(e.key==="x"||e.key==="X") this.throttle=0;
-      if(e.key==="z"||e.key==="Z") this.throttle=1;
+      if(e.key==="v"||e.key==="V") this.toggleEVA();
+      if((e.key==="x"||e.key==="X") && !this.eva) this.throttle=0;
+      if((e.key==="z"||e.key==="Z") && !this.eva) this.throttle=1;
       if(e.key==="Escape"){
         this.paused = !this.paused;
         this.showMsg(this.paused ? "⏸ PAUSE – weiter mit [Esc]" : "▶ Weiter geht's!", this.paused?999:1.5);
@@ -1684,7 +1780,7 @@ const Flight = {
     addEventListener("pointerup", ()=>drag=null);
     host.addEventListener("wheel", e=>{
       const max = this.map ? 6e10 : 5000;
-      this.camDist = Math.min(max, Math.max(12, this.camDist*(e.deltaY>0?1.15:1/1.15)));
+      this.camDist = Math.min(max, Math.max(4, this.camDist*(e.deltaY>0?1.15:1/1.15)));
     }, {passive:true});
   },
   buildPad(){
@@ -1757,6 +1853,7 @@ const Flight = {
     this.chuteOpen=false; this.infinite=false;
     this.sats.forEach(s=>this.world.remove(s.mesh));
     this.sats = []; this.satL=false; this.satM=false; this.visitedMonti=false;
+    if(this.eva){ this.world.remove(this.eva.mesh); this.eva = null; }
     this.sas = "off"; this._cd = 0; this.expCount = 0; this._wasSpace = undefined;
     this.heatDmg = 0; this._heatMsgT = undefined;
     this.paused = false;
@@ -1858,6 +1955,31 @@ const Flight = {
     const btn = document.getElementById("hudToggle");
     btn.textContent = this.hudMode===0 ? "⌨ [H]" :
       this.hudMode===1 ? "⌨ HUD aus [H]" : "⌨ alles zeigen [H]";
+  },
+  toggleEVA(){
+    if(this.crashed||this.ended) return;
+    if(this.eva){
+      const d = this.eva.pos.distanceTo(this.pos);
+      if(d < 60){
+        this.world.remove(this.eva.mesh);
+        this.eva = null;
+        this.camDist = Math.max(35, this.height()*2.2);
+        this.showMsg("🧑‍🚀 Wieder sicher an Bord – Luke zu!",2);
+      } else {
+        this.showMsg("Zu weit weg zum Einsteigen ("+d.toFixed(0)+" m) – flieg mit W/A/S/D zurück!",3);
+      }
+      return;
+    }
+    if(!this.crew.length){ this.showMsg("EVA geht nur mit Crew an Bord! 🧑‍🚀",2); return; }
+    if(this.landed || leibnizAlt(this.pos,this.t) < LEIBNIZ.atmoH){
+      this.showMsg("EVA nur im Weltraum (über 70 km)!",2); return;
+    }
+    const fr = this.frameAt(this.pos);
+    const mesh = buildAstronaut();
+    this.world.add(mesh);
+    this.eva = {pos:this.pos.clone().addScaledVector(fr.up, 12), vel:this.vel.clone(), mesh};
+    this.camDist = 14;
+    this.showMsg("🧑‍🚀 "+this.crew[0].replace(/^[^ ]+ /,"")+" schwebt im All! Jetpack: W/A/S/D + ↑/↓ · [V] = einsteigen",5);
   },
   togglePanels(){
     if(this.crashed||this.ended) return;
@@ -2115,7 +2237,7 @@ const Flight = {
   step(dt){
     if(this.crashed||this.ended) return;
     const warp = WARPS[this.warpI];
-    if(warp<=2 && !this.powerDead){
+    if(warp<=2 && !this.powerDead && !this.eva){
       const rot = 1.2*dt, k=this.keys;
       const dq = new THREE.Quaternion();
       const apply=(axis,ang)=>{ dq.setFromAxisAngle(axis,ang); this.q.multiply(dq); };
@@ -2201,6 +2323,8 @@ const Flight = {
       if(v>0.1){
         let cdA = 4*(s&&s.hasFins?0.7:1);
         if(this.v.fairingIntact) cdA *= 0.5;
+        const nBay = this.v.stack.filter(id=>PARTS[id].type==="bay").length;
+        if(nBay) cdA *= Math.pow(0.92, Math.min(2,nBay));
         if(this.chuteOpen && alt<30000) cdA += 850;
         const fd = 0.5*rho*v*v*cdA;
         // numerisch stabil: Bremsimpuls pro Schritt darf die Geschwindigkeit
@@ -2284,6 +2408,24 @@ const Flight = {
         if(!ok) this.world.remove(sat.mesh);
         return ok;
       });
+    }
+    // EVA-Astronaut*in: Schwerkraft + Jetpack (Kamera-relativ)
+    if(this.eva){
+      const ea = this.accel(this.eva.pos, this.t);
+      if(warp<=2){
+        const k3 = this.keys, jp = 3;
+        const fwd = V3(0,0,-1).applyQuaternion(this.camera.quaternion);
+        const right = V3(1,0,0).applyQuaternion(this.camera.quaternion);
+        const up3 = V3(0,1,0).applyQuaternion(this.camera.quaternion);
+        if(k3["w"]) ea.addScaledVector(fwd, jp);
+        if(k3["s"]) ea.addScaledVector(fwd, -jp);
+        if(k3["a"]) ea.addScaledVector(right, -jp);
+        if(k3["d"]) ea.addScaledVector(right, jp);
+        if(k3["arrowup"]) ea.addScaledVector(up3, jp);
+        if(k3["arrowdown"]) ea.addScaledVector(up3, -jp);
+      }
+      this.eva.vel.addScaledVector(ea, dt);
+      this.eva.pos.addScaledVector(this.eva.vel, dt);
     }
     // Trümmer abgeworfener Stufen weiterfliegen lassen
     for(const d of this.debris){
@@ -2572,10 +2714,10 @@ const Flight = {
       const localT = 2*Math.PI*Math.sqrt(dd*dd*dd/db.mu);
       maxDt = Math.min(600, Math.max(1.0, localT/4000));
     }
-    let remaining = frameT, guard=0;
+    let remaining = frameT, guard=0, simmed=0;
     while(remaining>1e-9 && guard++<400){
       const dt = Math.min(maxDt, remaining);
-      this.step(dt); remaining -= dt;
+      this.step(dt); simmed += dt; remaining -= dt;
       if(this.crashed) break;
     }
     if(this.msgTimer>0){
@@ -2678,8 +2820,15 @@ const Flight = {
     }
     // Triebwerks-Sound: lauter mit Schub, leiser mit dünner Luft (Vakuum = fast still)
     this.setRumble(burning ? (0.04+0.14*this.throttle)*(0.25+0.75*f) : 0);
-    this.updateParticles(1/60);
+    // Partikel altern mit SIMULATIONS-Zeit (sonst driften sie bei Warp gegen die Planetenbewegung)
+    this.updateParticles(simmed);
     for(const sat of this.sats) sat.mesh.position.copy(sat.pos);
+    if(this.eva){
+      this.eva.mesh.position.copy(this.eva.pos);
+      const eUp = this.frameAt(this.eva.pos).up;
+      this.eva.mesh.quaternion.setFromUnitVectors(V3(0,1,0), eUp);
+      this.eva.mesh.visible = !this.map;
+    }
     for(const d of this.debris){
       d.mesh.visible = !this.map;
       d.mesh.position.copy(d.pos);
@@ -2702,11 +2851,11 @@ const Flight = {
     const cdir = fr.north.clone().multiplyScalar(Math.cos(this.camEl)*Math.cos(this.camAz))
       .addScaledVector(fr.east, Math.cos(this.camEl)*Math.sin(this.camAz))
       .addScaledVector(fr.up, Math.sin(this.camEl));
-    this.camera.position.copy(cdir).multiplyScalar(cd);
+    // Bei EVA folgt die Kamera der Astronaut*in statt der Rakete
+    const focus = this.eva && !this.map ? this.eva.pos.clone().sub(this.pos) : V3(0,0,0);
+    this.camera.position.copy(focus).addScaledVector(cdir, cd);
     this.camera.up.copy(fr.up);
-    // Kamera schaut immer auf die Rakete (Ursprung) – auch in der Karte,
-    // damit der Zoom auf das Schiff statt auf den Planeten geht.
-    this.camera.lookAt(V3(0,0,0));
+    this.camera.lookAt(focus);
     this.renderer.setSize(w,h,false);
     this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
     this.renderer.render(this.scene, this.camera);
@@ -2898,6 +3047,7 @@ const Flight = {
       <br>⚡ ${this.charge.toFixed(0)}/${this.maxCharge}${this.panelsOut?" ☀️":""}${this.powerDead?' <b style="color:var(--red)">STROM LEER</b>':""}
       ${this.infinite?'<br><b style="color:var(--green)">∞ Endlos-Treibstoff</b>':""}
       ${this.sats.length?'<br>📡 Satelliten: '+this.sats.length:""}
+      ${this.eva?'<br><b style="color:var(--green)">🧑‍🚀 EVA · Abstand: '+this.eva.pos.distanceTo(this.pos).toFixed(0)+' m</b>':""}
       ${Game.sandbox?"":"<br>🧪 "+Game.science}
       ${!Game.sandbox && Game.activeMission ? '<br><b style="color:var(--orange)">🎯 '+
         (MISSIONS.find(m=>m.id===Game.activeMission)||{}).name+"</b>" :
@@ -2913,12 +3063,22 @@ const Flight = {
 /* =================================================================
    Musik & Ladebildschirm
    ================================================================= */
-/* Drei Tracks: Menü, Montagehalle, Weltraum */
-const TRACKS = {menu:"space.mp3", hangar:"hangar.mp3", space:"inspace.mp3"};
+/* Soundtrack-Playlists: Menü, Montagehalle (3 Tracks), Weltraum (3 Tracks) */
+const TRACKS = {
+  menu:  ["space.mp3"],
+  hangar:["hangar.mp3","hangar2.mp3","hangar3.mp3"],
+  space: ["inspace.mp3","inspace2.mp3","inspace3.mp3"]
+};
 const music = new Audio();
-music.loop = true; music.volume = 0.45;
+music.volume = 0.45;
 let musicOn = localStorage.getItem("lmgMusic") !== "0";
-let curTrack = null;
+let curTrack = null, trackIdx = 0;
+music.addEventListener("ended", ()=>{
+  if(!curTrack) return;
+  trackIdx = (trackIdx+1) % TRACKS[curTrack].length;   // nächster Track der Playlist
+  music.src = TRACKS[curTrack][trackIdx];
+  music.play().catch(()=>{});
+});
 function setTrack(name){
   if(curTrack === name){
     if(name && music.paused) music.play().catch(()=>{});  // Autoplay-Retry nach Klick
@@ -2926,7 +3086,8 @@ function setTrack(name){
   }
   curTrack = name;
   if(!name){ music.pause(); return; }
-  music.src = TRACKS[name];
+  trackIdx = Math.floor(Math.random()*TRACKS[name].length);
+  music.src = TRACKS[name][trackIdx];
   music.play().catch(()=>{});
 }
 function updateMusic(){
