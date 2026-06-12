@@ -288,29 +288,41 @@ const G0 = 9.81;
 const V3 = (x=0,y=0,z=0)=>new THREE.Vector3(x,y,z);
 
 /* ---------- Himmelskörper ---------- */
-const LEIBNIZ = {name:"Leibniz", R:600000, mu:3.5316e12, atmoH:70000, rho0:1.2, scaleH:5600, soi:Infinity};
-const MONTI   = {name:"Monti",   R:200000, mu:6.5138e10, atmoH:0, orbitR:12000000, incl:0, phase:0,
+/* Heliozentrisches System: Sonne im Zentrum, Leibniz (mit Mond Monti)
+   und der Eisplanet Minzi umkreisen sie. */
+const SUN = {name:"Sonne", R:2.616e8, mu:1.1723e18, atmoH:0, soi:Infinity};
+const LEIBNIZ = {name:"Leibniz", R:600000, mu:3.5316e12, atmoH:70000, rho0:1.2, scaleH:5600,
+  parent:SUN, orbitR:1.36e10, incl:0, phase:0};
+const MONTI   = {name:"Monti",   R:200000, mu:6.5138e10, atmoH:0,
+  parent:LEIBNIZ, orbitR:12000000, incl:0, phase:0,
   shade2D:["#d3d8e0","#8d95a3","#4a505c"]};
-const MINZI   = {name:"Minzi",   R:60000,  mu:1.766e9,   atmoH:0, orbitR:47000000, incl:6*Math.PI/180, phase:2.4,
+const MINZI   = {name:"Minzi",   R:60000,  mu:1.766e9,   atmoH:0,
+  parent:SUN, orbitR:2.05e10, incl:3*Math.PI/180, phase:1.7,
   shade2D:["#dff5ea","#a9d8c2","#5d8f78"]};
-const MOONS = [MONTI, MINZI];
-for(const m of MOONS){
-  m.period = 2*Math.PI*Math.sqrt(Math.pow(m.orbitR,3)/LEIBNIZ.mu);
-  m.soi = m.orbitR*Math.pow(m.mu/LEIBNIZ.mu, 2/5);
+const MOONS = [MONTI, MINZI];                      // kleine Körper (Meshes, Ringe, Kontakt)
+const GRAV_BODIES = [SUN, LEIBNIZ, MONTI, MINZI];  // alles, was zieht
+for(const b of [LEIBNIZ, MONTI, MINZI]){
+  b.period = 2*Math.PI*Math.sqrt(Math.pow(b.orbitR,3)/b.parent.mu);
+  b.soi = b.orbitR*Math.pow(b.mu/b.parent.mu, 2/5);
 }
-/* Position/Geschwindigkeit eines Mondes (Kreisbahn, optional geneigt um die X-Achse) */
-function bodyPos(b, t){
-  if(!b.orbitR) return V3(0,0,0);
+/* Kreisbahn im Bezugssystem des Parents (optional geneigt) */
+function bodyLocalPos(b, t){
   const a = 2*Math.PI*t/b.period + b.phase;
   const ci = Math.cos(b.incl), si = Math.sin(b.incl);
   return V3(b.orbitR*Math.cos(a), b.orbitR*Math.sin(a)*si, b.orbitR*Math.sin(a)*ci);
 }
+function bodyPos(b, t){
+  if(!b.parent) return V3(0,0,0);
+  return bodyPos(b.parent, t).add(bodyLocalPos(b, t));
+}
 function bodyVel(b, t){
-  if(!b.orbitR) return V3(0,0,0);
+  if(!b.parent) return V3(0,0,0);
   const a = 2*Math.PI*t/b.period + b.phase, w = 2*Math.PI/b.period;
   const ci = Math.cos(b.incl), si = Math.sin(b.incl);
-  return V3(-w*b.orbitR*Math.sin(a), w*b.orbitR*Math.cos(a)*si, w*b.orbitR*Math.cos(a)*ci);
+  return bodyVel(b.parent, t).add(
+    V3(-w*b.orbitR*Math.sin(a), w*b.orbitR*Math.cos(a)*si, w*b.orbitR*Math.cos(a)*ci));
 }
+function leibnizAlt(p, t){ return p.distanceTo(bodyPos(LEIBNIZ, t)) - LEIBNIZ.R; }
 function montiPos(t){ return bodyPos(MONTI, t); }
 function montiVel(t){ return bodyVel(MONTI, t); }
 
@@ -452,9 +464,9 @@ const MISSIONS = [
    check:s=>s.landed && s.body===LEIBNIZ && s.visitedMonti},
   {id:"lab1",    name:"Wissenschaft unterwegs", desc:"Führe mit dem Materiallabor ein Experiment durch. [B]", sci:10,
    check:s=>s.labAny},
-  {id:"minziSoi",name:"Hallo Minzi!",          desc:"Erreiche die Gravitationssphäre des Eismonds Minzi (47.000 km!). Tipp: Manöverknoten [K] nutzen.", sci:55,
+  {id:"minziSoi",name:"Hallo Minzi!",          desc:"Erreiche den Nachbarplaneten Minzi – eine INTERPLANETARE Reise! Erst Leibniz verlassen, dann im Sonnenorbit abpassen.", sci:55,
    check:s=>s.body===MINZI},
-  {id:"minziLand",name:"Minzi-Landung",        desc:"Lande sanft auf dem Eismond Minzi. Geringe Schwerkraft hilft!", sci:90,
+  {id:"minziLand",name:"Minzi-Landung",        desc:"Lande sanft auf dem Eisplaneten Minzi. Die Königsdisziplin des ganzen Spiels!", sci:90,
    check:s=>s.landed && s.body===MINZI}
 ];
 
@@ -462,7 +474,7 @@ const MISSIONS = [
 let Game = newGame();
 function newGame(){
   return {science:0, unlocked:["start"], done:[], labDone:[], tutsDone:[], sandbox:false,
-    design:["pod","chute","tankS","engS"]};
+    design:[]};   // Hangar startet leer – selbst bauen!
 }
 /* Auto-Save: Fortschritt überlebt das Schließen des Browsers.
    (Der JSON-Download bleibt für Backups & Rechnerwechsel.) */
@@ -687,12 +699,16 @@ const Tut = {
     VAB.stack = [...t.scenario.stack];
     Flight.start(VAB.buildVessel());
     if(t.scenario.orbit){
-      // Spieler direkt in einen Kreisorbit setzen
+      // Spieler direkt in einen Orbit setzen (Kreis – oder Ellipse, wenn pe angegeben)
       const b = t.scenario.orbit.body==="MONTI" ? MONTI :
                 t.scenario.orbit.body==="MINZI" ? MINZI : LEIBNIZ;
       const c = bodyPos(b,0), bv = bodyVel(b,0);
       const r = b.R + t.scenario.orbit.alt;
-      const vc = Math.sqrt(b.mu/r);
+      let vc;
+      if(t.scenario.orbit.pe !== undefined){
+        const rp = b.R + t.scenario.orbit.pe, a0 = (r+rp)/2;
+        vc = Math.sqrt(b.mu*(2/r - 1/a0));   // an der Apoapsis der Wiedereintritts-Ellipse
+      } else vc = Math.sqrt(b.mu/r);
       const radial = V3(1,0,0), tang = V3(0,0,-1);
       Flight.pos = c.clone().addScaledVector(radial, r);
       Flight.vel = bv.clone().addScaledVector(tang, vc);
@@ -828,7 +844,7 @@ function renderUniverse(){
       <div style="display:flex;justify-content:space-between"><span>Radius</span><b>${(b.R/1000).toFixed(0)} km</b></div>
       <div style="display:flex;justify-content:space-between"><span>Schwerkraft</span><b>${s.g.toFixed(2)} m/s²</b></div>
       <div style="display:flex;justify-content:space-between"><span>Atmosphäre</span><b>${b.atmoH?`bis ${b.atmoH/1000} km`:"keine"}</b></div>
-      ${b===MONTI?`<div style="display:flex;justify-content:space-between"><span>Umlaufzeit</span><b>${(MONTI.period/3600).toFixed(1)} h</b></div>`:""}
+      ${b.parent?`<div style="display:flex;justify-content:space-between"><span>Umlaufzeit um ${b.parent.name}</span><b>${b.period>1e6?(b.period/86400).toFixed(0)+" Tage":(b.period/3600).toFixed(1)+" h"}</b></div>`:""}
       <div style="display:flex;justify-content:space-between"><span>Orbitgeschwindigkeit</span><b>${s.vOrb.toFixed(0)} m/s</b></div>
       <div style="display:flex;justify-content:space-between;color:var(--orange)"><span><b>Δv bis zum Orbit</b></span><b>≈ ${Math.round(s.dv/10)*10} m/s</b></div>`;
     cards.appendChild(div);
@@ -844,22 +860,38 @@ function universeFrame(){
   ctx.fillStyle="#04060e"; ctx.fillRect(0,0,W,H);
   ctx.fillStyle="rgba(255,255,255,.7)";
   for(let i=0;i<70;i++) ctx.fillRect((i*97.3)%W,(i*211.7)%H,(i%3===0?2:1),(i%3===0?2:1));
+  // Heliozentrisch: Sonne im Zentrum, Leibniz (mit Mond Monti) und Minzi außen
   const cx=W/2, cy=H/2, orbPx=Math.min(W,H)*0.44;
-  const r1=orbPx*0.6, r2=orbPx;
+  const r1=orbPx*0.62, r2=orbPx;
   ctx.strokeStyle="rgba(150,160,190,.35)";
   ctx.beginPath(); ctx.arc(cx,cy,r1,0,7); ctx.stroke();
   ctx.beginPath(); ctx.arc(cx,cy,r2,0,7); ctx.stroke();
-  const t = performance.now()/1000*(MONTI.period/40);
-  drawPlanetSurface(ctx,LEIBNIZ,cx,cy,orbPx*0.3,t);
-  const a = 2*Math.PI*t/MONTI.period;
-  const mx=cx+Math.cos(a)*r1, my=cy+Math.sin(a)*r1;
-  drawPlanetSurface(ctx,MONTI,mx,my,orbPx*0.105,t);
-  const a2 = 2*Math.PI*t/MINZI.period + MINZI.phase;
-  const nx=cx+Math.cos(a2)*r2, ny=cy+Math.sin(a2)*r2;
+  const t = performance.now()/1000;
+  // Sonne mit Glow
+  const sg = ctx.createRadialGradient(cx,cy,4,cx,cy,orbPx*0.22);
+  sg.addColorStop(0,"rgba(255,244,200,1)"); sg.addColorStop(0.4,"rgba(255,220,130,.5)");
+  sg.addColorStop(1,"rgba(255,200,80,0)");
+  ctx.fillStyle=sg; ctx.beginPath(); ctx.arc(cx,cy,orbPx*0.22,0,7); ctx.fill();
+  ctx.fillStyle="#fff0b0";
+  ctx.beginPath(); ctx.arc(cx,cy,orbPx*0.09,0,7); ctx.fill();
+  // Leibniz auf seiner Bahn (1 Jahr ≈ 60 s Anzeige)
+  const aL = t*2*Math.PI/60;
+  const lx=cx+Math.cos(aL)*r1, ly=cy+Math.sin(aL)*r1;
+  drawPlanetSurface(ctx,LEIBNIZ,lx,ly,orbPx*0.13,t);
+  // Monti umkreist Leibniz (schneller)
+  const rM = orbPx*0.22, aM = t*2*Math.PI/8;
+  const mx=lx+Math.cos(aM)*rM, my=ly+Math.sin(aM)*rM;
+  ctx.strokeStyle="rgba(150,160,190,.3)";
+  ctx.beginPath(); ctx.arc(lx,ly,rM,0,7); ctx.stroke();
+  drawPlanetSurface(ctx,MONTI,mx,my,orbPx*0.05,t);
+  // Minzi außen (langsamer, "der Mars")
+  const aZ = t*2*Math.PI/110 + 2.2;
+  const nx=cx+Math.cos(aZ)*r2, ny=cy+Math.sin(aZ)*r2;
   drawPlanetSurface(ctx,MINZI,nx,ny,orbPx*0.06,t);
   ctx.fillStyle="#e8ecf5"; ctx.font="13px sans-serif"; ctx.textAlign="center";
-  ctx.fillText("Leibniz",cx,cy+orbPx*0.3+18);
-  ctx.fillText("Monti",mx,my+orbPx*0.105+16);
+  ctx.fillText("Sonne",cx,cy+orbPx*0.09+16);
+  ctx.fillText("Leibniz",lx,ly+orbPx*0.13+16);
+  ctx.fillText("Monti",mx,my-orbPx*0.05-8);
   ctx.fillText("Minzi",nx,ny+orbPx*0.06+16);
   ctx.textAlign="left";
 }
@@ -1393,7 +1425,7 @@ const VAB = {
 /* =================================================================
    FLUG (3D)
    ================================================================= */
-const WARPS = [1,2,5,10,50,100,500,1000];
+const WARPS = [1,2,5,10,50,100,500,1000,10000,100000];
 const Flight = {
   renderer:null, scene:null, camera:null,
   leibnizMesh:null, montiMesh:null, cloudShell:null, atmoShell:null,
@@ -1413,7 +1445,7 @@ const Flight = {
     host.appendChild(this.renderer.domElement);
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x04060e);
-    this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 8e7);
+    this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 8e10);
     // Floating Origin: alles Welt-Feste liegt in dieser Gruppe, die jeden Frame
     // um -Schiffsposition verschoben wird. So bleibt die Kamera nahe am Ursprung
     // und Float32-Präzisionszittern verschwindet.
@@ -1421,8 +1453,23 @@ const Flight = {
     this.scene.add(this.world);
     // Licht
     this.scene.add(new THREE.AmbientLight(0x607090, 0.55));
-    const sun = new THREE.DirectionalLight(0xfff2dd, 1.3);
-    sun.position.set(1e7, 4e6, 6e6); this.scene.add(sun);
+    this.sunLight = new THREE.DirectionalLight(0xfff2dd, 1.3);
+    this.sunLight.position.set(1e7, 4e6, 6e6); this.scene.add(this.sunLight);
+    // Die Sonne selbst (im Welt-Ursprung)
+    const sunMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(SUN.R, 48, 24),
+      new THREE.MeshBasicMaterial({color:0xfff0b0}));
+    this.world.add(sunMesh);
+    const glowC = document.createElement("canvas"); glowC.width=glowC.height=128;
+    const gx = glowC.getContext("2d");
+    const gg = gx.createRadialGradient(64,64,8,64,64,64);
+    gg.addColorStop(0,"rgba(255,244,200,1)"); gg.addColorStop(0.3,"rgba(255,220,130,.55)");
+    gg.addColorStop(1,"rgba(255,200,80,0)");
+    gx.fillStyle=gg; gx.fillRect(0,0,128,128);
+    this.sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map:new THREE.CanvasTexture(glowC), transparent:true, depthWrite:false}));
+    this.sunGlow.scale.set(SUN.R*26, SUN.R*26, 1);
+    this.world.add(this.sunGlow);
     // Planeten
     this.leibnizMesh = new THREE.Mesh(
       new THREE.SphereGeometry(LEIBNIZ.R, 128, 64),
@@ -1436,24 +1483,25 @@ const Flight = {
       new THREE.SphereGeometry(LEIBNIZ.R+LEIBNIZ.atmoH, 64, 32),
       new THREE.MeshBasicMaterial({color:0x4f8fdd, transparent:true, opacity:.08, side:THREE.BackSide, depthWrite:false}));
     this.world.add(this.atmoShell);
-    // Monde: Mesh + Orbitlinie (Linie nur in Kartenansicht)
+    // Monde & Planeten: Meshes + Orbitlinien (Linien nur in Kartenansicht)
     this.moonMeshes = new Map();
-    this.moonRings = [];
+    this.moonRings = [];   // Paare [Körper, Ring] – Ring liegt um den Parent
     for(const m of MOONS){
       const mesh = new THREE.Mesh(
         new THREE.SphereGeometry(m.R, 96, 48),
         new THREE.MeshStandardMaterial({map:makeBodyTexture(m), roughness:.95}));
       this.world.add(mesh);
       this.moonMeshes.set(m, mesh);
+    }
+    for(const b of [LEIBNIZ, MONTI, MINZI]){
       const ringPts = [];
-      for(let i=0;i<128;i++)
-        ringPts.push(bodyPos(m, i/128*m.period - m.phase*m.period/(2*Math.PI)));
+      for(let i=0;i<128;i++) ringPts.push(bodyLocalPos(b, i/128*b.period - b.phase*b.period/(2*Math.PI)));
       const ring = new THREE.LineLoop(
         new THREE.BufferGeometry().setFromPoints(ringPts),
         new THREE.LineBasicMaterial({color:0x8fa0c0, transparent:true, opacity:.4}));
       ring.visible = false;
       this.world.add(ring);
-      this.moonRings.push(ring);
+      this.moonRings.push([b, ring]);
     }
     // Sterne
     const starGeo = new THREE.BufferGeometry();
@@ -1583,7 +1631,7 @@ const Flight = {
     });
     addEventListener("pointerup", ()=>drag=null);
     host.addEventListener("wheel", e=>{
-      const max = this.map ? 5e7 : 5000;
+      const max = this.map ? 6e10 : 5000;
       this.camDist = Math.min(max, Math.max(12, this.camDist*(e.deltaY>0?1.15:1/1.15)));
     }, {passive:true});
   },
@@ -1629,9 +1677,10 @@ const Flight = {
     dish.position.set(120,19,90); dish.rotation.x = -Math.PI/3; g.add(dish);
     return g;
   },
-  /* lokale Achsen am Punkt p */
-  frameAt(p){
-    const up = p.clone().normalize();
+  /* lokale Achsen am Punkt p (relativ zum dominanten Himmelskörper) */
+  frameAt(p, b){
+    b = b || this.body();
+    const up = p.clone().sub(bodyPos(b, this.t)).normalize();
     const northAxis = V3(0,1,0);
     let east = new THREE.Vector3().crossVectors(northAxis, up);
     if(east.lengthSq()<1e-9) east = V3(1,0,0);
@@ -1643,8 +1692,12 @@ const Flight = {
     this.v = vessel;
     this.v.fairingIntact = vessel.stack.some(id=>PARTS[id].type==="fairing");
     const h = vessel.stack.reduce((a,id)=>a+PARTS[id].h,0);
-    this.pos = V3(LEIBNIZ.R + h/2, 0, 0);
-    this.vel = V3(0,0,0);
+    // Startplatz auf dem (um die Sonne wandernden) Planeten Leibniz
+    this.launchLocal = V3(LEIBNIZ.R + h/2, 0, 0);
+    this.pos = bodyPos(LEIBNIZ, 0).add(this.launchLocal);
+    this.vel = bodyVel(LEIBNIZ, 0);
+    this.landedBody = LEIBNIZ;
+    this.landedRel = this.launchLocal.clone();
     // Rakete: lokale +Y-Achse → "up" (+X)
     this.q = new THREE.Quaternion().setFromUnitVectors(V3(0,1,0), V3(1,0,0));
     this.t = 0; this.throttle = 1; this.warpI = 0; this.map = false;
@@ -1682,21 +1735,21 @@ const Flight = {
     if(this.rocketGroup) this.scene.remove(this.rocketGroup);
     this.rocketGroup = buildRocketGroup(vessel.stack, this.v.fairingIntact);
     this.scene.add(this.rocketGroup);
-    const f = this.frameAt(this.pos);
-    const surf = this.pos.clone().normalize().multiplyScalar(LEIBNIZ.R);
-    const padQ = new THREE.Quaternion().setFromUnitVectors(V3(0,1,0), f.up);
-    this.padGroup.position.copy(surf);
+    // Startplatz-Anker: lokale Offsets relativ zum Planetenzentrum.
+    // Der Planet wandert um die Sonne – alles Bodengebundene folgt ihm pro Frame.
+    const up = V3(1,0,0), east = V3(0,0,-1), north = V3(0,1,0);
+    this.padLocal = V3(LEIBNIZ.R, 0, 0);
+    this.groundLocal = V3(LEIBNIZ.R*0.999995, 0, 0);
+    const padQ = new THREE.Quaternion().setFromUnitVectors(V3(0,1,0), up);
     this.padGroup.quaternion.copy(padQ);
-    this.groundPlane.position.copy(surf.clone().multiplyScalar(0.999995));
     this.groundPlane.quaternion.copy(padQ);
     this.groundPlane.rotateX(-Math.PI/2);
-    // Wolken um den Startplatz verteilen
     for(const spr of this.cloudSprites){
       const d = spr.userData;
-      spr.position.copy(surf)
-        .addScaledVector(f.up, d.alt)
-        .addScaledVector(f.east, d.east)
-        .addScaledVector(f.north, d.north);
+      d.local = this.padLocal.clone()
+        .addScaledVector(up, d.alt)
+        .addScaledVector(east, d.east)
+        .addScaledVector(north, d.north);
     }
     this.showMsg("Bereit zum Start – [Leertaste] zündet die erste Stufe!", 5);
   },
@@ -1975,7 +2028,7 @@ const Flight = {
   warpDown(){ this.warpI=Math.max(0,this.warpI-1); },
   canWarp(i){
     if(i<=1) return true;
-    if(this.pos.length()-LEIBNIZ.R < LEIBNIZ.atmoH){
+    if(leibnizAlt(this.pos, this.t) < LEIBNIZ.atmoH){
       this.showMsg("Zeitraffer erst außerhalb der Atmosphäre!",2); return false;
     }
     return true;
@@ -1984,18 +2037,21 @@ const Flight = {
     const el=document.getElementById("hudMsg");
     el.textContent=txt; el.style.display="block"; this.msgTimer=sec;
   },
-  body(){
-    for(const m of MOONS)
-      if(this.pos.distanceTo(bodyPos(m,this.t)) < m.soi) return m;
-    return LEIBNIZ;
+  bodyAt(p, t){
+    // dominanter Körper an beliebigem Ort: innerste Gravitationssphäre zuerst
+    if(p.distanceTo(bodyPos(MONTI,t)) < MONTI.soi) return MONTI;
+    if(p.distanceTo(bodyPos(LEIBNIZ,t)) < LEIBNIZ.soi) return LEIBNIZ;
+    if(p.distanceTo(bodyPos(MINZI,t)) < MINZI.soi) return MINZI;
+    return SUN;
   },
+  body(){ return this.bodyAt(this.pos, this.t); },
   bodyCenter(b,t){ return bodyPos(b, t===undefined?this.t:t); },
   accel(p,t){
-    const a = p.clone().multiplyScalar(-LEIBNIZ.mu/Math.pow(p.length(),3));
-    for(const m of MOONS){
-      const d = p.clone().sub(bodyPos(m,t));
+    const a = V3(0,0,0);
+    for(const b of GRAV_BODIES){
+      const d = p.clone().sub(bodyPos(b,t));
       const dl = d.length();
-      if(dl>1) a.addScaledVector(d, -m.mu/Math.pow(dl,3));
+      if(dl>1) a.addScaledVector(d, -b.mu/Math.pow(dl,3));
     }
     return a;
   },
@@ -2012,12 +2068,14 @@ const Flight = {
       if(k["d"]) apply(V3(0,0,1),-rot);
       if(k["q"]) apply(V3(0,1,0), rot);
       if(k["e"]) apply(V3(0,1,0),-rot);
-      // SAS: Nase sanft auf Prograde/Retrograde drehen (sofern keine Handeingabe)
-      if(this.sas!=="off" && this.vel.length()>5 &&
+      // SAS: Nase sanft auf Prograde/Retrograde drehen (sofern keine Handeingabe).
+      // Wichtig: Geschwindigkeit RELATIV zum dominanten Körper (nicht zur Sonne)!
+      const sasRelVel = this.vel.clone().sub(bodyVel(this.body(), this.t));
+      if(this.sas!=="off" && sasRelVel.length()>5 &&
          !(k["w"]||k["s"]||k["a"]||k["d"]||k["q"]||k["e"])){
         let target;
         if(this.sas==="node" && this.nodeDir) target = this.nodeDir.clone();
-        else { target = this.vel.clone().normalize(); if(this.sas==="retro") target.negate(); }
+        else { target = sasRelVel.clone().normalize(); if(this.sas==="retro") target.negate(); }
         const nose = V3(0,1,0).applyQuaternion(this.q);
         const full = new THREE.Quaternion().setFromUnitVectors(nose, target);
         const stepQ = new THREE.Quaternion().slerp(full, Math.min(1, 2.2*dt));
@@ -2070,16 +2128,22 @@ const Flight = {
     const a = this.accel(this.pos, this.t);
     a.addScaledVector(dir, thrust/m);
     this.gLoad = thrust/(m*G0);
-    const r = this.pos.length(), alt = r-LEIBNIZ.R;
+    const alt = leibnizAlt(this.pos, this.t);
     if(alt < LEIBNIZ.atmoH){
       const rho = LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH);
-      const v = this.vel.length();
+      // Luftgeschwindigkeit = relativ zum Planeten (Leibniz bewegt sich um die Sonne!)
+      const lVel = bodyVel(LEIBNIZ, this.t);
+      const airVel = this.vel.clone().sub(lVel);
+      const v = airVel.length();
       if(v>0.1){
         let cdA = 4*(s&&s.hasFins?0.7:1);
         if(this.v.fairingIntact) cdA *= 0.5;
         if(this.chuteOpen && alt<30000) cdA += 850;
         const fd = 0.5*rho*v*v*cdA;
-        a.addScaledVector(this.vel, -fd/(m*v));
+        // numerisch stabil: Bremsimpuls pro Schritt darf die Geschwindigkeit
+        // höchstens halbieren (sonst explodiert die Integration bei großem dt)
+        const kDrag = Math.min(fd/(m*v), 0.5/dt);
+        a.addScaledVector(airVel, -kDrag);
         this.gLoad = (thrust/m + fd/m)/G0;
         // Ausgefahrene Solarpanele reißen im Fahrtwind ab
         if(this.panelsOut && !this.panelsBroken && rho*v*v > 12000){
@@ -2088,7 +2152,8 @@ const Flight = {
         }
       }
       // --- Wiedereintrittshitze: beim schnellen Sinkflug ohne Hitzeschild tödlich ---
-      const descending = this.vel.dot(this.pos) < 0;
+      const relPos = this.pos.clone().sub(bodyPos(LEIBNIZ,this.t));
+      const descending = airVel.dot(relPos) < 0;
       const heat = rho*v*v*v;
       if(!this.landed && descending && v>1700 && heat>5e7){
         const shielded = this.v.stack.some(id=>PARTS[id].type==="shield");
@@ -2111,9 +2176,17 @@ const Flight = {
       }
     }
     if(this.landed){
-      const g = LEIBNIZ.mu/(r*r);
+      const lb = this.landedBody || LEIBNIZ;
+      const dLB = this.pos.distanceTo(bodyPos(lb,this.t));
+      const g = lb.mu/(dLB*dLB);
       if(thrust/m > g){ this.landed=false; this.flew=true; }
-      else { this.vel.set(0,0,0); this.t+=dt; return; }
+      else {
+        // gelandet: mit dem Himmelskörper mitbewegen
+        this.t += dt;
+        this.pos.copy(bodyPos(lb,this.t)).add(this.landedRel);
+        this.vel.copy(bodyVel(lb,this.t));
+        return;
+      }
     }
     this.vel.addScaledVector(a, dt);
     this.pos.addScaledVector(this.vel, dt);
@@ -2125,7 +2198,7 @@ const Flight = {
     }
     if(this.sats.length){
       this.sats = this.sats.filter(sat=>{
-        const ok = sat.pos.length()>LEIBNIZ.R &&
+        const ok = sat.pos.distanceTo(bodyPos(LEIBNIZ,this.t))>LEIBNIZ.R &&
           MOONS.every(m=>sat.pos.distanceTo(bodyPos(m,this.t))>m.R);
         if(!ok) this.world.remove(sat.mesh);
         return ok;
@@ -2139,7 +2212,7 @@ const Flight = {
     }
     if(this.debris.length){
       this.debris = this.debris.filter(d=>{
-        const hit = d.pos.length()<LEIBNIZ.R+4 ||
+        const hit = d.pos.distanceTo(bodyPos(LEIBNIZ,this.t))<LEIBNIZ.R+4 ||
           MOONS.some(m=>d.pos.distanceTo(bodyPos(m,this.t))<m.R+4);
         const expired = this.t > d.tEnd;
         if(hit) for(let i=0;i<8;i++)
@@ -2153,18 +2226,28 @@ const Flight = {
     this.checkContact();
     this.checkMissions();
     // Warnung beim Überschreiten der Fluchtgeschwindigkeit (relativ zu Leibniz)
-    const rL = this.pos.length();
-    const eL = this.vel.lengthSq()/2 - LEIBNIZ.mu/rL;
-    if(eL >= 0 && !this._escWarned && !this.landed){
-      this._escWarned = true;
-      this.showMsg("⚠️ FLUCHTGESCHWINDIGKEIT! Du verlässt Leibniz für immer – RETROGRADE bremsen!",5);
-    } else if(eL < -1e4) this._escWarned = false;
-    const oAlt = this.pos.length()-LEIBNIZ.R;
+    const relL = this.pos.clone().sub(bodyPos(LEIBNIZ,this.t));
+    const rL = relL.length();
+    if(rL < LEIBNIZ.soi){
+      const eL = this.vel.clone().sub(bodyVel(LEIBNIZ,this.t)).lengthSq()/2 - LEIBNIZ.mu/rL;
+      if(eL >= 0 && !this._escWarned && !this.landed){
+        this._escWarned = true;
+        this.showMsg("⚠️ FLUCHTGESCHWINDIGKEIT! Du verlässt Leibniz Richtung Sonnenorbit – RETROGRADE bremsen!",5);
+      } else if(eL < -1e4) this._escWarned = false;
+    }
+    const oAlt = rL - LEIBNIZ.R;
     if(oAlt > this.statMaxAlt) this.statMaxAlt = oAlt;
     const sp = this.vel.length();
     if(sp > this.statMaxSpeed) this.statMaxSpeed = sp;
   },
   checkContact(){
+    // Zu nah an der Sonne? Verglühen.
+    if(!this.crashed && this.pos.length() < SUN.R*2){
+      this.crashed = true; this.warpI = 0;
+      this.showMsg("☀️💥 Zu nah an der Sonne – das Schiff verglüht!"+
+        (this.crew.length?" Die Crew rettet sich per Schleudersitz! 🪂":""),99);
+      return;
+    }
     for(const b of [LEIBNIZ, ...MOONS]){
       const c = this.bodyCenter(b);
       const rel = this.pos.clone().sub(c);
@@ -2177,6 +2260,8 @@ const Flight = {
         this.pos.copy(c).addScaledVector(rel.normalize(), surf);
         this.vel.copy(bv);
         this.warpI = 0;
+        this.landedBody = b;
+        this.landedRel = this.pos.clone().sub(c);
         if(vrel>limit && !this.landed){
           this.crashed = true;
           this.rocketGroup.visible = false;
@@ -2272,8 +2357,8 @@ const Flight = {
       const sma = (o.ap + o.pe)/2 + o.body.R;
       period = 2*Math.PI*Math.sqrt(Math.pow(sma,3)/o.body.mu);
     }
-    if(!isFinite(period)||!period||period<=0) period = 40000;
-    const total = Math.min(period*1.08, 600000), n = 600, dt = total/n;
+    if(!isFinite(period)||!period||period<=0) period = o.body===SUN ? 9.5e6 : 40000;
+    const total = Math.min(period*1.08, o.body===SUN ? 1.2e7 : 600000), n = 600, dt = total/n;
     let count = 0;
     const bc = this.bodyCenter(o.body);
     let rMin=Infinity, rMax=-Infinity, pMin=null, pMax=null;
@@ -2291,7 +2376,8 @@ const Flight = {
       const rr = p.distanceTo(bc);
       if(rr<rMin){ rMin=rr; pMin=p.clone(); }
       if(rr>rMax){ rMax=rr; pMax=p.clone(); }
-      if(p.length()<LEIBNIZ.R) break;
+      if(p.distanceTo(bodyPos(LEIBNIZ,t))<LEIBNIZ.R) break;
+      if(p.length()<SUN.R) break;
       if(MOONS.some(m=>p.distanceTo(bodyPos(m,t))<m.R)) break;
     }
     this.trajLine.geometry.setDrawRange(0, count);
@@ -2321,8 +2407,12 @@ const Flight = {
         nt += d;
       }
       // Knoten-Koordinatensystem: Prograde / Normal / Radial
-      const pro = nv.clone().normalize();
-      const hv = np.clone().cross(nv).normalize();
+      // (relativ zum dominanten Körper am Knotenpunkt)
+      const nBody = this.bodyAt(np, nt);
+      const nvRel = nv.clone().sub(bodyVel(nBody, nt));
+      const npRel = np.clone().sub(bodyPos(nBody, nt));
+      const pro = nvRel.clone().normalize();
+      const hv = npRel.clone().cross(nvRel).normalize();
       const rad = pro.clone().cross(hv).negate().normalize(); // radial nach außen
       const dvWorld = pro.clone().multiplyScalar(this.node.pro)
         .addScaledVector(hv, this.node.nor)
@@ -2346,8 +2436,8 @@ const Flight = {
         const sma2 = -o2mu/(2*E2);
         per2 = 2*Math.PI*Math.sqrt(Math.pow(sma2,3)/o2mu);
       }
-      if(!isFinite(per2)||!per2||per2<=0) per2 = 120000;
-      const tot2 = Math.min(per2*1.08, 600000), n2 = 600, dt2 = tot2/n2;
+      if(!isFinite(per2)||!per2||per2<=0) per2 = b2===SUN ? 9.5e6 : 120000;
+      const tot2 = Math.min(per2*1.08, b2===SUN ? 1.2e7 : 600000), n2 = 600, dt2 = tot2/n2;
       let c2 = 0;
       for(let i=0;i<n2;i++){
         for(let sub=0;sub<3;sub++){
@@ -2360,7 +2450,8 @@ const Flight = {
           pt += d2;
         }
         nAttr.setXYZ(c2++, pp.x, pp.y, pp.z);
-        if(pp.length()<LEIBNIZ.R) break;
+        if(pp.distanceTo(bodyPos(LEIBNIZ,pt))<LEIBNIZ.R) break;
+        if(pp.length()<SUN.R) break;
         if(MOONS.some(m=>pp.distanceTo(bodyPos(m,pt))<m.R)) break;
       }
       this.nodeTrajLine.geometry.setDrawRange(0, c2);
@@ -2380,12 +2471,19 @@ const Flight = {
     const host = document.getElementById("flight3d");
     const w = host.clientWidth, h = host.clientHeight;
     if(w<2||h<2) return;
-    // Physik (steht still bei Pause)
+    // Physik (steht still bei Pause). Adaptive Schrittweite: nahe an einem
+    // Himmelskörper fein, im tiefen Sonnenraum grob (für 100.000×-Warp).
     const warp = WARPS[this.warpI];
     const frameT = this.paused ? 0 : warp/60;
-    const maxDt = warp<=2 ? 0.02 : 1.0;
+    let maxDt = 0.02;
+    if(warp>2){
+      const db = this.body();
+      const dd = this.pos.distanceTo(this.bodyCenter(db));
+      const localT = 2*Math.PI*Math.sqrt(dd*dd*dd/db.mu);
+      maxDt = Math.min(600, Math.max(1.0, localT/4000));
+    }
     let remaining = frameT, guard=0;
-    while(remaining>1e-9 && guard++<200){
+    while(remaining>1e-9 && guard++<400){
       const dt = Math.min(maxDt, remaining);
       this.step(dt); remaining -= dt;
       if(this.crashed) break;
@@ -2396,10 +2494,22 @@ const Flight = {
     }
     // Floating Origin: Welt um -Schiffsposition verschieben
     this.world.position.copy(this.pos).negate();
-    // Szene aktualisieren
+    // Szene aktualisieren – alles folgt seinen Bahnen um die Sonne
+    const lp = bodyPos(LEIBNIZ, this.t);
     for(const m of MOONS) this.moonMeshes.get(m).position.copy(bodyPos(m, this.t));
+    this.leibnizMesh.position.copy(lp);
+    this.cloudShell.position.copy(lp);
+    this.atmoShell.position.copy(lp);
+    this.padGroup.position.copy(lp).add(this.padLocal||V3(LEIBNIZ.R,0,0));
+    this.groundPlane.position.copy(lp).add(this.groundLocal||V3(LEIBNIZ.R,0,0));
+    for(const spr of this.cloudSprites)
+      if(spr.userData.local) spr.position.copy(lp).add(spr.userData.local);
+    for(const [m, ring] of this.moonRings) ring.position.copy(bodyPos(m.parent, this.t));
+    // Sonnenlicht kommt aus Richtung der (echten) Sonne
+    this.sunLight.position.copy(this.pos.clone().negate().normalize().multiplyScalar(1e7));
+    this.sunGlow.position.set(0,0,0);  // Sonne steht im Welt-Ursprung
     this.cloudShell.rotation.y = this.t*2*Math.PI/14000;
-    const alt = this.pos.length()-LEIBNIZ.R;
+    const alt = leibnizAlt(this.pos, this.t);
     // Musikwechsel beim Erreichen/Verlassen des Weltraums
     const inSpace = !this.landed && !this.crashed && alt >= LEIBNIZ.atmoH;
     if(inSpace !== this._wasSpace){ this._wasSpace = inSpace; updateMusic(); }
@@ -2409,7 +2519,7 @@ const Flight = {
     this.starField.material.opacity = this.map ? 1 : 1-f;
     this.groundPlane.visible = !this.map && alt<16000;
     this.padGroup.visible = !this.map && alt<25000;
-    for(const ring of this.moonRings) ring.visible = this.map;
+    for(const [,ring] of this.moonRings) ring.visible = this.map;
     this.shipMarker.visible = this.map && !this.crashed;
     if(this.map){
       const ss = this._cd*0.035;
@@ -2615,9 +2725,10 @@ const Flight = {
         x.fillStyle = "rgba(255,255,255,.9)";
       }
     }
-    // Prograde-Marker
-    if(this.vel.length()>5){
-      const pv = this.vel.clone().normalize();
+    // Prograde-Marker (relativ zum dominanten Körper)
+    const nbRel = this.vel.clone().sub(bodyVel(this.body(), this.t));
+    if(nbRel.length()>5){
+      const pv = nbRel.normalize();
       const pPitch = 90 - THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(pv.dot(fr.up),-1,1)));
       const ph = pv.clone().addScaledVector(fr.up, -pv.dot(fr.up));
       let pHead = heading;
@@ -2734,7 +2845,7 @@ function updateMusic(){
       if(act.id === "flight"){
         // Im Flug: Musik erst, wenn der Weltraum erreicht ist
         const inSpace = Flight.v && !Flight.landed && !Flight.crashed &&
-          Flight.pos.length()-LEIBNIZ.R >= LEIBNIZ.atmoH;
+          leibnizAlt(Flight.pos, Flight.t) >= LEIBNIZ.atmoH;
         want = inSpace ? "space" : null;
       }
       else if(act.id === "vab") want = "hangar";
