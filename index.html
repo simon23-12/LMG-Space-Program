@@ -2360,7 +2360,10 @@ const Flight = {
     if(!isFinite(period)||!period||period<=0) period = o.body===SUN ? 9.5e6 : 40000;
     const total = Math.min(period*1.08, o.body===SUN ? 1.2e7 : 600000), n = 600, dt = total/n;
     let count = 0;
-    const bc = this.bodyCenter(o.body);
+    // Im mitbewegten Bezugssystem des dominanten Körpers plotten – sonst
+    // verschmiert die Planetenbewegung die Ellipse zu einer "Fluchtwelle".
+    const frameBody = o.body;
+    const fbNow = bodyPos(frameBody, this.t);
     let rMin=Infinity, rMax=-Infinity, pMin=null, pMax=null;
     for(let i=0;i<n;i++){
       for(let sub=0;sub<3;sub++){
@@ -2372,10 +2375,12 @@ const Flight = {
         v.addScaledVector(a2, d);
         t += d;
       }
-      posAttr.setXYZ(count++, p.x, p.y, p.z);
-      const rr = p.distanceTo(bc);
-      if(rr<rMin){ rMin=rr; pMin=p.clone(); }
-      if(rr>rMax){ rMax=rr; pMax=p.clone(); }
+      const rel = p.clone().sub(bodyPos(frameBody, t));
+      const plot = rel.clone().add(fbNow);
+      posAttr.setXYZ(count++, plot.x, plot.y, plot.z);
+      const rr = rel.length();
+      if(rr<rMin){ rMin=rr; pMin=plot.clone(); }
+      if(rr>rMax){ rMax=rr; pMax=plot.clone(); }
       if(p.distanceTo(bodyPos(LEIBNIZ,t))<LEIBNIZ.R) break;
       if(p.length()<SUN.R) break;
       if(MOONS.some(m=>p.distanceTo(bodyPos(m,t))<m.R)) break;
@@ -2418,9 +2423,10 @@ const Flight = {
         .addScaledVector(hv, this.node.nor)
         .addScaledVector(rad, this.node.rad);
       this.nodeDir = dvWorld.lengthSq()>1e-6 ? dvWorld.clone().normalize() : pro;
-      // Marker
+      // Marker (im mitbewegten Bezugssystem des Knoten-Körpers)
+      const nbNow = bodyPos(nBody, this.t);
       this.nodeMarker.visible = true;
-      this.nodeMarker.position.copy(np);
+      this.nodeMarker.position.copy(np).sub(bodyPos(nBody, nt)).add(nbNow);
       const nms = this.camDist*0.05;
       this.nodeMarker.scale.set(nms, nms/2, 1);
       // geplante Bahn (grün)
@@ -2449,7 +2455,8 @@ const Flight = {
           pv.addScaledVector(a2, d2);
           pt += d2;
         }
-        nAttr.setXYZ(c2++, pp.x, pp.y, pp.z);
+        const plot2 = pp.clone().sub(bodyPos(nBody, pt)).add(nbNow);
+        nAttr.setXYZ(c2++, plot2.x, plot2.y, plot2.z);
         if(pp.distanceTo(bodyPos(LEIBNIZ,pt))<LEIBNIZ.R) break;
         if(pp.length()<SUN.R) break;
         if(MOONS.some(m=>pp.distanceTo(bodyPos(m,pt))<m.R)) break;
