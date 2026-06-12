@@ -74,8 +74,9 @@ button{cursor:pointer;font-family:inherit;}
 .gauge label{font-size:10px;color:var(--muted);background:rgba(10,16,32,.8);padding:2px 6px;border-radius:4px;}
 #throttleFill{background:linear-gradient(180deg,var(--orange),#c46a08);}
 #fuelFill{background:linear-gradient(180deg,#5fc46a,#2c7a38);}
-#navball{position:absolute;bottom:64px;left:50%;transform:translateX(-50%);
-  border-radius:50%;border:3px solid var(--blue-dark);background:#0a0e1a;}
+#navball{position:absolute;bottom:118px;left:50%;transform:translateX(-50%);
+  border-radius:50%;border:3px solid var(--blue-dark);background:#0a0e1a;z-index:3;}
+#hudControls.hidden{display:none !important;}
 .node-row{display:flex;align-items:center;gap:3px;margin:3px 0;}
 .node-row span{flex:1;color:var(--muted);}
 .node-row b{min-width:30px;text-align:center;color:var(--green);}
@@ -192,6 +193,8 @@ input[type=file]{display:none;}
     <button class="btn" style="width:100%;margin-top:6px;padding:6px;font-size:12px;"
       onclick="Flight.removeNode()">Knoten löschen</button>
   </div>
+  <button id="hudToggle" class="btn" style="position:absolute;left:150px;bottom:12px;
+    padding:5px 10px;font-size:11px;z-index:5;opacity:.85;" onclick="Flight.toggleControlsBar()">⌨ [H]</button>
   <div id="gauges">
     <div class="gauge"><div class="bar"><div id="throttleFill" class="fill"></div></div><label>Schub</label></div>
     <div class="gauge"><div class="bar"><div id="fuelFill" class="fill"></div></div><label>Tank</label></div>
@@ -497,7 +500,11 @@ const UI = {
     updateMusic();
     if(id!=="flight" && typeof Flight!=="undefined" && Flight.setRumble) Flight.setRumble(0);
   },
-  back(){ this.show(this.prev==="flight"?"menu":this.prev); },
+  back(){
+    const cur = document.querySelector(".screen.active");
+    const target = (!this.prev || this.prev==="flight" || (cur && this.prev===cur.id)) ? "menu" : this.prev;
+    this.show(target);
+  },
   startCareer(){ Game.sandbox=false; this.inGame=true; this.show("vab"); showHint("career"); },
   startSandbox(){ Game.sandbox=true; this.inGame=true; this.show("vab"); showHint("sandbox"); },
   launch(){
@@ -1524,6 +1531,13 @@ const Flight = {
     addEventListener("keydown", e=>{
       if(!document.getElementById("flight").classList.contains("active")) return;
       this.keys[e.key.toLowerCase()]=true;
+      // Jede Steuereingabe beendet den Zeitraffer (sonst "Triebwerk reagiert nicht")
+      const ctrlKeys = [" ","w","a","s","d","q","e","z","x","arrowup","arrowdown"];
+      if(WARPS[this.warpI]>2 && ctrlKeys.includes(e.key.toLowerCase())){
+        this.warpI = 0;
+        this.showMsg("⏩ Zeitraffer beendet – Steuerung & Triebwerk wieder aktiv!",2);
+      }
+      if(e.key==="h"||e.key==="H") this.toggleControlsBar();
       if(e.key===" "){ e.preventDefault(); this.stage(); }
       if(e.key==="p"||e.key==="P") this.toggleChute();
       if(e.key==="f"||e.key==="F") this.jettisonFairing();
@@ -1714,6 +1728,12 @@ const Flight = {
     if(!Game.sandbox) return;
     this.infinite = !this.infinite;
     this.showMsg(this.infinite?"∞ Endlos-Treibstoff AN (Testmodus)":"∞ Endlos-Treibstoff AUS",2);
+  },
+  toggleControlsBar(){
+    const el = document.getElementById("hudControls");
+    el.classList.toggle("hidden");
+    const btn = document.getElementById("hudToggle");
+    btn.textContent = el.classList.contains("hidden") ? "⌨ Tasten zeigen [H]" : "⌨ [H]";
   },
   togglePanels(){
     if(this.crashed||this.ended) return;
@@ -2381,8 +2401,8 @@ const Flight = {
           cv.scale.set(sc, sc, sc);
         }
       }
-      // Abgas-Partikel
-      if(burning && !this.map){
+      // Abgas-Partikel: nur in der Atmosphäre (im Vakuum gibt es keine Rauchwolke)
+      if(burning && !this.map && alt < LEIBNIZ.atmoH){
         const nozzle = this.pos.clone().addScaledVector(dir, -hh);
         for(let i=0;i<3;i++){
           const spread = V3((Math.random()-0.5)*8,(Math.random()-0.5)*8,(Math.random()-0.5)*8);
@@ -2541,6 +2561,21 @@ const Flight = {
       x.fillText(Math.abs(pd)+"°", 30, yy+3);
     }
     x.restore();
+    // Himmelsrichtungen: wandern mit dem Heading über den Ball (O = 90° = Orbit-Richtung)
+    x.fillStyle = "rgba(255,255,255,.9)";
+    x.font = "bold 11px sans-serif"; x.textAlign = "center";
+    for(const [hd, L] of [[0,"N"],[90,"O"],[180,"S"],[270,"W"]]){
+      let dh = hd - heading;
+      while(dh > 180) dh -= 360;
+      while(dh < -180) dh += 360;
+      if(Math.abs(dh) < 65){
+        const lx = cx + dh*1.05;
+        x.fillText(L, lx, cy - 38);
+        x.fillStyle = "rgba(255,255,255,.45)";
+        x.fillRect(lx-0.5, cy-34, 1, 5);
+        x.fillStyle = "rgba(255,255,255,.9)";
+      }
+    }
     // Prograde-Marker
     if(this.vel.length()>5){
       const pv = this.vel.clone().normalize();
