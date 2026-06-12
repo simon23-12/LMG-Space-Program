@@ -124,8 +124,6 @@ input[type=file]{display:none;}
   <button class="btn" onclick="UI.startSandbox()">🛠️ Sandbox</button>
   <button class="btn" onclick="UI.show('tutorial')">🎓 Tutorials</button>
   <button class="btn" onclick="UI.show('universe')">🪐 Universum ansehen</button>
-  <button class="btn" onclick="UI.show('missions')">📋 Missionen</button>
-  <button class="btn" onclick="UI.show('tech')">🔬 Forschung</button>
   <button class="btn" onclick="UI.saveGame()">💾 Spielstand speichern</button>
   <button class="btn" onclick="document.getElementById('loadFile').click()">📂 Spielstand laden</button>
   <button class="btn" style="font-size:12px;padding:6px 14px;opacity:.7" onclick="resetProgress()">🗑 Fortschritt zurücksetzen</button>
@@ -142,8 +140,8 @@ input[type=file]{display:none;}
     <div id="vabTop">
       <span class="title">🏗️ Montagehalle</span>
       <span id="vabSci" class="scibadge"></span>
-      <button class="btn" onclick="UI.show('tech')">🔬 Forschung</button>
-      <button class="btn" onclick="UI.show('missions')">📋 Missionen</button>
+      <button class="btn" id="vabTechBtn" onclick="UI.show('tech')">🔬 Forschung</button>
+      <button class="btn" id="vabMisBtn" onclick="UI.show('missions')">📋 Missionen</button>
       <button class="btn" onclick="UI.show('menu')">☰ Menü</button>
       <button class="btn orange" onclick="UI.launch()">🚀 START</button>
     </div>
@@ -404,77 +402,93 @@ const CATS = [
 const PARTS = {
   pod:    {name:"Kommandokapsel »Leibniz I«", type:"pod",    cat:"cmd", mass:800,  w:10,h:14, tech:"start", charge:150, info:"Sitz für eine mutige Pilotin / einen mutigen Piloten. Interne Batterie: 150 ⚡."},
   chute:  {name:"Fallschirm Mk1",            type:"chute",  cat:"cmd", mass:100,  w:10,h:5,  tech:"start", info:"Für die sichere Landung. Mit [P] auslösen."},
-  lab:    {name:"Materiallabor »Curie«",     type:"lab",    cat:"cmd", mass:180,  w:10,h:7,  tech:"basic",
+  lab:    {name:"Materiallabor »Curie«",     type:"lab",    cat:"cmd", mass:180,  w:10,h:7,  tech:"surv",
            info:"Führt Experimente durch [B] – jeder neue Ort bringt einmalig Wissenschaft!"},
-  shield: {name:"Hitzeschild",               type:"shield", cat:"cmd", mass:200,  w:11,h:3,  tech:"basic",
+  shield: {name:"Hitzeschild",               type:"shield", cat:"cmd", mass:200,  w:11,h:3,  tech:"surv",
            info:"Ablativer Schutzschild – ohne ihn verglüht die Rakete beim Wiedereintritt aus dem Orbit!"},
   tankS:  {name:"Treibstofftank S",          type:"tank",   cat:"upper", mass:250,  fuel:1400, w:10,h:16, tech:"start", info:"1,4 t Treibstoff – klein und leicht."},
   engS:   {name:"Triebwerk »Funke«",         type:"engine", cat:"upper", mass:200,  thrust:45000, isp:300, w:10,h:8, tech:"start", info:"45 kN Schub, drosselbar."},
-  tankM:  {name:"Treibstofftank M",          type:"tank",   cat:"upper", mass:450,  fuel:2800, w:10,h:28, tech:"adv", info:"2,8 t Treibstoff."},
-  engVac: {name:"Triebwerk »Terrier«",       type:"engine", cat:"upper", mass:500,  thrust:60000, isp:345, w:10,h:9, tech:"adv", info:"Sehr effizient im Vakuum (Isp 345 s)."},
+  tankM:  {name:"Treibstofftank M",          type:"tank",   cat:"upper", mass:450,  fuel:2800, w:10,h:28, tech:"advProp", info:"2,8 t Treibstoff."},
+  engVac: {name:"Triebwerk »Terrier«",       type:"engine", cat:"upper", mass:500,  thrust:60000, isp:345, w:10,h:9, tech:"advProp", info:"Sehr effizient im Vakuum (Isp 345 s)."},
   engNuc: {name:"Atom-Triebwerk »Einstein«", type:"engine", cat:"upper", mass:1200, thrust:55000, isp:520, w:10,h:14, tech:"future", info:"Isp 520 s! Schwach, aber extrem sparsam – das Triebwerk für Minzi und darüber hinaus."},
-  decoupler:{name:"Stufentrenner",           type:"decoupler", cat:"struct", mass:50, w:10,h:4, tech:"basic", info:"Trennt Stufen voneinander. [Leertaste]"},
+  decoupler:{name:"Stufentrenner",           type:"decoupler", cat:"struct", mass:50, w:10,h:4, tech:"struct", info:"Trennt Stufen voneinander. [Leertaste]"},
   legs:   {name:"Landebeine",                type:"legs",   cat:"struct", mass:120,  w:14,h:6, tech:"explore", info:"Erlauben Landungen bis 12 m/s (sonst 8 m/s)."},
   srb:    {name:"Feststoffbooster »Böller«", type:"srb",    cat:"lower", mass:450,  fuel:1700, thrust:230000, isp:220, w:10,h:24, tech:"basic", info:"Viel Schub, nicht drosselbar!"},
   fin:    {name:"Stabilisierungsflosse",     type:"fin",    cat:"lower", mass:40,   w:14,h:6, tech:"basic", info:"Verringert den Luftwiderstand."},
   tankL:  {name:"Treibstofftank L",          type:"tank",   cat:"lower", mass:800,  fuel:5600, w:12,h:42, tech:"heavy", info:"5,6 t Treibstoff – schwer, gehört nach unten."},
   engMain:{name:"Triebwerk »Hauptstufe«",    type:"engine", cat:"lower", mass:1500, thrust:600000, isp:290, w:12,h:12, tech:"heavy", info:"600 kN Schub für schwere Raketen."},
-  srbL:   {name:"Feststoffbooster »Donner«", type:"srb",    cat:"lower", mass:900,  fuel:3800, thrust:480000, isp:230, w:12,h:34, tech:"heavy", info:"Brachialer Startschub."},
+  srbL:   {name:"Feststoffbooster »Donner«", type:"srb",    cat:"lower", mass:900,  fuel:3800, thrust:480000, isp:230, w:12,h:34, tech:"heavyPlus", info:"Brachialer Startschub."},
   probe:  {name:"Sondenkern »Pixel«",        type:"probe",  cat:"sat", mass:150, w:8,h:6, tech:"payload", charge:80, info:"Unbemanntes Gehirn – braucht ständig Strom (0,25 ⚡/s)! Interne Batterie: 80 ⚡."},
   solar:  {name:"Solarpanele (ausfahrbar)",  type:"solar",  cat:"sat", mass:60,  w:14,h:4, tech:"payload", info:"Mit [G] ausfahren: +3 ⚡/s. Vorsicht: reißen im Fahrtwind ab!"},
   battery:{name:"Batterie",                  type:"battery",cat:"sat", mass:60,  w:8,h:5, tech:"payload", charge:500, info:"Speichert 500 ⚡ für Sonden, SAS und Experimente."},
   antenna:{name:"Antenne »Quassel«",         type:"antenna",cat:"sat", mass:40,  w:6,h:8, tech:"payload", info:"Funkt Daten nach Leibniz."},
   fairing:{name:"Nutzlast-Fairing",          type:"fairing",cat:"sat", mass:120, w:12,h:5, tech:"payload", info:"Halber Luftwiderstand. Mit [F] absprengen!"},
-  tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"payload", info:"0,7 t für Satelliten-Manöver."},
-  engT:   {name:"Triebwerk »Floh«",          type:"engine", cat:"sat", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"payload", info:"Winziges Manövriertriebwerk (8 kN)."}
+  tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"fine", info:"0,7 t für Satelliten-Manöver."},
+  engT:   {name:"Triebwerk »Floh«",          type:"engine", cat:"sat", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"fine", info:"Winziges Manövriertriebwerk (8 kN)."}
 };
+/* Tech-Tree mit Abhängigkeiten (req): Antriebe schalten bessere Antriebe frei usw. */
 const TECH = [
-  {id:"start",   name:"Startkapital",        cost:0,   desc:"Die ersten Schritte ins All."},
-  {id:"basic",   name:"Grundlagen-Raketen",  cost:12,  desc:"Stufentrennung und Feststoffbooster."},
-  {id:"adv",     name:"Fortgeschrittener Antrieb", cost:30, desc:"Effiziente Vakuum-Triebwerke."},
-  {id:"payload", name:"Nutzlasten & Satelliten", cost:45, desc:"Sondenkerne, Fairings und Satellitentechnik."},
-  {id:"heavy",   name:"Schwerlast-Raketen",  cost:60,  desc:"Große Tanks, große Triebwerke."},
-  {id:"explore", name:"Erkundung",           cost:100, desc:"Landetechnik für fremde Welten."},
-  {id:"future",  name:"Zukunftstechnik",     cost:140, desc:"Atomare Antriebe für die ganz großen Reisen."}
+  {id:"start",     name:"Startkapital",           cost:0,   req:[],                     desc:"Die ersten Schritte ins All."},
+  {id:"basic",     name:"Feststoffraketen",       cost:10,  req:["start"],              desc:"Booster und Flossen für stabile Starts."},
+  {id:"struct",    name:"Strukturbau",            cost:12,  req:["start"],              desc:"Stufentrennung – der Schlüssel zu großen Raketen."},
+  {id:"surv",      name:"Überleben & Forschung",  cost:18,  req:["basic"],              desc:"Hitzeschild für die Rückkehr, Labor für die Wissenschaft."},
+  {id:"advProp",   name:"Flüssigtriebwerke II",   cost:30,  req:["basic","struct"],     desc:"Effiziente Vakuum-Triebwerke und mittlere Tanks."},
+  {id:"payload",   name:"Satellitentechnik",      cost:45,  req:["advProp"],            desc:"Sondenkerne, Solarpanele, Batterien, Fairings."},
+  {id:"fine",      name:"Feinwerktechnik",        cost:40,  req:["payload"],            desc:"Miniatur-Antriebe für präzise Satelliten-Manöver."},
+  {id:"heavy",     name:"Schwerlast-Raketen",     cost:60,  req:["advProp"],            desc:"Große Tanks, großes Triebwerk – große Ziele."},
+  {id:"heavyPlus", name:"Schwerlast II",          cost:80,  req:["heavy"],              desc:"Der monströse »Donner«-Booster."},
+  {id:"explore",   name:"Erkundung",              cost:90,  req:["surv","advProp"],     desc:"Landebeine für fremde Welten."},
+  {id:"future",    name:"Zukunftstechnik",        cost:140, req:["heavy","payload"],    desc:"Atomantrieb – interplanetare Reisen werden komfortabel."}
 ];
+/* Missionen wie KSP-Verträge: erst ANNEHMEN, dann im Flug erfüllen.
+   req = welche Missionen vorher erledigt sein müssen (steigender Schwierigkeitsgrad). */
 const MISSIONS = [
-  {id:"alt5",    name:"Höhenrekord: 5 km",   desc:"Erreiche eine Höhe von 5 km.",   sci:5,  check:s=>s.alt>5000},
-  {id:"alt20",   name:"Höhenrekord: 20 km",  desc:"Erreiche eine Höhe von 20 km.",  sci:8,  check:s=>s.alt>20000},
-  {id:"alt40",   name:"Höhenrekord: 40 km",  desc:"Erreiche eine Höhe von 40 km.",  sci:10, check:s=>s.alt>40000},
-  {id:"space",   name:"Grenze zum Weltraum", desc:"Verlasse die Atmosphäre (70 km).", sci:15, check:s=>s.alt>70000},
-  {id:"speed1k", name:"Schallmauer ade",     desc:"Erreiche 1000 m/s.",             sci:6,  check:s=>s.speed>1000},
-  {id:"speed2k", name:"Fast Orbitalgeschwindigkeit", desc:"Erreiche 2200 m/s.",     sci:8,  check:s=>s.speed>2200},
-  {id:"orbit",   name:"Orbit!",              desc:"Stabiler Orbit um Leibniz (Periapsis > 70 km).", sci:25,
-   check:s=>s.body===LEIBNIZ && s.pe>LEIBNIZ.atmoH && s.ap>0},
-  {id:"land",    name:"Sichere Rückkehr",    desc:"Lande sicher zurück auf Leibniz.", sci:12,
-   check:s=>s.landed && s.body===LEIBNIZ && s.flew},
-  {id:"highOrbit",name:"Hoher Orbit",        desc:"Orbit mit Periapsis über 250 km.", sci:20,
-   check:s=>s.body===LEIBNIZ && s.pe>250000},
-  {id:"sat1",    name:"Erster Satellit",     desc:"Setze einen Satelliten in einem stabilen Orbit um Leibniz aus. [N]", sci:30,
-   check:s=>s.satL},
-  {id:"montiSoi",name:"Hallo Monti!",        desc:"Erreiche die Gravitationssphäre des Mondes Monti.", sci:35,
-   check:s=>s.body===MONTI},
-  {id:"montiOrb",name:"Monti-Orbit",         desc:"Erreiche einen Orbit um Monti.", sci:40,
-   check:s=>s.body===MONTI && s.pe>0 && s.ap>0 && s.ap<MONTI.soi},
-  {id:"satMonti",name:"Monti-Satellit",      desc:"Setze einen Satelliten in einem Orbit um Monti aus.", sci:45,
-   check:s=>s.satM},
-  {id:"montiLand",name:"Monti-Landung",      desc:"Lande sicher auf Monti!", sci:60,
-   check:s=>s.landed && s.body===MONTI},
-  {id:"montiReturn",name:"Heimkehr von Monti", desc:"Besuche Monti und lande danach sicher auf Leibniz.", sci:70,
-   check:s=>s.landed && s.body===LEIBNIZ && s.visitedMonti},
+  {id:"alt5",    name:"Höhenrekord: 5 km",   desc:"Erreiche eine Höhe von 5 km.",   sci:5,  req:[], check:s=>s.alt>5000},
+  {id:"speed1k", name:"Schallmauer ade",     desc:"Erreiche 1000 m/s.",             sci:6,  req:["alt5"], check:s=>s.speed>1000},
+  {id:"alt20",   name:"Höhenrekord: 20 km",  desc:"Erreiche eine Höhe von 20 km.",  sci:8,  req:["alt5"], check:s=>s.alt>20000},
+  {id:"alt40",   name:"Höhenrekord: 40 km",  desc:"Erreiche eine Höhe von 40 km.",  sci:10, req:["alt20"], check:s=>s.alt>40000},
   {id:"lab1",    name:"Wissenschaft unterwegs", desc:"Führe mit dem Materiallabor ein Experiment durch. [B]", sci:10,
-   check:s=>s.labAny},
-  {id:"minziSoi",name:"Hallo Minzi!",          desc:"Erreiche den Nachbarplaneten Minzi – eine INTERPLANETARE Reise! Erst Leibniz verlassen, dann im Sonnenorbit abpassen.", sci:55,
-   check:s=>s.body===MINZI},
-  {id:"minziLand",name:"Minzi-Landung",        desc:"Lande sanft auf dem Eisplaneten Minzi. Die Königsdisziplin des ganzen Spiels!", sci:90,
-   check:s=>s.landed && s.body===MINZI}
+   req:["alt20"], check:s=>s.labAny},
+  {id:"space",   name:"Grenze zum Weltraum", desc:"Verlasse die Atmosphäre (70 km).", sci:15, req:["alt40"], check:s=>s.alt>70000},
+  {id:"speed2k", name:"Fast Orbitalgeschwindigkeit", desc:"Erreiche 2200 m/s.", sci:8, req:["speed1k","alt40"], check:s=>s.speed>2200},
+  {id:"orbit",   name:"Orbit!",              desc:"Stabiler Orbit um Leibniz (Periapsis > 70 km).", sci:25,
+   req:["space"], check:s=>s.body===LEIBNIZ && s.pe>LEIBNIZ.atmoH && s.ap>0},
+  {id:"land",    name:"Sichere Rückkehr",    desc:"Kehre aus dem Flug sicher auf Leibniz zurück (Hitzeschild!).", sci:12,
+   req:["orbit"], check:s=>s.landed && s.body===LEIBNIZ && s.flew},
+  {id:"highOrbit",name:"Hoher Orbit",        desc:"Orbit mit Periapsis über 250 km.", sci:20,
+   req:["orbit"], check:s=>s.body===LEIBNIZ && s.pe>250000},
+  {id:"sat1",    name:"Erster Satellit",     desc:"Setze einen Satelliten in einem stabilen Orbit um Leibniz aus. [N]", sci:30,
+   req:["orbit"], check:s=>s.satL},
+  {id:"montiSoi",name:"Hallo Monti!",        desc:"Erreiche die Gravitationssphäre des Mondes Monti. Tipp: Manöverknoten [K]!", sci:35,
+   req:["orbit"], check:s=>s.body===MONTI},
+  {id:"montiOrb",name:"Monti-Orbit",         desc:"Erreiche einen Orbit um Monti.", sci:40,
+   req:["montiSoi"], check:s=>s.body===MONTI && s.pe>0 && s.ap>0 && s.ap<MONTI.soi},
+  {id:"satMonti",name:"Monti-Satellit",      desc:"Setze einen Satelliten in einem Orbit um Monti aus.", sci:45,
+   req:["montiOrb","sat1"], check:s=>s.satM},
+  {id:"montiLand",name:"Monti-Landung",      desc:"Lande sicher auf Monti!", sci:60,
+   req:["montiOrb"], check:s=>s.landed && s.body===MONTI},
+  {id:"montiReturn",name:"Heimkehr von Monti", desc:"Besuche Monti und lande danach sicher auf Leibniz.", sci:70,
+   req:["montiLand"], check:s=>s.landed && s.body===LEIBNIZ && s.visitedMonti},
+  {id:"minziSoi",name:"Hallo Minzi!",        desc:"Erreiche den Nachbarplaneten Minzi – eine INTERPLANETARE Reise!", sci:55,
+   req:["montiOrb"], check:s=>s.body===MINZI},
+  {id:"minziLand",name:"Minzi-Landung",      desc:"Lande sanft auf dem Eisplaneten Minzi. Die Königsdisziplin!", sci:90,
+   req:["minziSoi","montiLand"], check:s=>s.landed && s.body===MINZI}
 ];
+function missionAvailable(m){
+  return !Game.done.includes(m.id) && m.req.every(id=>Game.done.includes(id));
+}
+function acceptMission(id){
+  Game.activeMission = id; autoSave(); renderMissions();
+}
+function cancelMission(){
+  Game.activeMission = null; autoSave(); renderMissions();
+}
 
 /* ---------- Spielstand ---------- */
 let Game = newGame();
 function newGame(){
   return {science:0, unlocked:["start"], done:[], labDone:[], tutsDone:[], sandbox:false,
-    design:[]};   // Hangar startet leer – selbst bauen!
+    activeMission:null, design:[]};   // Hangar startet leer – selbst bauen!
 }
 /* Auto-Save: Fortschritt überlebt das Schließen des Browsers.
    (Der JSON-Download bleibt für Backups & Rechnerwechsel.) */
@@ -517,8 +531,8 @@ const UI = {
     const target = (!this.prev || this.prev==="flight" || (cur && this.prev===cur.id)) ? "menu" : this.prev;
     this.show(target);
   },
-  startCareer(){ Game.sandbox=false; this.inGame=true; this.show("vab"); showHint("career"); },
-  startSandbox(){ Game.sandbox=true; this.inGame=true; this.show("vab"); showHint("sandbox"); },
+  startCareer(){ Game.sandbox=false; this.inGame=true; VAB.stack=[]; this.show("vab"); showHint("career"); },
+  startSandbox(){ Game.sandbox=true; this.inGame=true; VAB.stack=[]; this.show("vab"); showHint("sandbox"); },
   launch(){
     const v = VAB.validate();
     if(v){ alert(v); return; }
@@ -798,10 +812,17 @@ function renderTech(){
   const grid = document.getElementById("techGrid"); grid.innerHTML = "";
   for(const t of TECH){
     const parts = Object.values(PARTS).filter(p=>p.tech===t.id).map(p=>"<li>"+p.name+"</li>").join("");
-    const un = isUnlocked(t.id), can = !un && Game.science>=t.cost;
+    const un = isUnlocked(t.id);
+    const reqOk = t.req.every(id=>isUnlocked(id));
+    const can = !un && reqOk && Game.science>=t.cost;
+    const reqNames = t.req.map(id=>TECH.find(x=>x.id===id).name).join(" + ");
     const div = document.createElement("div");
     div.className = "tech-node"+(un?" unlocked":"");
-    div.innerHTML = `<h3>${un?"✅ ":""}${t.name}</h3><p style="font-size:13px">${t.desc}</p><ul>${parts}</ul>` +
+    if(!un && !reqOk) div.style.opacity = ".45";
+    div.innerHTML = `<h3>${un?"✅ ":!reqOk?"🔒 ":""}${t.name}</h3>
+      <p style="font-size:13px">${t.desc}</p>
+      ${t.req.length?`<p style="font-size:11px;color:var(--muted)">⬑ benötigt: ${reqNames}</p>`:""}
+      <ul>${parts}</ul>` +
       (un ? `<b style="color:var(--green)">Freigeschaltet</b>`
           : `<button class="btn orange" ${can?"":"disabled"} onclick="unlockTech('${t.id}')">Erforschen (🧪 ${t.cost})</button>`);
     grid.appendChild(div);
@@ -809,20 +830,48 @@ function renderTech(){
 }
 function unlockTech(id){
   const t = TECH.find(x=>x.id===id);
-  if(Game.science>=t.cost && !Game.unlocked.includes(id)){
+  if(Game.science>=t.cost && !Game.unlocked.includes(id) && t.req.every(r=>Game.unlocked.includes(r))){
     Game.science -= t.cost; Game.unlocked.push(id); autoSave(); renderTech();
   }
 }
 function renderMissions(){
   document.getElementById("misSci").textContent = sciBadge();
   const list = document.getElementById("missionList"); list.innerHTML = "";
-  for(const m of MISSIONS){
-    const done = Game.done.includes(m.id);
-    const div = document.createElement("div");
-    div.className = "mission-card"+(done?" done":"");
-    div.innerHTML = `<span class="check">${done?"✅":"⬜"}</span>
-      <div><h3>${m.name}</h3><p>${m.desc}</p></div><span class="sci">🧪 ${m.sci}</span>`;
-    list.appendChild(div);
+  const sections = [
+    ["🎯 Aktive Mission", m=>Game.activeMission===m.id && !Game.done.includes(m.id)],
+    ["📋 Verfügbar – wähle eine Mission!", m=>missionAvailable(m) && Game.activeMission!==m.id],
+    ["✅ Erledigt", m=>Game.done.includes(m.id)],
+    ["🔒 Noch gesperrt", m=>!Game.done.includes(m.id) && !missionAvailable(m)]
+  ];
+  for(const [title, filter] of sections){
+    const ms = MISSIONS.filter(filter);
+    if(!ms.length) continue;
+    const h = document.createElement("h3");
+    h.style.cssText = "color:var(--orange);margin:14px 0 6px;width:100%;";
+    h.textContent = title;
+    list.appendChild(h);
+    for(const m of ms){
+      const done = Game.done.includes(m.id);
+      const active = Game.activeMission===m.id && !done;
+      const locked = !done && !missionAvailable(m);
+      const div = document.createElement("div");
+      div.className = "mission-card"+(done?" done":"");
+      if(active) div.style.borderColor = "var(--orange)";
+      if(locked) div.style.opacity = ".45";
+      const reqNames = m.req.map(id=>MISSIONS.find(x=>x.id===id).name).join(", ");
+      div.innerHTML = `<span class="check">${done?"✅":active?"🎯":locked?"🔒":"⬜"}</span>
+        <div><h3>${m.name}</h3><p>${locked ? "Vorher erledigen: "+reqNames : m.desc}</p></div>
+        <span class="sci">🧪 ${m.sci}</span>`;
+      if(!done && !locked){
+        const btn = document.createElement("button");
+        btn.className = "btn"+(active?"":" orange");
+        btn.style.cssText = "padding:6px 12px;font-size:13px;white-space:nowrap;";
+        btn.textContent = active ? "Abbrechen" : "Annehmen";
+        btn.onclick = active ? cancelMission : ()=>acceptMission(m.id);
+        div.appendChild(btn);
+      }
+      list.appendChild(div);
+    }
   }
 }
 
@@ -1254,6 +1303,9 @@ const VAB = {
   },
   refresh(){
     document.getElementById("vabSci").textContent = sciBadge();
+    // Forschung & Missionen gehören zur Karriere – in der Sandbox ist eh alles frei
+    document.getElementById("vabTechBtn").style.display = Game.sandbox ? "none" : "";
+    document.getElementById("vabMisBtn").style.display = Game.sandbox ? "none" : "";
     const list = document.getElementById("partList");
     list.innerHTML = "";
     for(const cat of CATS){
@@ -1797,10 +1849,15 @@ const Flight = {
     this.showMsg(this.infinite?"∞ Endlos-Treibstoff AN (Testmodus)":"∞ Endlos-Treibstoff AUS",2);
   },
   toggleControlsBar(){
-    const el = document.getElementById("hudControls");
-    el.classList.toggle("hidden");
+    // 3 Stufen: alles → Tastenleiste aus → komplettes HUD aus → wieder alles
+    this.hudMode = ((this.hudMode||0)+1)%3;
+    document.getElementById("hudControls").classList.toggle("hidden", this.hudMode>=1);
+    const vis = this.hudMode===2 ? "hidden" : "";
+    for(const id of ["navball","gauges","crewCam","hudLeft","hudRight","nodeUI"])
+      document.getElementById(id).style.visibility = vis;
     const btn = document.getElementById("hudToggle");
-    btn.textContent = el.classList.contains("hidden") ? "⌨ Tasten zeigen [H]" : "⌨ [H]";
+    btn.textContent = this.hudMode===0 ? "⌨ [H]" :
+      this.hudMode===1 ? "⌨ HUD aus [H]" : "⌨ alles zeigen [H]";
   },
   togglePanels(){
     if(this.crashed||this.ended) return;
@@ -2084,22 +2141,28 @@ const Flight = {
       if(k["arrowup"])   this.throttle=Math.min(1,this.throttle+1.2*dt);
       if(k["arrowdown"]) this.throttle=Math.max(0,this.throttle-1.2*dt);
     }
-    // --- Strom-Haushalt ---
-    const hasPod = this.v.stack.some(id=>PARTS[id].type==="pod");
-    const nSolar = this.v.stack.filter(id=>PARTS[id].type==="solar").length;
-    const gen = (this.panelsOut && !this.panelsBroken) ? 3*nSolar : 0;
-    let use = 0;
-    if(!hasPod && !this.landed) use += 0.25;       // Sondensteuerung
-    if(this.sas!=="off") use += 0.3;               // SAS
-    this.charge = Math.min(this.maxCharge, this.charge + (gen-use)*dt);
-    if(this.charge <= 0){
-      this.charge = 0;
-      if(this.sas!=="off"){ this.sas = "off"; this.showMsg("🪫 Strom leer – SAS abgeschaltet!",3); }
-      if(!hasPod && !this.powerDead){
-        this.powerDead = true;
-        this.showMsg("🪫 STROM LEER – die Sonde reagiert nicht mehr! (Panele ausfahren? [G])",4);
-      }
-    } else if(this.powerDead && this.charge > 5) this.powerDead = false;
+    // --- Strom-Haushalt (in Tutorials unbegrenzt – Üben ohne Stromsorgen) ---
+    if(typeof Tut!=="undefined" && Tut.active){
+      this.maxCharge = Math.max(this.maxCharge, 1000);
+      this.charge = this.maxCharge;
+      this.powerDead = false;
+    } else {
+      const hasPod = this.v.stack.some(id=>PARTS[id].type==="pod");
+      const nSolar = this.v.stack.filter(id=>PARTS[id].type==="solar").length;
+      const gen = (this.panelsOut && !this.panelsBroken) ? 3*nSolar : 0;
+      let use = 0;
+      if(!hasPod && !this.landed) use += 0.25;       // Sondensteuerung
+      if(this.sas!=="off") use += 0.3;               // SAS
+      this.charge = Math.min(this.maxCharge, this.charge + (gen-use)*dt);
+      if(this.charge <= 0){
+        this.charge = 0;
+        if(this.sas!=="off"){ this.sas = "off"; this.showMsg("🪫 Strom leer – SAS abgeschaltet!",3); }
+        if(!hasPod && !this.powerDead){
+          this.powerDead = true;
+          this.showMsg("🪫 STROM LEER – die Sonde reagiert nicht mehr! (Panele ausfahren? [G])",4);
+        }
+      } else if(this.powerDead && this.charge > 5) this.powerDead = false;
+    }
     const m = this.mass(), s = this.activeSeg();
     let thrust = 0;
     if(s && s.ignited && warp<=2 && !this.powerDead){
@@ -2171,6 +2234,24 @@ const Flight = {
             this.explode();
             this.showMsg("💥 Beim Wiedereintritt verglüht! Nächstes Mal einen Hitzeschild einbauen."+
               (this.crew&&this.crew.length?" Die Crew rettet sich per Schleudersitz! 🪂":""), 99);
+          }
+        }
+      }
+      // Passive aerodynamische Stabilisierung: am Schirm hängt die Kapsel
+      // senkrecht, im schnellen Sinkflug dreht sie sich Schild-voraus.
+      if(warp<=2 && !this.landed && !this.crashed && v>1){
+        const k2 = this.keys;
+        const manual = k2["w"]||k2["s"]||k2["a"]||k2["d"]||k2["q"]||k2["e"];
+        if(!manual){
+          let tDir = null, rate = 0;
+          if(this.chuteOpen){ tDir = relPos.clone().normalize(); rate = 1.6; }
+          else if(this.sas==="off" && descending && v>250){
+            tDir = airVel.clone().normalize().negate(); rate = 0.35;
+          }
+          if(tDir){
+            const nose = V3(0,1,0).applyQuaternion(this.q);
+            const full = new THREE.Quaternion().setFromUnitVectors(nose, tDir);
+            this.q.premultiply(new THREE.Quaternion().slerp(full, Math.min(1, rate*dt)));
           }
         }
       }
@@ -2298,16 +2379,18 @@ const Flight = {
       landed:this.landed, flew:this.flew,
       satL:this.satL, satM:this.satM, visitedMonti:this.visitedMonti,
       labAny:Game.labDone.length>0};
-    for(const ms of MISSIONS){
-      if(!Game.done.includes(ms.id) && ms.check(state)){
-        Game.done.push(ms.id); Game.science += ms.sci;
-        autoSave();
-        const t = document.getElementById("milestoneToast");
-        t.innerHTML = "🏆 "+ms.name+" &nbsp;+"+ms.sci+" 🧪";
-        t.style.display="block";
-        clearTimeout(this._toastT);
-        this._toastT = setTimeout(()=>t.style.display="none", 4000);
-      }
+    // Nur die AKTIVE (angenommene) Mission kann erfüllt werden – wie KSP-Verträge
+    const am = MISSIONS.find(m=>m.id===Game.activeMission);
+    if(am && !Game.done.includes(am.id) && am.check(state)){
+      Game.done.push(am.id);
+      Game.science += am.sci;
+      Game.activeMission = null;
+      autoSave();
+      const t = document.getElementById("milestoneToast");
+      t.innerHTML = "🏆 Mission erfüllt: "+am.name+" &nbsp;+"+am.sci+" 🧪";
+      t.style.display="block";
+      clearTimeout(this._toastT);
+      this._toastT = setTimeout(()=>t.style.display="none", 5000);
     }
   },
   endFlight(){
@@ -2575,7 +2658,8 @@ const Flight = {
       }
     }
     // Wiedereintritts-Glühen: Plasma bei hoher Geschwindigkeit in dichter Luft
-    const vAir = this.vel.length();
+    // (Geschwindigkeit relativ zum Planeten, nicht zur Sonne!)
+    const vAir = this.vel.clone().sub(bodyVel(LEIBNIZ, this.t)).length();
     if(!this.map && !this.landed && !this.crashed && alt<LEIBNIZ.atmoH && vAir>1200){
       const rho = LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH);
       const heat = rho*vAir*vAir*vAir;
@@ -2814,7 +2898,10 @@ const Flight = {
       <br>⚡ ${this.charge.toFixed(0)}/${this.maxCharge}${this.panelsOut?" ☀️":""}${this.powerDead?' <b style="color:var(--red)">STROM LEER</b>':""}
       ${this.infinite?'<br><b style="color:var(--green)">∞ Endlos-Treibstoff</b>':""}
       ${this.sats.length?'<br>📡 Satelliten: '+this.sats.length:""}
-      ${Game.sandbox?"":"<br>🧪 "+Game.science}`;
+      ${Game.sandbox?"":"<br>🧪 "+Game.science}
+      ${!Game.sandbox && Game.activeMission ? '<br><b style="color:var(--orange)">🎯 '+
+        (MISSIONS.find(m=>m.id===Game.activeMission)||{}).name+"</b>" :
+        (!Game.sandbox && !Tut.active ? '<br><small style="color:var(--muted)">Keine Mission angenommen</small>' : "")}`;
     document.getElementById("throttleFill").style.height=(this.throttle*100)+"%";
     document.getElementById("fuelFill").style.height=((s&&(s.fuel+s.srbFuel))?fuelPct:0)+"%";
     document.getElementById("powerFill").style.height=(this.maxCharge?this.charge/this.maxCharge*100:0)+"%";
