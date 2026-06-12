@@ -1514,6 +1514,20 @@ const Flight = {
     };
     this.apMarker = mkMarker("Ap","#2d7ad0");
     this.peMarker = mkMarker("Pe","#f7941d");
+    // Schiffsmarker für die Kartenansicht (Rakete selbst ist dort zu klein)
+    this.shipMarker = (()=>{
+      const c = document.createElement("canvas"); c.width=c.height=64;
+      const x = c.getContext("2d");
+      x.strokeStyle="#fff"; x.lineWidth=3;
+      x.beginPath(); x.arc(32,32,22,0,7); x.stroke();
+      x.fillStyle="#f7941d";
+      x.beginPath(); x.arc(32,32,11,0,7); x.fill();
+      const m = new THREE.Sprite(new THREE.SpriteMaterial({
+        map:new THREE.CanvasTexture(c), transparent:true, depthTest:false}));
+      m.visible = false;
+      this.scene.add(m);   // am Ursprung = Schiffsposition (Floating Origin)
+      return m;
+    })();
     this.nodeMarker = mkMarker("Δv","#5fc46a");
     // geplante Bahn nach dem Manöver (grün)
     const ng = new THREE.BufferGeometry();
@@ -2396,6 +2410,11 @@ const Flight = {
     this.groundPlane.visible = !this.map && alt<16000;
     this.padGroup.visible = !this.map && alt<25000;
     for(const ring of this.moonRings) ring.visible = this.map;
+    this.shipMarker.visible = this.map && !this.crashed;
+    if(this.map){
+      const ss = this._cd*0.035;
+      this.shipMarker.scale.set(ss, ss, 1);
+    }
     for(const spr of this.cloudSprites) spr.visible = !this.map && alt<30000;
     // Rakete (am Ursprung, Welt bewegt sich drumherum)
     const s = this.activeSeg();
