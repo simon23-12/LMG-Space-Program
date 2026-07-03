@@ -196,6 +196,7 @@ input[type=file]{display:none;}
   <div id="gauges">
     <div class="gauge"><div class="bar"><div id="throttleFill" class="fill"></div></div><label>Schub</label></div>
     <div class="gauge"><div class="bar"><div id="fuelFill" class="fill"></div></div><label>Tank</label></div>
+    <div class="gauge" id="boostGauge" style="display:none"><div class="bar"><div id="boostFill" class="fill" style="background:linear-gradient(180deg,#f7941d,#a85f10);"></div></div><label>Booster</label></div>
     <div class="gauge"><div class="bar"><div id="powerFill" class="fill" style="background:linear-gradient(180deg,#e8c540,#a8861a);"></div></div><label>⚡</label></div>
   </div>
   <canvas id="crewCam" width="180" height="92" style="position:absolute;right:12px;top:150px;
@@ -203,6 +204,7 @@ input[type=file]{display:none;}
   <div id="hudControls">
     <button class="btn" onclick="Flight.stage()">Stufe [Leer]</button>
     <button class="btn" id="sasBtn" onclick="Flight.toggleSAS()">SAS [T]</button>
+    <button class="btn" onclick="Flight.igniteBoosters()">🔥 Booster [R]</button>
     <button class="btn" onclick="Flight.jettisonBoosters()">Booster ab [J]</button>
     <button class="btn" onclick="Flight.toggleChute()">Schirm [P]</button>
     <button class="btn" onclick="Flight.jettisonFairing()">Fairing [F]</button>
@@ -471,9 +473,9 @@ const PARTS = {
   engMain:{name:"Triebwerk »Hauptstufe«",    type:"engine", cat:"lower", mass:1500, thrust:600000, isp:290, w:12,h:12, tech:"heavy", info:"600 kN Schub für schwere Raketen."},
   srbL:   {name:"Feststoffbooster »Donner«", type:"srb",    cat:"lower", mass:900,  fuel:3800, thrust:480000, isp:230, w:12,h:34, tech:"heavyPlus", info:"Brachialer Startschub."},
   sb2:    {name:"Seitenbooster ×2",          type:"sideboost", n:2, cat:"lower", mass:900,  fuel:3400, thrust:460000, isp:220, w:10,h:24, tech:"basic",
-           info:"Zwei radiale Feststoffbooster – zünden mit der 1. Stufe, Abwurf mit [J]!"},
+           info:"Zwei radiale Feststoffbooster mit eigenem Tank – zünden mit Stufe 1 oder separat mit [R], Abwurf mit [J]!"},
   sb4:    {name:"Seitenbooster ×4",          type:"sideboost", n:4, cat:"lower", mass:1800, fuel:6800, thrust:920000, isp:220, w:10,h:24, tech:"heavyPlus",
-           info:"Vier radiale Feststoffbooster für Monster-Raketen. Abwurf mit [J]!"},
+           info:"Vier radiale Feststoffbooster für Monster-Raketen. Zünden: Stufe 1 oder [R] · Abwurf: [J]"},
   probe:  {name:"Sondenkern »Pixel«",        type:"probe",  cat:"sat", mass:150, w:8,h:6, tech:"payload", charge:80, info:"Unbemanntes Gehirn – braucht ständig Strom (0,25 ⚡/s)! Interne Batterie: 80 ⚡."},
   solar:  {name:"Solarpanele (ausfahrbar)",  type:"solar",  cat:"sat", mass:60,  w:14,h:4, tech:"payload", info:"Mit [G] ausfahren: +3 ⚡/s. Vorsicht: reißen im Fahrtwind ab!"},
   battery:{name:"Batterie",                  type:"battery",cat:"sat", mass:60,  w:8,h:5, tech:"payload", charge:500, info:"Speichert 500 ⚡ für Sonden, SAS und Experimente."},
@@ -1536,15 +1538,9 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       for(let k=0;k<p.n;k++){
         // versetzt zu den Flossen (die sitzen auf 0/90/180/270°)
         const a = k*2*Math.PI/p.n + (p.n===2 ? Math.PI/2 : Math.PI/4);
-        const bx = Math.cos(a)*(ar+2.32), bz = Math.sin(a)*(ar+2.32);
-        const body = cylinder(2.3, 2.3, H*0.8, MAT.white, 12);
-        body.position.set(bx, H*0.44, bz); g.add(body);
-        const stripe = cylinder(2.33, 2.33, H*0.1, MAT.orange, 12);
-        stripe.position.set(bx, H*0.72, bz); g.add(stripe);
-        const nose = cylinder(0.3, 2.3, H*0.16, MAT.orange, 12);
-        nose.position.set(bx, H*0.92, bz); g.add(nose);
-        const noz = cylinder(1.5, 1.9, H*0.06, MAT.dark, 10);
-        noz.position.set(bx, H*0.02, bz); g.add(noz);
+        const booster = buildStrapOnMesh(H, true);
+        booster.position.set(Math.cos(a)*(ar+2.32), 0, Math.sin(a)*(ar+2.32));
+        g.add(booster);
         // Halteklammern zum Tank
         for(const cy of [H*0.2, H*0.7]){
           const strut = new THREE.Mesh(new THREE.BoxGeometry(2.6,0.8,0.8), MAT.dark);
@@ -1552,10 +1548,6 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
           strut.rotation.y = -a;
           g.add(strut);
         }
-        const fl = new THREE.Mesh(new THREE.ConeGeometry(1.8, H*0.85, 12), MAT.flame);
-        fl.rotation.x = Math.PI; fl.position.set(bx, -H*0.4, bz);
-        fl.visible = false; fl.name = "bflame";
-        g.add(fl);
       }
       break;}
     case "rcs":{
@@ -1602,23 +1594,13 @@ function buildRocketGroup(stack, fairingIntact){
       if(!isRadial(stack[i])) yy += PARTS[stack[i]].h;
     }
   }
-  // Wirt eines Radialteils: benachbarter Tank/Booster (erst darunter, dann darüber)
-  const radialHost = i=>{
-    const tanky = j => j>=0 && j<stack.length && !isRadial(stack[j]) &&
-      ["tank","srb"].includes(PARTS[stack[j]].type);
-    if(tanky(i+1)) return i+1;
-    if(tanky(i-1)) return i-1;
-    for(let j=i+1;j<stack.length;j++) if(!isRadial(stack[j])) return j;
-    for(let j=i-1;j>=0;j--) if(!isRadial(stack[j])) return j;
-    return -1;
-  };
   for(let i=stack.length-1; i>=0; i--){
     const id = stack[i], p = PARTS[id];
     const y = yBot[i];
     if(fairingIntact && fIdx>=0 && i<fIdx) continue;  // unter der Hülle
     if(inBay.has(i)) continue;                        // sitzt unsichtbar in der Bucht
     if(isRadial(id)){
-      const hIdx = radialHost(i);
+      const hIdx = radialHostIdx(stack, i);
       const hp = hIdx>=0 ? PARTS[stack[hIdx]] : null;
       const mesh = buildPartMesh(id, hp ? {r:hp.w/2, h:hp.h} : null);
       mesh.position.y = hIdx>=0 ? yBot[hIdx] : y;
@@ -1658,6 +1640,37 @@ function buildRocketGroup(stack, fairingIntact){
   }
   grp.userData.height = stackHeight(stack);
   return grp;
+}
+/* Ein einzelner Strap-on-Seitenbooster (Ursprung = Unterkante). Wird sowohl
+   am Stack montiert als auch als Trümmerteil nach dem Abwurf verwendet –
+   damit er beim Abtrennen NICHT die Form wechselt. */
+function buildStrapOnMesh(H, withFlame){
+  const g = new THREE.Group();
+  const body = cylinder(2.3, 2.3, H*0.8, MAT.white, 12); body.position.y = H*0.44; g.add(body);
+  const stripe = cylinder(2.33, 2.33, H*0.1, MAT.orange, 12); stripe.position.y = H*0.72; g.add(stripe);
+  const nose = cylinder(0.3, 2.3, H*0.16, MAT.orange, 12); nose.position.y = H*0.92; g.add(nose);
+  const noz = cylinder(1.5, 1.9, H*0.06, MAT.dark, 10); noz.position.y = H*0.02; g.add(noz);
+  if(withFlame){
+    const fl = new THREE.Mesh(new THREE.ConeGeometry(1.8, H*0.85, 12), MAT.flame);
+    fl.rotation.x = Math.PI; fl.position.y = -H*0.4; fl.visible = false; fl.name = "bflame";
+    g.add(fl);
+  }
+  return g;
+}
+/* Wirt eines Radialteils: benachbarter Tank/Booster (erst darunter, dann darüber) */
+function radialHostIdx(stack, i){
+  const tanky = j => j>=0 && j<stack.length && !isRadial(stack[j]) &&
+    ["tank","srb"].includes(PARTS[stack[j]].type);
+  if(tanky(i+1)) return i+1;
+  if(tanky(i-1)) return i-1;
+  for(let j=i+1;j<stack.length;j++) if(!isRadial(stack[j])) return j;
+  for(let j=i-1;j>=0;j--) if(!isRadial(stack[j])) return j;
+  return -1;
+}
+/* Sichtbare Höhe eines Strap-on-Boosters (abhängig vom Wirtstank) */
+function strapOnHeight(stack, i){
+  const hIdx = radialHostIdx(stack, i);
+  return hIdx>=0 ? Math.min(PARTS[stack[hIdx]].h*0.85, 30) : PARTS[stack[i]].h;
 }
 /* Effektiv installierte Stationsmodule (Sandbox & Tutorials: Vollausbau) */
 function stationModsEff(){
@@ -2096,7 +2109,7 @@ const VAB = {
     let boost = null;
     const bIds = this.stack.filter(id=>PARTS[id].type==="sideboost");
     if(bIds.length){
-      boost = {dry:0, fuel:0, thrust:0, attached:true};
+      boost = {dry:0, fuel:0, thrust:0, attached:true, ignited:false};
       for(const id of bIds){
         const p = PARTS[id];
         boost.dry += p.mass; boost.fuel += p.fuel; boost.thrust += p.thrust;
@@ -2132,8 +2145,8 @@ const VAB = {
     const bParts = this.stack.filter(id=>PARTS[id].type==="sideboost");
     if(bParts.length){
       const bThrust = bParts.reduce((a,id)=>a+PARTS[id].thrust,0);
-      html += `<div class="stage-box"><b>Seitenbooster</b> – zünden mit Stufe 1<br>
-        +${(bThrust/1000).toFixed(0)} kN Schub · Abwurf mit [J]</div>`;
+      html += `<div class="stage-box"><b>Seitenbooster</b> – eigener Tank!<br>
+        +${(bThrust/1000).toFixed(0)} kN Schub · Zünden: Stufe 1 oder [R] · Abwurf: [J]</div>`;
     }
     html += `<h3>Aufbau (oben → unten)</h3>
       <small style="color:var(--muted)">Ziehen zum Umsortieren · Teile aus der Liste hierher ziehen</small>
@@ -2413,7 +2426,7 @@ const Flight = {
       if(!document.getElementById("flight").classList.contains("active")) return;
       this.keys[e.key.toLowerCase()]=true;
       // Jede Steuereingabe beendet den Zeitraffer (sonst "Triebwerk reagiert nicht")
-      const ctrlKeys = [" ","w","a","s","d","q","e","z","x","arrowup","arrowdown"];
+      const ctrlKeys = [" ","w","a","s","d","q","e","z","x","r","arrowup","arrowdown"];
       if(WARPS[this.warpI]>2 && ctrlKeys.includes(e.key.toLowerCase())){
         this.warpI = 0;
         this.showMsg("⏩ Zeitraffer beendet – Steuerung & Triebwerk wieder aktiv!",2);
@@ -2427,6 +2440,7 @@ const Flight = {
       if(e.key==="g"||e.key==="G") this.togglePanels();
       if(e.key==="o"||e.key==="O") this.toggleBays();
       if(e.key==="j"||e.key==="J") this.jettisonBoosters();
+      if(e.key==="r"||e.key==="R") this.igniteBoosters();
       if(e.key==="t"||e.key==="T") this.toggleSAS();
       if(e.key==="k"||e.key==="K") this.addNode();
       if(e.key==="b"||e.key==="B") this.runExperiment();
@@ -2631,7 +2645,12 @@ const Flight = {
     if(!s.ignited && (s.thrust||s.srbThrust)){
       s.ignited = true; this.landed=false; this.flew=true;
       this.ensureRumble();
-      this.showMsg("Zündung! 🔥",2); return;
+      const bo = this.v.boost;
+      if(bo && bo.attached && !bo.ignited){
+        bo.ignited = true;   // klassischer Simultanstart – [R] zündet sie auch alleine
+        this.showMsg("Zündung – Hauptstufe + Seitenbooster! 🔥🔥",2);
+      } else this.showMsg("Zündung! 🔥",2);
+      return;
     }
     if(this.v.segs.length>1){
       const dropped = this.v.segs.shift();
@@ -2670,6 +2689,16 @@ const Flight = {
     btn.textContent = this.hudMode===0 ? "⌨ [H]" :
       this.hudMode===1 ? "⌨ HUD aus [H]" : "⌨ alles zeigen [H]";
   },
+  igniteBoosters(){
+    if(!this.v || this.crashed || this.ended) return;
+    const bo = this.v.boost;
+    if(!bo || !bo.attached){ this.showMsg("Keine Seitenbooster (mehr) dran! 🚀",2); return; }
+    if(bo.ignited){ this.showMsg("Seitenbooster brennen bereits! (Abwurf mit [J])",2); return; }
+    bo.ignited = true;
+    this.flew = true;
+    this.ensureRumble();
+    this.showMsg("🔥 SEITENBOOSTER GEZÜNDET! (Hauptstufe separat mit [Leertaste])",3);
+  },
   jettisonBoosters(){
     const bo = this.v && this.v.boost;
     if(!bo || !bo.attached){ this.showMsg("Keine Seitenbooster (mehr) dran! 🚀",2); return; }
@@ -2678,12 +2707,13 @@ const Flight = {
     let i;
     while((i = this.v.stack.findIndex(id=>PARTS[id].type==="sideboost")) >= 0){
       const p = PARTS[this.v.stack[i]];
+      const H = strapOnHeight(this.v.stack, i);   // Höhe wie montiert – Form bleibt gleich!
       this.v.stack.splice(i,1);
       // jeder Booster fliegt als Trümmerteil seitlich weg
       for(let k=0;k<p.n;k++){
         const ang = k*2*Math.PI/p.n;
         const side = fr.east.clone().multiplyScalar(Math.cos(ang)).addScaledVector(fr.north, Math.sin(ang));
-        const dM = buildRocketGroup(["srb"], false);
+        const dM = buildStrapOnMesh(H, false);
         this.world.add(dM);
         this.debris.push({
           pos: this.pos.clone().addScaledVector(side, 7),
@@ -3258,13 +3288,14 @@ const Flight = {
         if(!this.infinite) s.srbLeft -= s.srbThrust/(220*G0)*dt;
         if(s.srbLeft<0) s.srbLeft=0;
       }
-      // Seitenbooster brennen parallel zur 1. Stufe
-      const bo = this.v.boost;
-      if(bo && bo.attached && bo.fuelLeft>0){
-        thrust += bo.thrust;
-        if(!this.infinite) bo.fuelLeft -= bo.thrust/(220*G0)*dt;
-        if(bo.fuelLeft<0) bo.fuelLeft=0;
-      }
+    }
+    // Seitenbooster: eigene Zündung ([R] oder mit Stufe 1), eigener Tank
+    const bo = this.v.boost;
+    if(bo && bo.attached && bo.ignited && bo.fuelLeft>0 &&
+       warp<=2 && !this.powerDead && !this.commDead){
+      thrust += bo.thrust;
+      if(!this.infinite) bo.fuelLeft -= bo.thrust/(220*G0)*dt;
+      if(bo.fuelLeft<0) bo.fuelLeft=0;
     }
     // Auto-Cutoff am Manöverknoten: exakt das geplante Δv brennen, kein Überschießen
     if(this.node && this.sas==="node" && thrust>0){
@@ -3810,6 +3841,8 @@ const Flight = {
     const s = this.activeSeg();
     const burning = s && s.ignited && warp<=2 &&
       (s.fuelLeft>0&&s.thrust&&this.throttle>0 || s.srbLeft>0&&s.srbThrust);
+    const boB = this.v.boost;
+    const boosterBurn = boB && boB.attached && boB.ignited && boB.fuelLeft>0 && warp<=2;
     if(this.rocketGroup){
       this.rocketGroup.visible = !this.crashed && (!this.map);
       const hh = this.height()/2;
@@ -3817,9 +3850,9 @@ const Flight = {
       this.rocketGroup.position.copy(dir).multiplyScalar(-hh);
       this.rocketGroup.quaternion.copy(this.q);
       setFlames(this.rocketGroup, !!burning, Math.max(0.3,this.throttle));
-      // Seitenbooster-Flammen (brennen nur solange Treibstoff & angedockt)
+      // Seitenbooster-Flammen (eigene Zündung, eigener Tank)
       const bo2 = this.v.boost;
-      const bOn = bo2 && bo2.attached && bo2.fuelLeft>0 && s && s.ignited && warp<=2;
+      const bOn = bo2 && bo2.attached && bo2.ignited && bo2.fuelLeft>0 && warp<=2;
       this.rocketGroup.traverse(o=>{ if(o.name==="bflame") o.visible = !!bOn; });
       // Servicebuchten: nacheinander auf-/zufahren (Hülle gleitet nach unten)
       const nB = this.rocketGroup.userData.nBays||0;
@@ -3852,7 +3885,7 @@ const Flight = {
         }
       }
       // Abgas-Partikel: nur in der Atmosphäre (im Vakuum gibt es keine Rauchwolke)
-      if(burning && !this.map && alt < LEIBNIZ.atmoH){
+      if((burning || boosterBurn) && !this.map && alt < LEIBNIZ.atmoH){
         const nozzle = this.pos.clone().addScaledVector(dir, -hh);
         for(let i=0;i<3;i++){
           const spread = V3((Math.random()-0.5)*8,(Math.random()-0.5)*8,(Math.random()-0.5)*8);
@@ -3911,7 +3944,7 @@ const Flight = {
       }
     }
     // Triebwerks-Sound: lauter mit Schub, leiser mit dünner Luft (Vakuum = fast still)
-    this.setRumble(burning ? (0.04+0.14*this.throttle)*(0.25+0.75*f) : 0);
+    this.setRumble(burning || boosterBurn ? (0.04+0.14*(burning?this.throttle:1))*(0.25+0.75*f) : 0);
     // Partikel altern mit SIMULATIONS-Zeit (sonst driften sie bei Warp gegen die Planetenbewegung)
     this.updateParticles(simmed);
     for(const sat of this.sats) sat.mesh.position.copy(sat.pos);
@@ -4168,7 +4201,12 @@ const Flight = {
       <div class="row"><span>Periapsis</span><span>${o.pe<-o.body.R*0.99?"–":fmt(o.pe)}</span></div>
       <div class="row"><span>Stufen übrig</span><span>${this.v.segs.length}</span></div>
       <div class="row"><span>Treibstoff (Stufe)</span><span>${(s&&(s.fuel+s.srbFuel))?fuelPct.toFixed(0)+" %":"–"}</span></div>
-      ${this.v.boost && this.v.boost.attached ? `<div class="row"><span>Seitenbooster [J]</span><span>${(this.v.boost.fuelLeft/this.v.boost.fuel*100).toFixed(0)} %</span></div>` : ""}
+      ${this.v.boost && this.v.boost.attached ? `<div class="row"><span>Seitenbooster</span><span>${
+        this.v.boost.ignited
+          ? (this.v.boost.fuelLeft>0 ? (this.v.boost.fuelLeft/this.v.boost.fuel*100).toFixed(0)+" % 🔥 · [J] Abwurf"
+                                     : "leer – [J] Abwurf!")
+          : '<b style="color:var(--orange)">[R] zünden</b>'
+      }</span></div>` : ""}
       <div class="row"><span>Δv (Stufe)</span><span>${dvLeft>0?dvLeft.toFixed(0)+" m/s":"–"}</span></div>
       ${brakeRow}
       <div class="row"><span>Masse</span><span>${(mNow/1000).toFixed(2)} t</span></div>
@@ -4216,6 +4254,12 @@ const Flight = {
         (!Game.sandbox && !Tut.active ? '<br><small style="color:var(--muted)">Keine Mission angenommen</small>' : "")}`;
     document.getElementById("throttleFill").style.height=(this.throttle*100)+"%";
     document.getElementById("fuelFill").style.height=((s&&(s.fuel+s.srbFuel))?fuelPct:0)+"%";
+    // Seitenbooster: eigene Tankanzeige (eigener Treibstoff-Pool!)
+    const boG = this.v.boost, boEl = document.getElementById("boostGauge");
+    if(boG && boG.attached){
+      boEl.style.display = "";
+      document.getElementById("boostFill").style.height = (boG.fuelLeft/boG.fuel*100)+"%";
+    } else boEl.style.display = "none";
     document.getElementById("powerFill").style.height=(this.maxCharge?this.charge/this.maxCharge*100:0)+"%";
     if(this.node) this.updateNodeUI();   // Countdown auch außerhalb der Karte aktuell halten
     this.drawCrew();
