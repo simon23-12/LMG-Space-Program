@@ -3645,7 +3645,10 @@ const Flight = {
       }
       const rel = p.clone().sub(bodyPos(frameBody, t));
       const plot = rel.clone().add(fbNow);
-      posAttr.setXYZ(count++, plot.x, plot.y, plot.z);
+      // Vertices RELATIV zum Schiff speichern: bei ~1e10 m absoluten Koordinaten
+      // hat Float32 nur ~1 km Auflösung → die Linie "zittert" beim Ranzoomen.
+      // Der große Anteil steckt in line.position (Float64-Matrixverkettung).
+      posAttr.setXYZ(count++, plot.x-this.pos.x, plot.y-this.pos.y, plot.z-this.pos.z);
       const rr = rel.length();
       if(rr<rMin){ rMin=rr; pMin=plot.clone(); }
       if(rr>rMax){ rMax=rr; pMax=plot.clone(); }
@@ -3654,6 +3657,7 @@ const Flight = {
       if(MOONS.some(m=>p.distanceTo(bodyPos(m,t))<m.R)) break;
     }
     this.trajLine.geometry.setDrawRange(0, count);
+    this.trajLine.position.copy(this.pos);
     posAttr.needsUpdate = true;
     // Ap/Pe-Marker setzen
     const showMarkers = this.map && o.ap>0 && pMax && pMin;
@@ -3724,12 +3728,13 @@ const Flight = {
           pt += d2;
         }
         const plot2 = pp.clone().sub(bodyPos(nBody, pt)).add(nbNow);
-        nAttr.setXYZ(c2++, plot2.x, plot2.y, plot2.z);
+        nAttr.setXYZ(c2++, plot2.x-this.pos.x, plot2.y-this.pos.y, plot2.z-this.pos.z);
         if(pp.distanceTo(bodyPos(LEIBNIZ,pt))<LEIBNIZ.R) break;
         if(pp.length()<SUN.R) break;
         if(MOONS.some(m=>pp.distanceTo(bodyPos(m,pt))<m.R)) break;
       }
       this.nodeTrajLine.geometry.setDrawRange(0, c2);
+      this.nodeTrajLine.position.copy(this.pos);
       nAttr.needsUpdate = true;
       this.nodeTrajLine.visible = true;
       this.updateNodeUI();
