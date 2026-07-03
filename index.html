@@ -203,6 +203,7 @@ input[type=file]{display:none;}
   <div id="hudControls">
     <button class="btn" onclick="Flight.stage()">Stufe [Leer]</button>
     <button class="btn" id="sasBtn" onclick="Flight.toggleSAS()">SAS [T]</button>
+    <button class="btn" onclick="Flight.jettisonBoosters()">Booster ab [J]</button>
     <button class="btn" onclick="Flight.toggleChute()">Schirm [P]</button>
     <button class="btn" onclick="Flight.jettisonFairing()">Fairing [F]</button>
     <button class="btn" onclick="Flight.deploySat()">Satellit [N]</button>
@@ -424,11 +425,17 @@ const PARTS = {
   tankL:  {name:"Treibstofftank L",          type:"tank",   cat:"lower", mass:800,  fuel:5600, w:12,h:42, tech:"heavy", info:"5,6 t Treibstoff – schwer, gehört nach unten."},
   engMain:{name:"Triebwerk »Hauptstufe«",    type:"engine", cat:"lower", mass:1500, thrust:600000, isp:290, w:12,h:12, tech:"heavy", info:"600 kN Schub für schwere Raketen."},
   srbL:   {name:"Feststoffbooster »Donner«", type:"srb",    cat:"lower", mass:900,  fuel:3800, thrust:480000, isp:230, w:12,h:34, tech:"heavyPlus", info:"Brachialer Startschub."},
+  sb2:    {name:"Seitenbooster ×2",          type:"sideboost", n:2, cat:"lower", mass:900,  fuel:3400, thrust:460000, isp:220, w:10,h:24, tech:"basic",
+           info:"Zwei radiale Feststoffbooster – zünden mit der 1. Stufe, Abwurf mit [J]!"},
+  sb4:    {name:"Seitenbooster ×4",          type:"sideboost", n:4, cat:"lower", mass:1800, fuel:6800, thrust:920000, isp:220, w:10,h:24, tech:"heavyPlus",
+           info:"Vier radiale Feststoffbooster für Monster-Raketen. Abwurf mit [J]!"},
   probe:  {name:"Sondenkern »Pixel«",        type:"probe",  cat:"sat", mass:150, w:8,h:6, tech:"payload", charge:80, info:"Unbemanntes Gehirn – braucht ständig Strom (0,25 ⚡/s)! Interne Batterie: 80 ⚡."},
   solar:  {name:"Solarpanele (ausfahrbar)",  type:"solar",  cat:"sat", mass:60,  w:14,h:4, tech:"payload", info:"Mit [G] ausfahren: +3 ⚡/s. Vorsicht: reißen im Fahrtwind ab!"},
   battery:{name:"Batterie",                  type:"battery",cat:"sat", mass:60,  w:8,h:5, tech:"payload", charge:500, info:"Speichert 500 ⚡ für Sonden, SAS und Experimente."},
   bay:    {name:"Servicebucht",              type:"bay",    cat:"sat", mass:80,  w:11,h:9, tech:"payload",
-           info:"Aerodynamischer Stauraum: verkleidet das Bauteil DIREKT DARÜBER (Batterie, Labor …) und senkt den Luftwiderstand."},
+           info:"Aerodynamischer Stauraum: verkleidet das Bauteil DIREKT DARÜBER (Batterie, Labor …) und senkt den Luftwiderstand. Öffnen: [O]"},
+  bayS:   {name:"Servicebucht S",            type:"bay",    cat:"sat", mass:45,  w:9,h:6, tech:"payload",
+           info:"Kompakte Bucht – perfekt für Batterie oder Solarpanele. Öffnen: [O]"},
   antenna:{name:"Antenne »Quassel«",         type:"antenna",cat:"sat", mass:40,  w:4,h:5, tech:"payload", info:"Funkt Daten nach Leibniz."},
   fairing:{name:"Nutzlast-Fairing",          type:"fairing",cat:"sat", mass:120, w:12,h:5, tech:"payload", info:"Halber Luftwiderstand. Mit [F] absprengen!"},
   tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"fine", info:"0,7 t für Satelliten-Manöver."},
@@ -1024,9 +1031,16 @@ function buildPartMesh(id){
       const win = new THREE.Mesh(new THREE.SphereGeometry(r*0.28,12,12), MAT.blue);
       win.position.set(0,h*0.45,r*0.62); g.add(win);
       break;}
-    case "chute":
-      add(cylinder(r*0.45, r*0.6, h, MAT.orange), h/2);
-      break;
+    case "chute":{
+      // KSP-Style: dunkler Basisring + weiß gerundete Kuppel mit Glas-Top
+      add(cylinder(r*0.66, r*0.74, h*0.32, MAT.dark), h*0.16);
+      const dome = new THREE.Mesh(
+        new THREE.SphereGeometry(r*0.6, 18, 10, 0, Math.PI*2, 0, Math.PI/2), MAT.white);
+      dome.scale.y = 1.15; dome.position.y = h*0.3; g.add(dome);
+      const glass = new THREE.Mesh(new THREE.SphereGeometry(r*0.22, 10, 8),
+        new THREE.MeshStandardMaterial({color:0x9fd8ff, roughness:.15, metalness:.3}));
+      glass.position.y = h*0.3 + r*0.6*1.05; g.add(glass);
+      break;}
     case "shield":{
       // ablativer Schild: flacher brauner Kegelstumpf mit Goldrand
       add(cylinder(r*0.92, r, h, new THREE.MeshStandardMaterial({color:0x6b4a26, roughness:.55})), h/2);
@@ -1118,6 +1132,24 @@ function buildPartMesh(id){
     case "fairing":
       add(cylinder(r,r,h,MAT.orange), h/2);
       break;
+    case "sideboost":{
+      for(let k=0;k<p.n;k++){
+        const a = k*2*Math.PI/p.n;
+        const bx = Math.cos(a)*(r+2.7), bz = Math.sin(a)*(r+2.7);
+        const body = cylinder(2.3, 2.3, h*0.8, MAT.white, 12);
+        body.position.set(bx, h*0.44, bz); g.add(body);
+        const stripe = cylinder(2.33, 2.33, h*0.1, MAT.orange, 12);
+        stripe.position.set(bx, h*0.72, bz); g.add(stripe);
+        const nose = cylinder(0.3, 2.3, h*0.16, MAT.orange, 12);
+        nose.position.set(bx, h*0.92, bz); g.add(nose);
+        const noz = cylinder(1.5, 1.9, h*0.06, MAT.dark, 10);
+        noz.position.set(bx, h*0.02, bz); g.add(noz);
+        const fl = new THREE.Mesh(new THREE.ConeGeometry(1.8, h*0.85, 12), MAT.flame);
+        fl.rotation.x = Math.PI; fl.position.set(bx, -h*0.4, bz);
+        fl.visible = false; fl.name = "bflame";
+        g.add(fl);
+      }
+      break;}
     case "rcs":{
       add(cylinder(r*1.02, r*1.02, h, MAT.gray), h/2);
       for(let k=0;k<4;k++){
@@ -1496,7 +1528,9 @@ const VAB = {
   segStats(seg){
     let dry=0, fuel=0, srbFuel=0, thrust=0, srbThrust=0, ispSum=0, n=0;
     for(const id of seg){
-      const p=PARTS[id]; dry+=p.mass;
+      const p=PARTS[id];
+      if(p.type==="sideboost") continue;   // eigener Pool (parallel staging)
+      dry+=p.mass;
       if(p.type==="tank") fuel+=p.fuel;
       if(p.type==="engine"){ thrust+=p.thrust; ispSum+=p.isp; n++; }
       if(p.type==="srb"){ srbFuel+=p.fuel; srbThrust+=p.thrust; ispSum+=p.isp; n++; }
@@ -1511,7 +1545,18 @@ const VAB = {
       const st = this.segStats(s);
       return {parts:[...s], ...st, fuelLeft:st.fuel, srbLeft:st.srbFuel, ignited:false};
     });
-    return {segs, stack:[...this.stack]};
+    // Seitenbooster: eigener Pool, zünden mit Stufe 1, Abwurf mit [J]
+    let boost = null;
+    const bIds = this.stack.filter(id=>PARTS[id].type==="sideboost");
+    if(bIds.length){
+      boost = {dry:0, fuel:0, thrust:0, attached:true};
+      for(const id of bIds){
+        const p = PARTS[id];
+        boost.dry += p.mass; boost.fuel += p.fuel; boost.thrust += p.thrust;
+      }
+      boost.fuelLeft = boost.fuel;
+    }
+    return {segs, stack:[...this.stack], boost};
   },
   renderInfo(){
     const info = document.getElementById("vabInfo");
@@ -1536,6 +1581,12 @@ const VAB = {
       html += `<div class="stage-box"><b>Stufe ${i+1}</b> – ${(massOf(st)/1000).toFixed(2)} t<br>
         Δv ≈ ${dv.toFixed(0)} m/s · TWR ${twr.toFixed(2)}
         ${totalThrust&&twr<1?'<br><span style="color:var(--red)">⚠ TWR &lt; 1: hebt evtl. nicht ab!</span>':''}</div>`;
+    }
+    const bParts = this.stack.filter(id=>PARTS[id].type==="sideboost");
+    if(bParts.length){
+      const bThrust = bParts.reduce((a,id)=>a+PARTS[id].thrust,0);
+      html += `<div class="stage-box"><b>Seitenbooster</b> – zünden mit Stufe 1<br>
+        +${(bThrust/1000).toFixed(0)} kN Schub · Abwurf mit [J]</div>`;
     }
     html += `<h3>Aufbau (oben → unten)</h3>
       <small style="color:var(--muted)">Ziehen zum Umsortieren · Teile aus der Liste hierher ziehen</small>
@@ -1804,6 +1855,7 @@ const Flight = {
       if(e.key==="u"||e.key==="U") this.toggleInfinite();
       if(e.key==="g"||e.key==="G") this.togglePanels();
       if(e.key==="o"||e.key==="O") this.toggleBays();
+      if(e.key==="j"||e.key==="J") this.jettisonBoosters();
       if(e.key==="t"||e.key==="T") this.toggleSAS();
       if(e.key==="k"||e.key==="K") this.addNode();
       if(e.key==="b"||e.key==="B") this.runExperiment();
@@ -1955,7 +2007,12 @@ const Flight = {
     this.showMsg("Bereit zum Start – [Leertaste] zündet die erste Stufe!", 5);
   },
   height(){ return this.v.stack.reduce((a,id)=>a+PARTS[id].h,0); },
-  mass(){ let m=0; for(const s of this.v.segs) m+=s.dry+s.fuelLeft+s.srbLeft; return m; },
+  mass(){
+    let m=0;
+    for(const s of this.v.segs) m+=s.dry+s.fuelLeft+s.srbLeft;
+    if(this.v.boost && this.v.boost.attached) m += this.v.boost.dry + this.v.boost.fuelLeft;
+    return m;
+  },
   activeSeg(){ return this.v.segs[0]; },
   rebuildRocket(){
     if(this.rocketGroup) this.scene.remove(this.rocketGroup);
@@ -2007,6 +2064,33 @@ const Flight = {
     const btn = document.getElementById("hudToggle");
     btn.textContent = this.hudMode===0 ? "⌨ [H]" :
       this.hudMode===1 ? "⌨ HUD aus [H]" : "⌨ alles zeigen [H]";
+  },
+  jettisonBoosters(){
+    const bo = this.v && this.v.boost;
+    if(!bo || !bo.attached){ this.showMsg("Keine Seitenbooster (mehr) dran! 🚀",2); return; }
+    bo.attached = false;
+    const fr = this.frameAt(this.pos);
+    let i;
+    while((i = this.v.stack.findIndex(id=>PARTS[id].type==="sideboost")) >= 0){
+      const p = PARTS[this.v.stack[i]];
+      this.v.stack.splice(i,1);
+      // jeder Booster fliegt als Trümmerteil seitlich weg
+      for(let k=0;k<p.n;k++){
+        const ang = k*2*Math.PI/p.n;
+        const side = fr.east.clone().multiplyScalar(Math.cos(ang)).addScaledVector(fr.north, Math.sin(ang));
+        const dM = buildRocketGroup(["srb"], false);
+        this.world.add(dM);
+        this.debris.push({
+          pos: this.pos.clone().addScaledVector(side, 7),
+          vel: this.vel.clone().addScaledVector(side, 14).addScaledVector(fr.up, -3),
+          q: this.q.clone(),
+          spin: V3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).multiplyScalar(1.6),
+          mesh: dM, tEnd: this.t+240
+        });
+      }
+    }
+    this.rebuildRocket();
+    this.showMsg("💨 Seitenbooster abgeworfen!",2);
   },
   toggleBays(){
     if(this.crashed||this.ended) return;
@@ -2363,6 +2447,13 @@ const Flight = {
         thrust += s.srbThrust;
         if(!this.infinite) s.srbLeft -= s.srbThrust/(220*G0)*dt;
         if(s.srbLeft<0) s.srbLeft=0;
+      }
+      // Seitenbooster brennen parallel zur 1. Stufe
+      const bo = this.v.boost;
+      if(bo && bo.attached && bo.fuelLeft>0){
+        thrust += bo.thrust;
+        if(!this.infinite) bo.fuelLeft -= bo.thrust/(220*G0)*dt;
+        if(bo.fuelLeft<0) bo.fuelLeft=0;
       }
     }
     // Auto-Cutoff am Manöverknoten: exakt das geplante Δv brennen, kein Überschießen
@@ -2834,6 +2925,10 @@ const Flight = {
       this.rocketGroup.position.copy(dir).multiplyScalar(-hh);
       this.rocketGroup.quaternion.copy(this.q);
       setFlames(this.rocketGroup, !!burning, Math.max(0.3,this.throttle));
+      // Seitenbooster-Flammen (brennen nur solange Treibstoff & angedockt)
+      const bo2 = this.v.boost;
+      const bOn = bo2 && bo2.attached && bo2.fuelLeft>0 && s && s.ignited && warp<=2;
+      this.rocketGroup.traverse(o=>{ if(o.name==="bflame") o.visible = !!bOn; });
       // Servicebuchten: nacheinander auf-/zufahren (Hülle gleitet nach unten)
       const nB = this.rocketGroup.userData.nBays||0;
       if(nB){
@@ -2898,6 +2993,29 @@ const Flight = {
             0.25+Math.random()*0.35, 3+Math.random()*4,
             i%2 ? 0xffd9a0 : 0xff7a30);
         }
+      }
+    }
+    // RCS-Wölkchen beim Drehen (nur mit RCS-Ring an Bord)
+    if(!this.map && warp<=2 && !this.crashed && !this.landed){
+      const kk = this.keys;
+      const rotating = kk["w"]||kk["s"]||kk["a"]||kk["d"]||kk["q"]||kk["e"];
+      if(!this.eva && rotating && this.v.stack.some(id=>PARTS[id].type==="rcs")){
+        const fr3 = this.frameAt(this.pos);
+        const side = fr3.east.clone().multiplyScalar(Math.random()-0.5)
+          .addScaledVector(fr3.north, Math.random()-0.5)
+          .addScaledVector(fr3.up, (Math.random()-0.5)*0.6).normalize();
+        this.spawnParticle(
+          this.pos.clone().addScaledVector(side, 4.5),
+          this.vel.clone().addScaledVector(side, 3+Math.random()*2),
+          0.22+Math.random()*0.15, 1.3, 0xdfe8ff);
+      }
+      // EVA-Jetpack-Wölkchen
+      if(this.eva && (rotating || kk["arrowup"] || kk["arrowdown"])){
+        const jd = V3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+        this.spawnParticle(
+          this.eva.pos.clone().addScaledVector(jd, 0.9),
+          this.eva.vel.clone().addScaledVector(jd, 1.4),
+          0.18+Math.random()*0.12, 0.45, 0xdfe8ff);
       }
     }
     // Triebwerks-Sound: lauter mit Schub, leiser mit dünner Luft (Vakuum = fast still)
@@ -3115,6 +3233,7 @@ const Flight = {
       <div class="row"><span>Periapsis</span><span>${o.pe<-o.body.R*0.99?"–":fmt(o.pe)}</span></div>
       <div class="row"><span>Stufen übrig</span><span>${this.v.segs.length}</span></div>
       <div class="row"><span>Treibstoff (Stufe)</span><span>${(s&&(s.fuel+s.srbFuel))?fuelPct.toFixed(0)+" %":"–"}</span></div>
+      ${this.v.boost && this.v.boost.attached ? `<div class="row"><span>Seitenbooster [J]</span><span>${(this.v.boost.fuelLeft/this.v.boost.fuel*100).toFixed(0)} %</span></div>` : ""}
       <div class="row"><span>Δv (Stufe)</span><span>${dvLeft>0?dvLeft.toFixed(0)+" m/s":"–"}</span></div>
       ${brakeRow}
       <div class="row"><span>Masse</span><span>${(mNow/1000).toFixed(2)} t</span></div>
