@@ -300,28 +300,51 @@ const MONTI   = {name:"Monti",   R:200000, mu:6.5138e10, atmoH:0,
 const MINZI   = {name:"Minzi",   R:60000,  mu:1.766e9,   atmoH:0,
   parent:SUN, orbitR:2.05e10, incl:3*Math.PI/180, phase:1.7,
   shade2D:["#dff5ea","#a9d8c2","#5d8f78"]};
-const MOONS = [MONTI, MINZI];                      // kleine Körper (Meshes, Ringe, Kontakt)
-const GRAV_BODIES = [SUN, LEIBNIZ, MONTI, MINZI];  // alles, was zieht
-for(const b of [LEIBNIZ, MONTI, MINZI]){
+const KEPLER  = {name:"Kepler",  R:250000, mu:1.686e11,  atmoH:0,   // heißer Felsplanet innen
+  parent:SUN, orbitR:5.3e9, incl:4*Math.PI/180, phase:4.4,
+  shade2D:["#e8a06a","#a54a2a","#5e2412"]};
+const NEWTON  = {name:"Newton",  R:900000, mu:8.9e12,    atmoH:0,   // Eisriese weit draußen
+  parent:SUN, orbitR:6.9e10, incl:1.5*Math.PI/180, phase:0.8,
+  shade2D:["#9fd8e8","#4a7fd8","#22397e"]};
+const MOONS = [MONTI, MINZI, KEPLER, NEWTON];      // kleine Körper (Meshes, Ringe, Kontakt)
+const GRAV_BODIES = [SUN, LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON];  // alles, was zieht
+for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON]){
   b.period = 2*Math.PI*Math.sqrt(Math.pow(b.orbitR,3)/b.parent.mu);
   b.soi = b.orbitR*Math.pow(b.mu/b.parent.mu, 2/5);
 }
+// Zweikörper-Korrektur: Monti kreist um das GEMEINSAME Baryzentrum mit Leibniz,
+// daher zählt die Summe beider Gravitationsparameter (Kepler III, exakt)
+MONTI.period = 2*Math.PI*Math.sqrt(Math.pow(MONTI.orbitR,3)/(LEIBNIZ.mu+MONTI.mu));
 /* Kreisbahn im Bezugssystem des Parents (optional geneigt) */
 function bodyLocalPos(b, t){
   const a = 2*Math.PI*t/b.period + b.phase;
   const ci = Math.cos(b.incl), si = Math.sin(b.incl);
   return V3(b.orbitR*Math.cos(a), b.orbitR*Math.sin(a)*si, b.orbitR*Math.sin(a)*ci);
 }
+function bodyLocalVel(b, t){
+  const a = 2*Math.PI*t/b.period + b.phase, w = 2*Math.PI/b.period;
+  const ci = Math.cos(b.incl), si = Math.sin(b.incl);
+  return V3(-w*b.orbitR*Math.sin(a), w*b.orbitR*Math.cos(a)*si, w*b.orbitR*Math.cos(a)*ci);
+}
+/* Gegenseitige Gravitation Leibniz↔Monti: beide kreisen um ihr gemeinsames
+   Baryzentrum (exakte Zweikörper-Lösung). Leibniz "eiert" dadurch um ~217 km –
+   derselbe Effekt, mit dem Astronomen Exoplaneten aufspüren! */
+const K_LM = MONTI.mu / (MONTI.mu + LEIBNIZ.mu);
 function bodyPos(b, t){
   if(!b.parent) return V3(0,0,0);
+  if(b===LEIBNIZ)
+    return bodyLocalPos(LEIBNIZ, t).addScaledVector(bodyLocalPos(MONTI, t), -K_LM);
+  if(b===MONTI)
+    return bodyLocalPos(LEIBNIZ, t).addScaledVector(bodyLocalPos(MONTI, t), 1-K_LM);
   return bodyPos(b.parent, t).add(bodyLocalPos(b, t));
 }
 function bodyVel(b, t){
   if(!b.parent) return V3(0,0,0);
-  const a = 2*Math.PI*t/b.period + b.phase, w = 2*Math.PI/b.period;
-  const ci = Math.cos(b.incl), si = Math.sin(b.incl);
-  return bodyVel(b.parent, t).add(
-    V3(-w*b.orbitR*Math.sin(a), w*b.orbitR*Math.cos(a)*si, w*b.orbitR*Math.cos(a)*ci));
+  if(b===LEIBNIZ)
+    return bodyLocalVel(LEIBNIZ, t).addScaledVector(bodyLocalVel(MONTI, t), -K_LM);
+  if(b===MONTI)
+    return bodyLocalVel(LEIBNIZ, t).addScaledVector(bodyLocalVel(MONTI, t), 1-K_LM);
+  return bodyVel(b.parent, t).add(bodyLocalVel(b, t));
 }
 function leibnizAlt(p, t){ return p.distanceTo(bodyPos(LEIBNIZ, t)) - LEIBNIZ.R; }
 function montiPos(t){ return bodyPos(MONTI, t); }
@@ -416,6 +439,8 @@ const PARTS = {
   tankM:  {name:"Treibstofftank M",          type:"tank",   cat:"upper", mass:450,  fuel:2800, w:10,h:28, tech:"advProp", info:"2,8 t Treibstoff."},
   engVac: {name:"Triebwerk »Terrier«",       type:"engine", cat:"upper", mass:500,  thrust:60000, isp:345, w:10,h:9, tech:"advProp", info:"Sehr effizient im Vakuum (Isp 345 s)."},
   engNuc: {name:"Atom-Triebwerk »Einstein«", type:"engine", cat:"upper", mass:1200, thrust:55000, isp:520, w:10,h:14, tech:"future", info:"Isp 520 s! Schwach, aber extrem sparsam – das Triebwerk für Minzi und darüber hinaus."},
+  engIon: {name:"Ionentriebwerk »Planck«",   type:"engine", cat:"sat", mass:250, thrust:6000, isp:1300, w:8,h:6, tech:"future", info:"Isp 1300 s!! Winziger Schub, gigantische Reichweite – für Sonden zu Kepler und Newton."},
+  tankXL: {name:"Treibstofftank XL",         type:"tank",   cat:"lower", mass:1600, fuel:11200, w:14,h:60, tech:"heavyPlus", info:"11,2 t Treibstoff – das Rückgrat interplanetarer Expeditionen."},
   decoupler:{name:"Stufentrenner",           type:"decoupler", cat:"struct", mass:50, w:10,h:4, tech:"struct", info:"Trennt Stufen voneinander. [Leertaste]"},
   legs:   {name:"Landebeine",                type:"legs",   cat:"struct", mass:120,  w:14,h:6, tech:"explore", info:"Erlauben Landungen bis 12 m/s (sonst 8 m/s)."},
   rcs:    {name:"RCS-Steuerdüsen",           type:"rcs",    cat:"struct", mass:70,   w:11,h:2.5, tech:"advProp",
@@ -488,7 +513,15 @@ const MISSIONS = [
   {id:"minziSoi",name:"Hallo Minzi!",        desc:"Erreiche den Nachbarplaneten Minzi – eine INTERPLANETARE Reise!", sci:55,
    req:["montiOrb"], check:s=>s.body===MINZI},
   {id:"minziLand",name:"Minzi-Landung",      desc:"Lande sanft auf dem Eisplaneten Minzi. Die Königsdisziplin!", sci:90,
-   req:["minziSoi","montiLand"], check:s=>s.landed && s.body===MINZI}
+   req:["minziSoi","montiLand"], check:s=>s.landed && s.body===MINZI},
+  {id:"keplerSoi",name:"Zum Glutplaneten Kepler", desc:"Reise SONNENWÄRTS zum inneren Planeten Kepler – retrograd brennen, um zu fallen!", sci:70,
+   req:["minziSoi"], check:s=>s.body===KEPLER},
+  {id:"keplerLand",name:"Kepler-Landung",    desc:"Lande auf dem Glutplaneten (2,7 m/s² – aber ohne Atmosphäre zum Bremsen).", sci:110,
+   req:["keplerSoi","montiLand"], check:s=>s.landed && s.body===KEPLER},
+  {id:"newtonSoi",name:"Expedition Newton",  desc:"Erreiche den Eisriesen Newton am Rand des Systems – die weiteste Reise (Atomantrieb empfohlen!).", sci:85,
+   req:["minziSoi"], check:s=>s.body===NEWTON},
+  {id:"newtonLand",name:"Newton-Landung",    desc:"Lande auf dem Eisriesen – 11 m/s² Schwerkraft verlangen ALLES von deinem Lander!", sci:130,
+   req:["newtonSoi"], check:s=>s.landed && s.body===NEWTON}
 ];
 function missionAvailable(m){
   return !Game.done.includes(m.id) && m.req.every(id=>Game.done.includes(id));
@@ -930,11 +963,12 @@ function bodyStats(b){
 }
 function renderUniverse(){
   const cards = document.getElementById("universeCards"); cards.innerHTML = "";
-  for(const b of [LEIBNIZ, MONTI, MINZI]){
+  const icons = {Leibniz:"🌍", Monti:"🌗", Minzi:"🍬", Kepler:"🔥", Newton:"🔵"};
+  for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON]){
     const s = bodyStats(b);
     const div = document.createElement("div");
     div.className = "tech-node unlocked"; div.style.width = "300px";
-    div.innerHTML = `<h3>${b===LEIBNIZ?"🌍":b===MONTI?"🌗":"🍬"} ${b.name}</h3>
+    div.innerHTML = `<h3>${icons[b.name]} ${b.name}</h3>
       <div style="display:flex;justify-content:space-between"><span>Radius</span><b>${(b.R/1000).toFixed(0)} km</b></div>
       <div style="display:flex;justify-content:space-between"><span>Schwerkraft</span><b>${s.g.toFixed(2)} m/s²</b></div>
       <div style="display:flex;justify-content:space-between"><span>Atmosphäre</span><b>${b.atmoH?`bis ${b.atmoH/1000} km`:"keine"}</b></div>
@@ -955,12 +989,21 @@ function universeFrame(){
   ctx.fillStyle="rgba(255,255,255,.7)";
   for(let i=0;i<70;i++) ctx.fillRect((i*97.3)%W,(i*211.7)%H,(i%3===0?2:1),(i%3===0?2:1));
   // Heliozentrisch: Sonne im Zentrum, Leibniz (mit Mond Monti) und Minzi außen
-  const cx=W/2, cy=H/2, orbPx=Math.min(W,H)*0.44;
-  const r1=orbPx*0.62, r2=orbPx;
+  const cx=W/2, cy=H/2, orbPx=Math.min(W,H)*0.46;
+  const r0=orbPx*0.3, r1=orbPx*0.55, r2=orbPx*0.78, r3=orbPx*1.0;
   ctx.strokeStyle="rgba(150,160,190,.35)";
-  ctx.beginPath(); ctx.arc(cx,cy,r1,0,7); ctx.stroke();
-  ctx.beginPath(); ctx.arc(cx,cy,r2,0,7); ctx.stroke();
+  for(const rr of [r0,r1,r2,r3]){ ctx.beginPath(); ctx.arc(cx,cy,rr,0,7); ctx.stroke(); }
   const t = performance.now()/1000;
+  // Kepler (innen, schnell) & Newton (außen, träge)
+  const aK = t*2*Math.PI/26 + 1.1;
+  const kx=cx+Math.cos(aK)*r0, ky=cy+Math.sin(aK)*r0;
+  drawPlanetSurface(ctx,KEPLER,kx,ky,orbPx*0.045,t);
+  const aN = t*2*Math.PI/260 + 3.6;
+  const nwx=cx+Math.cos(aN)*r3, nwy=cy+Math.sin(aN)*r3;
+  drawPlanetSurface(ctx,NEWTON,nwx,nwy,orbPx*0.085,t);
+  ctx.fillStyle="#e8ecf5"; ctx.font="12px sans-serif"; ctx.textAlign="center";
+  ctx.fillText("Kepler",kx,ky+orbPx*0.045+13);
+  ctx.fillText("Newton",nwx,nwy+orbPx*0.085+14);
   // Sonne mit Glow
   const sg = ctx.createRadialGradient(cx,cy,4,cx,cy,orbPx*0.22);
   sg.addColorStop(0,"rgba(255,244,200,1)"); sg.addColorStop(0.4,"rgba(255,220,130,.5)");
@@ -1252,6 +1295,39 @@ function makeBodyTexture(b){
     }
     x.fillStyle="rgba(240,248,255,.95)";
     x.fillRect(0,0,1024,26); x.fillRect(0,486,1024,26);
+  } else if(b===KEPLER){
+    // Glutplanet: verbrannter Fels mit Lavaadern
+    x.fillStyle="#a54a2a"; x.fillRect(0,0,1024,512);
+    const rnd = seededRand(77);
+    for(let k=0;k<40;k++){
+      const cx=rnd()*1024, cy=rnd()*512, rr=15+rnd()*70;
+      x.fillStyle = k%3 ? "rgba(94,36,18,.6)" : "rgba(232,160,106,.5)";
+      x.beginPath(); x.ellipse(cx,cy,rr,rr*0.6,rnd()*3,0,7); x.fill();
+    }
+    for(let k=0;k<22;k++){
+      const cx=rnd()*1024, cy=rnd()*512;
+      x.strokeStyle="rgba(255,120,40,.7)"; x.lineWidth=1.5+rnd()*2;
+      x.beginPath(); x.moveTo(cx,cy);
+      let px=cx, py=cy;
+      for(let s2=0;s2<6;s2++){ px+=(rnd()-0.5)*60; py+=(rnd()-0.5)*30; x.lineTo(px,py); }
+      x.stroke();
+    }
+  } else if(b===NEWTON){
+    // Eisriese: horizontale Wolkenbänder
+    const bands=["#4a7fd8","#57c7d8","#3a5fc8","#7fd8e8","#2a4fa8","#57c7d8","#4a7fd8","#22397e"];
+    const rnd = seededRand(88);
+    let yy=0;
+    for(let k=0;k<bands.length;k++){
+      const bh = 40+rnd()*50;
+      x.fillStyle = bands[k];
+      x.fillRect(0, yy, 1024, bh+8);
+      yy += bh;
+    }
+    x.fillStyle = bands[0]; x.fillRect(0, yy, 1024, 512-yy);
+    for(let k=0;k<14;k++){
+      x.fillStyle="rgba(255,255,255,.18)";
+      x.beginPath(); x.ellipse(rnd()*1024, rnd()*512, 40+rnd()*80, 8+rnd()*10, 0, 0, 7); x.fill();
+    }
   } else if(b===MINZI){
     // Minzgrüner Eismond: glatte, helle Flächen
     x.fillStyle="#bfe8d5"; x.fillRect(0,0,1024,512);
@@ -1741,7 +1817,7 @@ const Flight = {
       this.world.add(mesh);
       this.moonMeshes.set(m, mesh);
     }
-    for(const b of [LEIBNIZ, MONTI, MINZI]){
+    for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON]){
       const ringPts = [];
       for(let i=0;i<128;i++) ringPts.push(bodyLocalPos(b, i/128*b.period - b.phase*b.period/(2*Math.PI)));
       const ring = new THREE.LineLoop(
@@ -2318,14 +2394,16 @@ const Flight = {
   /* ---------- Wissenschafts-Experimente ---------- */
   situation(){
     const o = this.orbit(), b = o.body;
+    const sciBoden = {Leibniz:4, Monti:30, Minzi:40, Kepler:45, Newton:55};
+    const sciRaum  = {Monti:20, Minzi:25, Kepler:30, Newton:35, Sonne:28};
     if(this.landed) return {id:"boden-"+b.name, name:"auf der Oberfläche von "+b.name,
-      sci: b===LEIBNIZ?4 : b===MONTI?30 : 40};
+      sci: sciBoden[b.name] ?? 40};
     if(b===LEIBNIZ){
       if(o.alt < LEIBNIZ.atmoH) return {id:"luft-leibniz", name:"in der Atmosphäre von Leibniz", sci:6};
       if(o.alt < 250000) return {id:"raum-leibniz", name:"im nahen Weltraum über Leibniz", sci:12};
       return {id:"hoch-leibniz", name:"im hohen Orbit über Leibniz", sci:15};
     }
-    return {id:"raum-"+b.name, name:"im Weltraum bei "+b.name, sci: b===MONTI?20:25};
+    return {id:"raum-"+b.name, name:"im Weltraum bei "+b.name, sci: sciRaum[b.name] ?? 25};
   },
   runExperiment(){
     if(!this.v || this.crashed || this.ended) return;
@@ -2367,6 +2445,8 @@ const Flight = {
     if(p.distanceTo(bodyPos(MONTI,t)) < MONTI.soi) return MONTI;
     if(p.distanceTo(bodyPos(LEIBNIZ,t)) < LEIBNIZ.soi) return LEIBNIZ;
     if(p.distanceTo(bodyPos(MINZI,t)) < MINZI.soi) return MINZI;
+    if(p.distanceTo(bodyPos(KEPLER,t)) < KEPLER.soi) return KEPLER;
+    if(p.distanceTo(bodyPos(NEWTON,t)) < NEWTON.soi) return NEWTON;
     return SUN;
   },
   body(){ return this.bodyAt(this.pos, this.t); },
