@@ -205,6 +205,40 @@ const TUTORIALS = [
      derselben Bahngeschwindigkeit wie das Schiff – kleine Jetpack-Stöße reichen.
      EVA geht nur mit Crew (Kommandokapsel) und nur im Weltraum.`},
 
+  {id:"rendezvous", icon:"🔗", title:"Rendezvous & Docking", sub:"Triff die Raumstation »Große Pause« – und docke an!",
+   scenario:{stack:["dock","pod","rcs","tankS","engT"], nearStation:3000},
+   steps:[
+    {text:`Vor dir fliegt die Raumstation <b>»Große Pause«</b> – nur 3 km entfernt, im selben
+      100-km-Orbit! Rechts im HUD siehst du <b>Abstand</b> und <b>Relativgeschwindigkeit</b>.<br><br>
+      Wirf zuerst einen Blick auf die Lage: Öffne die Karte mit <b>[M]</b> –
+      die Station ist der hellblaue <b>ISS</b>-Marker direkt neben dir.`,
+     check:(o,F)=>F.map},
+    {text:`Schließe die Karte wieder <b>[M]</b>. Auf dem Navball zeigt das <b>türkise ◆</b>
+      zur Station.<br><br>
+      Richte die Nase mit <b>W/A/S/D</b> genau auf das ◆ und gib einen <b>kurzen</b>
+      Schubstoß (<b>[↑]</b> antippen, dann <b>[X]</b>) – Ziel: dich mit ~10–20 m/s nähern.
+      Dann treiben lassen, bis der Abstand <b>unter 1 km</b> fällt.`,
+     check:(o,F)=>!F.map && F.pos.distanceTo(stationPos(F.t))<1000},
+    {text:`Unter 1000 m! 🛰 Jetzt wird GEBREMST – wie beim Einparken:<br><br>
+      Drücke <b>[T]</b>, bis <b>SAS: ZIEL-BREMSE</b> erscheint. Das Schiff dreht sich
+      automatisch <b>gegen</b> die Annäherung. Dann kurz brennen, bis die
+      <b>Relativgeschwindigkeit unter 3 m/s</b> liegt.`,
+     check:(o,F)=>F.vel.distanceTo(stationVel(F.t))<3 && F.pos.distanceTo(stationPos(F.t))<1500},
+    {text:`Sauber abgebremst! Jetzt der Feinanflug – immer im Wechsel:<br><br>
+      1. Nase aufs türkise ◆ drehen, Mini-Schubstoß (3–5 m/s).<br>
+      2. Treiben lassen, Abstand beobachten.<br>
+      3. <b>[T]</b> ZIEL-BREMSE + kurz brennen zum Stoppen.<br><br>
+      Wiederhole das, bis du <b>unter 30 m</b> an der Station bist.`,
+     check:(o,F)=>F.docked || F.pos.distanceTo(stationPos(F.t))<30},
+    {text:`Beinahe berührbar! ✨ Relativgeschwindigkeit unter 3 m/s? Dann:<br><br>
+      <b>[L] – ANDOCKEN!</b>`,
+     check:(o,F)=>F.docked},
+   ],
+   done:`🔗 ANGEDOCKT AN DER »GROSSEN PAUSE«! 🎉 Du beherrschst jetzt die schwierigste
+     Übung der Raumfahrt: das Rendezvous. Genau so entstand die echte ISS – Modul für Modul.
+     In der Karriere wartet dafür die Mission "Rendezvous: »Große Pause«" (+55 🧪).
+     Abdocken geht übrigens jederzeit mit [L].`},
+
   {id:"science", icon:"🔬", title:"Wissenschaft sammeln", sub:"Du startest im Orbit mit Labor an Bord.",
    scenario:{stack:["chute","pod","lab","rcs","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:100000}},
    steps:[
