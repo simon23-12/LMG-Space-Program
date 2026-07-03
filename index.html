@@ -209,6 +209,8 @@ input[type=file]{display:none;}
     <button class="btn" onclick="Flight.deploySat()">Satellit [N]</button>
     <button class="btn" onclick="Flight.togglePanels()">☀️ Panele [G]</button>
     <button class="btn" onclick="Flight.toggleEVA()">🧑‍🚀 EVA [V]</button>
+    <button class="btn" onclick="Flight.toggleDock()">🔗 Docken [L]</button>
+    <button class="btn" onclick="Flight.installModule()">🏗 Modul [I]</button>
     <button class="btn" onclick="Flight.toggleBays()">📦 Bucht [O]</button>
     <button class="btn" id="infBtn" style="display:none" onclick="Flight.toggleInfinite()">∞ Tank [U]</button>
     <button class="btn" onclick="Flight.addNode()">Manöver [K]</button>
@@ -241,8 +243,26 @@ input[type=file]{display:none;}
 <div id="universe" class="screen">
   <div class="page-head"><h1>🪐 Unser Universum</h1>
     <button class="btn" onclick="UI.back()">← Zurück</button></div>
-  <canvas id="universeCanvas" style="width:100%;max-width:900px;height:320px;border:1px solid var(--blue-dark);border-radius:10px;background:#04060e;"></canvas>
-  <div id="universeCards" style="display:flex;flex-wrap:wrap;gap:14px;max-width:900px;justify-content:center;margin-top:16px;"></div>
+  <canvas id="universeCanvas" style="width:100%;max-width:1100px;height:480px;border:1px solid var(--blue-dark);border-radius:10px;background:#04060e;"></canvas>
+  <div style="margin-top:12px;">
+    <button class="btn orange" onclick="AdminCam.open()">🎥 Vollbild: Planeten aus der Nähe ansehen (Admin-Cam)</button>
+  </div>
+  <div id="universeCards" style="display:flex;flex-wrap:wrap;gap:14px;max-width:1100px;justify-content:center;margin-top:16px;"></div>
+</div>
+
+<!-- ADMIN-CAM: Vollbild-3D-Planetenbetrachter -->
+<div id="adminCam" style="display:none;position:fixed;inset:0;background:#000;z-index:70;">
+  <div id="adminCam3d" style="position:absolute;inset:0;"></div>
+  <div style="position:absolute;top:12px;left:12px;right:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;z-index:2;">
+    <b style="color:var(--orange);font-size:18px;margin-right:6px;">🎥 Admin-Cam</b>
+    <span id="admFocusBtns" style="display:flex;gap:6px;flex-wrap:wrap;"></span>
+    <span style="flex:1"></span>
+    <button class="btn" onclick="AdminCam.speed(-1)">⏪</button>
+    <span id="admSpeed" style="color:var(--muted);min-width:80px;text-align:center;"></span>
+    <button class="btn" onclick="AdminCam.speed(1)">⏩</button>
+    <button class="btn orange" onclick="AdminCam.close()">✕ Schließen [Esc]</button>
+  </div>
+  <div id="admInfo" class="hud" style="position:absolute;left:12px;bottom:12px;z-index:2;font-size:13px;"></div>
 </div>
 
 <!-- TUTORIALS -->
@@ -464,8 +484,109 @@ const PARTS = {
   antenna:{name:"Antenne »Quassel«",         type:"antenna",cat:"sat", mass:40,  w:4,h:5, tech:"payload", info:"Funkt Daten nach Leibniz."},
   fairing:{name:"Nutzlast-Fairing",          type:"fairing",cat:"sat", mass:120, w:12,h:5, tech:"payload", info:"Halber Luftwiderstand. Mit [F] absprengen!"},
   tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"fine", info:"0,7 t für Satelliten-Manöver."},
-  engT:   {name:"Triebwerk »Floh«",          type:"engine", cat:"sat", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"fine", info:"Winziges Manövriertriebwerk (8 kN)."}
+  engT:   {name:"Triebwerk »Floh«",          type:"engine", cat:"sat", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"fine", info:"Winziges Manövriertriebwerk (8 kN)."},
+  dock:   {name:"Docking-Port »Klette«",     type:"dock",   cat:"cmd", mass:80, w:10,h:3, tech:"payload",
+           info:"Koppelstutzen an die Spitze bauen! Langsam (< 3 m/s) und nah (< 30 m) an die Raumstation »Große Pause« heranfliegen – [L] dockt an und ab."}
 };
+/* Radialteile (Flossen, Seitenbooster): hängen seitlich am Nachbartank
+   und belegen KEINE eigene Höhe im Stack – wie in echt. */
+function isRadial(id){ const t = PARTS[id] && PARTS[id].type; return t==="fin" || t==="sideboost"; }
+function stackHeight(stack){ return stack.reduce((a,id)=>a+(isRadial(id)?0:PARTS[id].h),0); }
+
+/* ---------- Raumstation »Große Pause« (ISS – Internationale Schul-Station) ----------
+   Fliegt "on rails" in einem exakten 100-km-Kreisorbit um Leibniz – in Karriere,
+   Sandbox und Tutorials immer da. Andocken/Abdocken mit [L]. */
+const STATION = {name:"Große Pause", alt:100000, phase:0.8};
+STATION.r = LEIBNIZ.R + STATION.alt;
+STATION.w = Math.sqrt(LEIBNIZ.mu/Math.pow(STATION.r,3));
+function stationPos(t){
+  const a = STATION.phase + STATION.w*t;
+  return bodyPos(LEIBNIZ,t).add(V3(Math.cos(a)*STATION.r, 0, -Math.sin(a)*STATION.r));
+}
+function stationVel(t){
+  const a = STATION.phase + STATION.w*t, v = STATION.w*STATION.r;
+  return bodyVel(LEIBNIZ,t).add(V3(-Math.sin(a)*v, 0, -Math.cos(a)*v));
+}
+/* Stationsausbau (Jahresprojekt): Module werden per Rakete hochgebracht.
+   Andocken + benötigte Bauteile an Bord → [I] baut das Modul dauerhaft ein. */
+const STATION_MODS = [
+  {id:"modLab",   icon:"🔬", name:"Labormodul »Pausenhof-Labor«", needs:["lab"],
+   bonus:"Alle Labor-Experimente bringen +50 % Wissenschaft.",
+   desc:"Bring ein Materiallabor »Curie« zur Station."},
+  {id:"modSolar", icon:"☀️", name:"Solarfarm »Sonnendeck«", needs:["solar","solar"],
+   bonus:"Angedockte Schiffe laden ihre Batterien voll auf.",
+   desc:"Bring ZWEI Solarpanele zur Station."},
+  {id:"modHab",   icon:"🛏️", name:"Wohnmodul »Schlafsaal«", needs:["bay","battery"],
+   bonus:"Crew bekommt +2 Extra-Erfahrung für jede Mission mit Docking.",
+   desc:"Bring eine Servicebucht + Batterie (ausgebaut als Wohnraum) zur Station."},
+  {id:"modScope", icon:"🔭", name:"Teleskop »Superblick«", needs:["probe","antenna"],
+   bonus:"Zeigt in der Missionszentrale Hinweise auf alle unentdeckten Anomalien.",
+   desc:"Bring einen Sondenkern + Antenne (Sensorplattform) zur Station."},
+  {id:"modFunk",  icon:"📡", name:"Relaisstation »Pausenfunk«", needs:["antenna","antenna"],
+   bonus:"Zählt wie ZWEI Relais-Satelliten fürs Funknetz.",
+   desc:"Bring ZWEI Antennen zur Station."}
+];
+function stationHasMod(id){ return (Game.stationMods||[]).includes(id); }
+
+/* ---------- Crew-Kader: Astronaut*innen mit Rolle, Erfahrung & Boni ---------- */
+const ROLES = {
+  pilot:{icon:"🧑‍✈️", name:"Pilot*in",           bonus:"+8 % Wendigkeit je Level"},
+  ing:  {icon:"🔧",  name:"Ingenieur*in",       bonus:"−4 % Treibstoffverbrauch je Level"},
+  sci:  {icon:"🥼",  name:"Wissenschaftler*in", bonus:"+10 % Experiment-Wissenschaft je Level"}
+};
+const XP_LEVELS = [0, 3, 8, 15, 25, 40];
+const LEVEL_NAMES = ["Rekrut*in","Kadett*in","Crew","Profi","Veteran*in","LEGENDE"];
+function crewLevel(a){ let l=0; for(let i=0;i<XP_LEVELS.length;i++) if(a.xp>=XP_LEVELS[i]) l=i; return l; }
+function newRoster(){
+  return [
+    {name:"Alex",  role:"pilot", xp:0, flights:0, status:"bereit"},
+    {name:"Gül",   role:"sci",   xp:0, flights:0, status:"bereit"},
+    {name:"Fynn",  role:"ing",   xp:0, flights:0, status:"bereit"},
+    {name:"Nova",  role:"pilot", xp:0, flights:0, status:"bereit"},
+    {name:"Ilias", role:"sci",   xp:0, flights:0, status:"bereit"},
+    {name:"Pia",   role:"ing",   xp:0, flights:0, status:"bereit"}
+  ];
+}
+
+/* ---------- Funknetz (vereinfachtes CommNet) ----------
+   Bemannt = immer steuerbar. Sonden: nahe Leibniz reicht die Bodenstation,
+   weiter draußen braucht es eine Antenne an Bord UND Relais-Satelliten. */
+function commRelays(){ return (Game.relays||0) + (stationHasMod("modFunk")?2:0); }
+function commCheck(stack, pos, t){
+  if(stack.some(id=>PARTS[id].type==="pod")) return {ok:true, why:"bemannt"};
+  const dL = pos.distanceTo(bodyPos(LEIBNIZ,t));
+  if(dL < LEIBNIZ.soi) return {ok:true, why:"Bodenstation Leibniz"};
+  if(!stack.some(id=>PARTS[id].type==="antenna"))
+    return {ok:false, why:"keine Antenne an Bord"};
+  const r = commRelays();
+  const dSun = pos.length();
+  if(dSun < 2.6e10) return r>=1 ? {ok:true, why:r+" Relais (inneres System)"} :
+    {ok:false, why:"braucht 1 Relais-Satellit (inneres System)"};
+  return r>=3 ? {ok:true, why:r+" Relais (äußeres System)"} :
+    {ok:false, why:"braucht 3 Relais (äußeres System) – aktuell "+r};
+}
+
+/* ---------- Anomalien: versteckte Orte zum Entdecken (Landung in der Nähe) ---------- */
+const ANOMALIES = [
+  {id:"leibUfo",   body:"LEIBNIZ", name:"Abgestürztes UFO",      icon:"🛸", sci:35,
+   dir:[-0.55, 0.45, 0.70], hint:"Leibniz – Nordhalbkugel, auf der Rückseite des Startplatzes"},
+  {id:"leibKrater",body:"LEIBNIZ", name:"Der Riesenkrater",      icon:"🕳️", sci:30,
+   dir:[0.30, -0.75, 0.59], hint:"Leibniz – tief auf der Südhalbkugel"},
+  {id:"montiMono", body:"MONTI",   name:"Der schwarze Monolith", icon:"🗿", sci:45,
+   dir:[0.0, 0.28, -0.96],  hint:"Monti – nahe des Äquators, immer von Leibniz abgewandt"},
+  {id:"montiEis",  body:"MONTI",   name:"Gefrorener Geysir",     icon:"❄️", sci:40,
+   dir:[-0.20, -0.95, 0.24], hint:"Monti – am Südpol"},
+  {id:"minziZucker",body:"MINZI",  name:"Zuckerkristall-Feld",   icon:"🍬", sci:55,
+   dir:[0.62, 0.62, 0.48],  hint:"Minzi – Nordhalbkugel"},
+  {id:"keplerObel",body:"KEPLER",  name:"Lavasee-Obelisk",       icon:"🔥", sci:65,
+   dir:[0.85, -0.15, 0.51], hint:"Kepler – nahe des Äquators"},
+  {id:"newtonRiese",body:"NEWTON", name:"Der gefrorene Riese",   icon:"🧊", sci:80,
+   dir:[-0.44, 0.60, -0.67], hint:"Newton – Nordhalbkugel"},
+  {id:"newtonWrack",body:"NEWTON", name:"Uraltes Raumschiffwrack", icon:"🚀", sci:75,
+   dir:[0.10, -0.35, 0.93], hint:"Newton – Südhalbkugel"}
+];
+const BODY_BY_NAME = ()=>({LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON});
+function anomalyFound(id){ return (Game.anomaliesFound||[]).includes(id); }
 /* Tech-Tree mit Abhängigkeiten (req): Antriebe schalten bessere Antriebe frei usw. */
 const TECH = [
   {id:"start",     name:"Startkapital",           cost:0,   req:[],                     desc:"Die ersten Schritte ins All."},
@@ -500,6 +621,26 @@ const MISSIONS = [
    req:["orbit"], check:s=>s.body===LEIBNIZ && s.pe>250000},
   {id:"sat1",    name:"Erster Satellit",     desc:"Setze einen Satelliten in einem stabilen Orbit um Leibniz aus. [N]", sci:30,
    req:["orbit"], check:s=>s.satL},
+  {id:"dock1",   name:"Rendezvous: »Große Pause«", desc:"Docke mit einem Docking-Port [L] an der Raumstation »Große Pause« an (100-km-Orbit). Tipp: erst das Tutorial »Rendezvous & Docking«!", sci:55,
+   req:["highOrbit"], check:s=>s.docked},
+  {id:"relay1",  name:"Funknetz I: Erstes Relais", desc:"Setze einen Relais-Satelliten aus: Sondenkern + Antenne + Solar in stabilem Leibniz-Orbit [N]. Sonden im tiefen All brauchen Funkkontakt!", sci:35,
+   req:["sat1"], check:s=>s.relays>=1},
+  {id:"relay3",  name:"Funknetz II: Volle Abdeckung", desc:"Baue das Netz auf 3 Relais aus – erst dann erreichen Sonden-Signale auch Newton am Rand des Systems. (Tipp: die Relaisstation »Pausenfunk« zählt doppelt!)", sci:60,
+   req:["relay1"], check:s=>s.relays>=3},
+  {id:"modLab",  name:"Stationsausbau: Labormodul", desc:"Bring ein Materiallabor »Curie« zur »Großen Pause«: andocken, dann [I]. Bonus danach: +50 % Experiment-Wissenschaft!", sci:50,
+   req:["dock1"], check:s=>s.mods.includes("modLab")},
+  {id:"modSolar",name:"Stationsausbau: Solarfarm", desc:"Bring ZWEI Solarpanele zur Station: andocken, dann [I]. Bonus: Andocken lädt künftig deine Batterien voll.", sci:50,
+   req:["dock1"], check:s=>s.mods.includes("modSolar")},
+  {id:"modHab",  name:"Stationsausbau: Wohnmodul", desc:"Bring eine Servicebucht + Batterie zur Station (wird zum »Schlafsaal« umgebaut): andocken, dann [I].", sci:60,
+   req:["modLab"], check:s=>s.mods.includes("modHab")},
+  {id:"modScope",name:"Stationsausbau: Teleskop", desc:"Bring Sondenkern + Antenne zur Station: andocken, dann [I]. Das »Superblick«-Teleskop verrät danach, wo Anomalien versteckt sind!", sci:60,
+   req:["modSolar"], check:s=>s.mods.includes("modScope")},
+  {id:"modFunk", name:"Stationsausbau: Relaisstation", desc:"Bring ZWEI Antennen zur Station: andocken, dann [I]. »Pausenfunk« zählt wie zwei Relais-Satelliten.", sci:60,
+   req:["modLab","modSolar"], check:s=>s.mods.includes("modFunk")},
+  {id:"anomaly1",name:"Entdecker*in", desc:"Irgendwo da draußen verstecken sich seltsame Orte… Lande in der Nähe einer leuchtenden ANOMALIE und untersuche sie!", sci:40,
+   req:["land"], check:s=>s.anomalies>=1},
+  {id:"rescue1", name:"Rettungsmission!", desc:"Hole gestrandete Crew aus dem Orbit zurück: mit Kommandokapsel auf unter 40 m ranfliegen (wie beim Docking) und sicher auf Leibniz landen!", sci:80,
+   req:["dock1"], check:s=>s.rescueLanded},
   {id:"montiSoi",name:"Hallo Monti!",        desc:"Erreiche die Gravitationssphäre des Mondes Monti. Tipp: Manöverknoten [K]!", sci:35,
    req:["orbit"], check:s=>s.body===MONTI},
   {id:"montiOrb",name:"Monti-Orbit",         desc:"Erreiche einen Orbit um Monti.", sci:40,
@@ -537,7 +678,12 @@ function cancelMission(){
 let Game = newGame();
 function newGame(){
   return {science:0, unlocked:["start"], done:[], labDone:[], tutsDone:[], sandbox:false,
-    activeMission:null, design:[]};   // Hangar startet leer – selbst bauen!
+    activeMission:null, design:[],   // Hangar startet leer – selbst bauen!
+    stationMods:[],                  // ausgebaute Module der »Großen Pause«
+    roster:newRoster(),              // Astronaut*innen-Kader mit XP
+    relays:0,                        // Relais-Satelliten fürs Funknetz
+    anomaliesFound:[],               // entdeckte Anomalien
+    assets:[]};                      // zurückgelassene Sats/Wracks im Orbit
 }
 /* Auto-Save: Fortschritt überlebt das Schließen des Browsers.
    (Der JSON-Download bleibt für Backups & Rechnerwechsel.) */
@@ -780,6 +926,17 @@ const Tut = {
       const s = Flight.activeSeg(); if(s) s.ignited = true;
       Flight.q.setFromUnitVectors(V3(0,1,0), tang);   // Nase zeigt prograde
     }
+    if(t.scenario.nearStation){
+      // Schiff im Stationsorbit, ein Stück HINTER der »Großen Pause«
+      const a = STATION.phase - t.scenario.nearStation/STATION.r;
+      const r = STATION.r, v = STATION.w*r;
+      Flight.pos = bodyPos(LEIBNIZ,0).add(V3(Math.cos(a)*r, 0, -Math.sin(a)*r));
+      Flight.vel = bodyVel(LEIBNIZ,0).add(V3(-Math.sin(a)*v, 0, -Math.cos(a)*v));
+      Flight.landed = false; Flight.flew = true; Flight.throttle = 0;
+      const s = Flight.activeSeg(); if(s) s.ignited = true;
+      // Nase Richtung Station
+      Flight.q.setFromUnitVectors(V3(0,1,0), stationPos(0).sub(Flight.pos).normalize());
+    }
     Flight.showMsg(t.icon+" Tutorial-Szenario geladen – viel Erfolg!", 3);
     UI.show("flight");
     this.render();
@@ -951,6 +1108,78 @@ function renderMissions(){
       list.appendChild(div);
     }
   }
+  renderMissionControl(list);
+}
+/* Missionszentrale: Stationsausbau, Crew-Kader, Funknetz, Entdeckungen, Orbit-Inventar */
+function renderMissionControl(list){
+  const sec = (title)=>{
+    const h = document.createElement("h3");
+    h.style.cssText = "color:var(--orange);margin:22px 0 6px;width:100%;border-top:1px solid var(--blue-dark);padding-top:14px;";
+    h.textContent = title; list.appendChild(h);
+  };
+  const card = (html)=>{
+    const d = document.createElement("div");
+    d.className = "mission-card";
+    d.style.display = "block";
+    d.innerHTML = html; list.appendChild(d); return d;
+  };
+  // --- Raumstation »Große Pause« ---
+  sec("🛰 Raumstation »Große Pause« – das Jahresprojekt");
+  const mods = Game.stationMods||[];
+  card(`<p style="margin-bottom:8px;">Ausbau: <b>${mods.length} / ${STATION_MODS.length} Module</b>
+    ${mods.length===STATION_MODS.length?" – 🏆 KOMPLETT!":""}</p>`+
+    STATION_MODS.map(m=>{
+      const done = mods.includes(m.id);
+      return `<div style="display:flex;gap:8px;align-items:baseline;margin:3px 0;${done?"":"opacity:.65"}">
+        <span>${done?"✅":"⬜"} ${m.icon} <b>${m.name}</b></span>
+        <small style="color:var(--muted)">${done ? m.bonus : m.desc+" → andocken, dann [I]"}</small></div>`;
+    }).join(""));
+  // --- Crew-Kader ---
+  sec("🧑‍🚀 Astronaut*innen-Kader");
+  card((Game.roster||[]).map(a=>{
+    const lvl = crewLevel(a);
+    const next = XP_LEVELS[lvl+1];
+    const stranded = a.status==="gestrandet";
+    return `<div style="display:flex;gap:10px;align-items:baseline;margin:3px 0;">
+      <b style="min-width:120px;${stranded?"color:var(--red)":""}">${ROLES[a.role].icon} ${a.name}</b>
+      <span style="min-width:120px;">${"⭐".repeat(lvl)||"–"} ${LEVEL_NAMES[lvl]}</span>
+      <small style="color:var(--muted)">${a.xp} XP${next!==undefined?" (Level-Up bei "+next+")":""} ·
+        ${a.flights||0} Flüge · ${ROLES[a.role].bonus}</small>
+      ${stranded?'<b style="color:var(--red)">🆘 GESTRANDET – Rettungsmission!</b>':""}
+    </div>`;
+  }).join(""));
+  // --- Funknetz ---
+  sec("📡 Funknetz");
+  const r = commRelays();
+  card(`<p>Relais aktiv: <b>${r}</b> ${stationHasMod("modFunk")?"(inkl. »Pausenfunk« = 2)":""}</p>
+    <div style="margin-top:4px;">
+      ${r>=1?"✅":"⬜"} Inneres System (Kepler, Minzi): 1 Relais nötig<br>
+      ${r>=3?"✅":"⬜"} Äußeres System (Newton): 3 Relais nötig<br>
+      <small style="color:var(--muted)">Relais = ausgesetzter Satellit [N] mit Sondenkern + Antenne + Solar.
+      Bemannte Schiffe brauchen kein Funknetz.</small></div>`);
+  // --- Entdeckungen ---
+  sec("🗺️ Entdeckungen (Anomalien)");
+  const found = Game.anomaliesFound||[];
+  const scope = stationHasMod("modScope");
+  card(`<p style="margin-bottom:8px;">Gefunden: <b>${found.length} / ${ANOMALIES.length}</b>
+    ${scope?"":" · <small style='color:var(--muted)'>Tipp: das Stations-Teleskop »Superblick« verrät die Verstecke!</small>"}</p>`+
+    ANOMALIES.map(a=>{
+      const ok = found.includes(a.id);
+      if(ok) return `<div style="margin:3px 0;">✅ ${a.icon} <b>${a.name}</b> <small style="color:var(--muted)">(${a.hint})</small> <b style="color:var(--orange)">+${a.sci} 🧪</b></div>`;
+      if(scope) return `<div style="margin:3px 0;opacity:.75;">🔭 ${a.icon} <b>???</b> <small style="color:var(--muted)">${a.hint} – lande in der Nähe des Leuchtfeuers!</small></div>`;
+      return `<div style="margin:3px 0;opacity:.5;">⬜ ❓ <b>???</b> <small style="color:var(--muted)">unentdeckt</small></div>`;
+    }).join(""));
+  // --- Orbit-Inventar ---
+  const assets = Game.assets||[];
+  if(assets.length){
+    sec("🛰 Im Orbit unterwegs");
+    card(assets.map(d=>{
+      const b = BODY_BY_NAME()[d.body];
+      return `<div style="margin:3px 0;">${d.kind==="wreck"?"🆘":"📡"} <b>${d.name}</b>
+        <small style="color:var(--muted)">– ${(d.alt/1000).toFixed(0)}-km-Orbit um ${b?b.name:d.body}
+        ${d.relay?" · Funknetz-Relais":""}</small></div>`;
+    }).join(""));
+  }
 }
 
 /* ---------- Universum (2D-Canvas) ---------- */
@@ -1033,6 +1262,124 @@ function universeFrame(){
   ctx.textAlign="left";
 }
 
+/* ---------- Admin-Cam: Vollbild-3D-Planetenbetrachter ----------
+   Echte Ephemeriden (bodyPos), echte Radien & Texturen, freier Orbit-Blick. */
+const AdminCam = {
+  ready:false, runningId:null, t:0, speedI:3, focus:null,
+  az:0.7, el:0.3, dist:0, minDist:1,
+  SPEEDS:[[60,"1 min/s"],[3600,"1 h/s"],[21600,"6 h/s"],[86400,"1 Tag/s"],[864000,"10 Tage/s"]],
+  init(){
+    if(this.ready) return; this.ready = true;
+    const host = document.getElementById("adminCam3d");
+    this.renderer = new THREE.WebGLRenderer({antialias:true, logarithmicDepthBuffer:true});
+    this.renderer.domElement.style.cssText = "width:100%;height:100%;";
+    host.appendChild(this.renderer.domElement);
+    this.scene = new THREE.Scene(); this.scene.background = new THREE.Color(0x02030a);
+    this.camera = new THREE.PerspectiveCamera(50, 1, 1000, 4e11);
+    this.scene.add(new THREE.AmbientLight(0x8090b0, .45));
+    this.scene.add(new THREE.PointLight(0xfff2dd, 1.5, 0, 0));   // die Sonne strahlt
+    const sun = new THREE.Mesh(new THREE.SphereGeometry(SUN.R, 48, 24),
+      new THREE.MeshBasicMaterial({color:0xfff0b0}));
+    this.scene.add(sun);
+    this.meshes = new Map([[SUN, sun]]);
+    for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON]){
+      const m = new THREE.Mesh(new THREE.SphereGeometry(b.R, 96, 48),
+        new THREE.MeshStandardMaterial({map:makeBodyTexture(b), roughness:.9}));
+      this.scene.add(m); this.meshes.set(b, m);
+    }
+    // Bahnlinien (bei Kindkörpern pro Frame um den wandernden Parent zentriert)
+    this.rings = [];
+    for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON]){
+      const pts = [];
+      for(let i=0;i<256;i++) pts.push(bodyLocalPos(b, i/256*b.period));
+      const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({color:0x40507a, transparent:true, opacity:.75}));
+      this.scene.add(ring); this.rings.push([b, ring]);
+    }
+    // Sterne
+    const sg = new THREE.BufferGeometry();
+    const sp = new Float32Array(1200*3), rnd = seededRand(77);
+    for(let i=0;i<1200;i++){
+      const v = V3(rnd()-0.5, rnd()-0.5, rnd()-0.5).normalize().multiplyScalar(3e11);
+      sp[i*3]=v.x; sp[i*3+1]=v.y; sp[i*3+2]=v.z;
+    }
+    sg.setAttribute("position", new THREE.BufferAttribute(sp,3));
+    this.scene.add(new THREE.Points(sg,
+      new THREE.PointsMaterial({color:0xffffff, size:2, sizeAttenuation:false})));
+    // Fokus-Buttons
+    const icons = {Sonne:"☀️", Leibniz:"🌍", Monti:"🌗", Minzi:"🍬", Kepler:"🔥", Newton:"🔵"};
+    const span = document.getElementById("admFocusBtns");
+    for(const b of [SUN, KEPLER, LEIBNIZ, MONTI, MINZI, NEWTON]){
+      const btn = document.createElement("button");
+      btn.className = "btn"; btn.style.cssText = "padding:5px 10px;font-size:12px;";
+      btn.textContent = icons[b.name]+" "+b.name;
+      btn.onclick = ()=>this.setFocus(b);
+      span.appendChild(btn);
+    }
+    // Maus: ziehen = drehen, Rad = Zoom
+    const el = this.renderer.domElement;
+    let drag = null;
+    el.addEventListener("pointerdown", e=>drag={x:e.clientX, y:e.clientY});
+    addEventListener("pointermove", e=>{
+      if(!drag || this.runningId===null) return;
+      this.az += (e.clientX-drag.x)*0.006;
+      this.el = Math.min(1.5, Math.max(-1.5, this.el+(e.clientY-drag.y)*0.004));
+      drag = {x:e.clientX, y:e.clientY};
+    });
+    addEventListener("pointerup", ()=>drag=null);
+    el.addEventListener("wheel", e=>{
+      this.dist = Math.max(this.minDist, Math.min(2e11, this.dist*(e.deltaY>0?1.15:1/1.15)));
+    }, {passive:true});
+    addEventListener("keydown", e=>{
+      if(e.key==="Escape" && this.runningId!==null) this.close();
+    });
+  },
+  setFocus(b){
+    this.focus = b;
+    this.minDist = b.R*1.6;
+    this.dist = b===SUN ? SUN.R*9 : b.R*4.5;
+    document.getElementById("admInfo").innerHTML =
+      `<b style="color:var(--orange);font-size:16px;">${b.name}</b> · Radius ${(b.R/1000).toFixed(0)} km`+
+      (b.parent ? ` · umkreist ${b.parent.name} (${b.period>1e6?(b.period/86400).toFixed(0)+" Tage":(b.period/3600).toFixed(1)+" h"})` : "")+
+      `<br><small style="color:var(--muted)">🖱 Ziehen = drehen · Rad = Zoom · Buttons oben = Himmelskörper wechseln</small>`;
+  },
+  speed(d){ this.speedI = Math.max(0, Math.min(this.SPEEDS.length-1, this.speedI+d)); },
+  open(){
+    this.init();
+    document.getElementById("adminCam").style.display = "block";
+    if(!this.focus) this.setFocus(LEIBNIZ);
+    if(this.runningId===null){
+      const step = ()=>{ this.runningId = requestAnimationFrame(step); this.frame(); };
+      step();
+    }
+  },
+  close(){
+    if(this.runningId!==null){ cancelAnimationFrame(this.runningId); this.runningId = null; }
+    document.getElementById("adminCam").style.display = "none";
+  },
+  frame(){
+    const host = document.getElementById("adminCam3d");
+    const w = host.clientWidth, h = host.clientHeight;
+    if(w<2 || h<2) return;
+    this.t += this.SPEEDS[this.speedI][0]/60;
+    document.getElementById("admSpeed").textContent = "⏱ "+this.SPEEDS[this.speedI][1];
+    for(const [b,m] of this.meshes){
+      if(b===SUN) continue;
+      m.position.copy(bodyPos(b, this.t));
+      m.rotation.y += 0.02*(this.SPEEDS[this.speedI][0]/86400);
+    }
+    for(const [b,ring] of this.rings)
+      ring.position.copy(b.parent && b.parent!==SUN ? bodyPos(b.parent, this.t) : V3());
+    const c = this.focus===SUN ? V3() : bodyPos(this.focus, this.t);
+    const dir = V3(Math.cos(this.el)*Math.cos(this.az), Math.sin(this.el), Math.cos(this.el)*Math.sin(this.az));
+    this.camera.position.copy(c).addScaledVector(dir, this.dist);
+    this.camera.lookAt(c);
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
+    this.renderer.render(this.scene, this.camera);
+  }
+};
+
 /* =================================================================
    3D-Material- & Geometrie-Bibliothek
    ================================================================= */
@@ -1052,7 +1399,7 @@ function cylinder(rTop,rBottom,h,mat,seg=20){
   return new THREE.Mesh(new THREE.CylinderGeometry(rTop,rBottom,h,seg), mat);
 }
 /* Ein Bauteil als 3D-Gruppe; Ursprung = Unterkante, +Y = oben */
-function buildPartMesh(id){
+function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radialteilen
   const p = PARTS[id], g = new THREE.Group();
   const r = p.w/2, h = p.h;
   const add = (m,y)=>{ m.position.y = y; g.add(m); return m; };
@@ -1127,14 +1474,21 @@ function buildPartMesh(id){
       add(cylinder(r,r,h,MAT.orange), h/2);
       break;
     case "fin":{
-      for(let k=0;k<3;k++){
-        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.5, h*1.6, p.w*0.42), MAT.blue);
-        const a = k*2*Math.PI/3;
-        fin.position.set(Math.cos(a)*r*0.85, h*0.5, Math.sin(a)*r*0.85);
-        fin.rotation.y = -a + Math.PI/2;
+      // sitzt AN der Außenwand des Nachbartanks (wie echte Stabilisierungsflossen)
+      const ar = attach ? attach.r : r*0.6;
+      const fh = attach ? Math.min(attach.h*0.55, 15) : h*2.2;
+      const shp = new THREE.Shape();
+      shp.moveTo(0,0); shp.lineTo(0,fh); shp.lineTo(4.6,fh*0.6); shp.lineTo(4.6,fh*0.08);
+      shp.closePath();
+      const geo = new THREE.ExtrudeGeometry(shp, {depth:0.55, bevelEnabled:false});
+      geo.translate(0,0,-0.275);
+      for(let k=0;k<4;k++){
+        const a = k*Math.PI/2;
+        const fin = new THREE.Mesh(geo, MAT.blue);
+        fin.position.set(Math.cos(a)*ar*0.97, 0.4, Math.sin(a)*ar*0.97);
+        fin.rotation.y = -a;
         g.add(fin);
       }
-      add(cylinder(r*0.5,r*0.5,h,MAT.white), h/2);
       break;}
     case "legs":{
       add(cylinder(r*0.35,r*0.35,h,MAT.white), h/2);
@@ -1176,19 +1530,30 @@ function buildPartMesh(id){
       add(cylinder(r,r,h,MAT.orange), h/2);
       break;
     case "sideboost":{
+      // schmiegen sich BÜNDIG an den Wirtstank (Nozzles an dessen Unterkante)
+      const ar = attach ? attach.r : r;
+      const H  = attach ? Math.min(attach.h*0.85, 30) : h;
       for(let k=0;k<p.n;k++){
-        const a = k*2*Math.PI/p.n;
-        const bx = Math.cos(a)*(r+2.7), bz = Math.sin(a)*(r+2.7);
-        const body = cylinder(2.3, 2.3, h*0.8, MAT.white, 12);
-        body.position.set(bx, h*0.44, bz); g.add(body);
-        const stripe = cylinder(2.33, 2.33, h*0.1, MAT.orange, 12);
-        stripe.position.set(bx, h*0.72, bz); g.add(stripe);
-        const nose = cylinder(0.3, 2.3, h*0.16, MAT.orange, 12);
-        nose.position.set(bx, h*0.92, bz); g.add(nose);
-        const noz = cylinder(1.5, 1.9, h*0.06, MAT.dark, 10);
-        noz.position.set(bx, h*0.02, bz); g.add(noz);
-        const fl = new THREE.Mesh(new THREE.ConeGeometry(1.8, h*0.85, 12), MAT.flame);
-        fl.rotation.x = Math.PI; fl.position.set(bx, -h*0.4, bz);
+        // versetzt zu den Flossen (die sitzen auf 0/90/180/270°)
+        const a = k*2*Math.PI/p.n + (p.n===2 ? Math.PI/2 : Math.PI/4);
+        const bx = Math.cos(a)*(ar+2.32), bz = Math.sin(a)*(ar+2.32);
+        const body = cylinder(2.3, 2.3, H*0.8, MAT.white, 12);
+        body.position.set(bx, H*0.44, bz); g.add(body);
+        const stripe = cylinder(2.33, 2.33, H*0.1, MAT.orange, 12);
+        stripe.position.set(bx, H*0.72, bz); g.add(stripe);
+        const nose = cylinder(0.3, 2.3, H*0.16, MAT.orange, 12);
+        nose.position.set(bx, H*0.92, bz); g.add(nose);
+        const noz = cylinder(1.5, 1.9, H*0.06, MAT.dark, 10);
+        noz.position.set(bx, H*0.02, bz); g.add(noz);
+        // Halteklammern zum Tank
+        for(const cy of [H*0.2, H*0.7]){
+          const strut = new THREE.Mesh(new THREE.BoxGeometry(2.6,0.8,0.8), MAT.dark);
+          strut.position.set(Math.cos(a)*(ar+1.1), cy, Math.sin(a)*(ar+1.1));
+          strut.rotation.y = -a;
+          g.add(strut);
+        }
+        const fl = new THREE.Mesh(new THREE.ConeGeometry(1.8, H*0.85, 12), MAT.flame);
+        fl.rotation.x = Math.PI; fl.position.set(bx, -H*0.4, bz);
         fl.visible = false; fl.name = "bflame";
         g.add(fl);
       }
@@ -1201,6 +1566,15 @@ function buildPartMesh(id){
         noz.position.set(Math.cos(a)*r*1.05, h/2, Math.sin(a)*r*1.05);
         g.add(noz);
       }
+      break;}
+    case "dock":{
+      // Koppelstutzen: Ring mit Führungstrichter und dunkler Öffnung
+      add(cylinder(r*0.72, r*0.95, h*0.7, MAT.gray), h*0.35);
+      add(cylinder(r*0.97, r*0.97, h*0.3, MAT.orange), h*0.35);
+      add(cylinder(r*0.62, r*0.62, h*0.35, MAT.dark), h*0.85);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(r*0.62, r*0.08, 8, 20),
+        new THREE.MeshStandardMaterial({color:0xd6dbe6, metalness:.5, roughness:.4}));
+      rim.rotation.x = Math.PI/2; rim.position.y = h; g.add(rim);
       break;}
     case "bay":{
       // Achteckige Bucht mit Tor-Streifen
@@ -1219,11 +1593,38 @@ function buildRocketGroup(stack, fairingIntact){
   // Servicebuchten verkleiden das Bauteil direkt darüber
   const inBay = new Set();
   stack.forEach((id,i)=>{ if(PARTS[id].type==="bay" && i>0) inBay.add(i-1); });
-  let y = 0;
+  // Unterkanten-Y jedes Teils vorab (Radialteile belegen keine Höhe)
+  const yBot = new Array(stack.length).fill(0);
+  {
+    let yy = 0;
+    for(let i=stack.length-1; i>=0; i--){
+      yBot[i] = yy;
+      if(!isRadial(stack[i])) yy += PARTS[stack[i]].h;
+    }
+  }
+  // Wirt eines Radialteils: benachbarter Tank/Booster (erst darunter, dann darüber)
+  const radialHost = i=>{
+    const tanky = j => j>=0 && j<stack.length && !isRadial(stack[j]) &&
+      ["tank","srb"].includes(PARTS[stack[j]].type);
+    if(tanky(i+1)) return i+1;
+    if(tanky(i-1)) return i-1;
+    for(let j=i+1;j<stack.length;j++) if(!isRadial(stack[j])) return j;
+    for(let j=i-1;j>=0;j--) if(!isRadial(stack[j])) return j;
+    return -1;
+  };
   for(let i=stack.length-1; i>=0; i--){
     const id = stack[i], p = PARTS[id];
-    if(fairingIntact && fIdx>=0 && i<fIdx){ y += p.h; continue; } // unter der Hülle
-    if(inBay.has(i)){ y += p.h; continue; }   // sitzt unsichtbar in der Bucht
+    const y = yBot[i];
+    if(fairingIntact && fIdx>=0 && i<fIdx) continue;  // unter der Hülle
+    if(inBay.has(i)) continue;                        // sitzt unsichtbar in der Bucht
+    if(isRadial(id)){
+      const hIdx = radialHost(i);
+      const hp = hIdx>=0 ? PARTS[stack[hIdx]] : null;
+      const mesh = buildPartMesh(id, hp ? {r:hp.w/2, h:hp.h} : null);
+      mesh.position.y = hIdx>=0 ? yBot[hIdx] : y;
+      grp.add(mesh);
+      continue;
+    }
     const mesh = buildPartMesh(id);
     mesh.position.y = y;
     grp.add(mesh);
@@ -1248,17 +1649,87 @@ function buildRocketGroup(stack, fairingIntact){
       grp.add(lid);
     }
     if(fairingIntact && fIdx===i && fIdx>0){
-      const coveredH = stack.slice(0,fIdx).reduce((a,pid)=>a+PARTS[pid].h,0);
+      const coveredH = stackHeight(stack.slice(0,fIdx));
       const shell = new THREE.Mesh(
         new THREE.CylinderGeometry(0.4, p.w/2, coveredH+6, 20), MAT.white);
       shell.position.y = y + p.h + (coveredH+6)/2;
       grp.add(shell);
-      y += p.h; continue;
     }
-    y += p.h;
   }
-  grp.userData.height = stack.reduce((a,id)=>a+PARTS[id].h,0);
+  grp.userData.height = stackHeight(stack);
   return grp;
+}
+/* Effektiv installierte Stationsmodule (Sandbox & Tutorials: Vollausbau) */
+function stationModsEff(){
+  return Game.sandbox ? STATION_MODS.map(m=>m.id) : (Game.stationMods||[]);
+}
+/* Raumstation »Große Pause«: Kern + alle gelieferten Ausbau-Module */
+function buildStationMesh(mods){
+  const g = new THREE.Group();
+  const hull = new THREE.MeshStandardMaterial({color:0xd8dde8, roughness:.5, metalness:.3});
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(4,4,26,16), hull);
+  core.rotation.z = Math.PI/2; g.add(core);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(4.12,4.12,3.5,16),
+    new THREE.MeshStandardMaterial({color:0xf7941d, roughness:.6}));
+  band.rotation.z = Math.PI/2; g.add(band);
+  // Docking-Port an der Nase (+X)
+  const port = new THREE.Mesh(new THREE.CylinderGeometry(2.2,3.1,2.6,12), MAT.gray);
+  port.rotation.z = -Math.PI/2; port.position.x = 14.3; g.add(port);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(1.9,0.35,8,20),
+    new THREE.MeshStandardMaterial({color:0xf7941d}));
+  rim.rotation.y = Math.PI/2; rim.position.x = 15.7; g.add(rim);
+  // Basis-Träger + kleine Start-Panele
+  const truss = new THREE.Mesh(new THREE.BoxGeometry(1.2,1.2,22),
+    new THREE.MeshStandardMaterial({color:0x8d94a6, metalness:.5}));
+  g.add(truss);
+  for(const sgn of [-1,1]){
+    const pan = new THREE.Mesh(new THREE.BoxGeometry(3.4,0.3,8), MAT.panel);
+    pan.position.set(0, 0, sgn*8); g.add(pan);
+  }
+  // --- Ausbau-Module ---
+  if(mods.includes("modLab")){
+    const lab = new THREE.Mesh(new THREE.CylinderGeometry(3.4,3.4,11,14), hull);
+    lab.rotation.z = Math.PI/2; lab.position.x = -18; g.add(lab);
+    for(let k=0;k<3;k++){
+      const win = new THREE.Mesh(new THREE.BoxGeometry(1.5,1.5,0.3),
+        new THREE.MeshBasicMaterial({color:0x9fd8ff}));
+      win.position.set(-21+k*3.4, 0, 3.45); g.add(win);
+    }
+  }
+  if(mods.includes("modSolar")){
+    const truss2 = new THREE.Mesh(new THREE.BoxGeometry(1,1,46),
+      new THREE.MeshStandardMaterial({color:0x8d94a6, metalness:.5}));
+    truss2.position.x = -6; g.add(truss2);
+    for(const sgn of [-1,1]) for(const off of [14,20]){
+      const pan = new THREE.Mesh(new THREE.BoxGeometry(5,0.3,5.2), MAT.panel);
+      pan.position.set(-6, 0, sgn*off); g.add(pan);
+    }
+  }
+  if(mods.includes("modHab")){
+    const hab = new THREE.Mesh(new THREE.CylinderGeometry(3.6,3.6,9,14), hull);
+    hab.position.y = 8.5; g.add(hab);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(3.6,14,8), hull);
+    cap.position.y = 13; g.add(cap);
+    const winH = new THREE.Mesh(new THREE.BoxGeometry(1.6,1.6,0.3),
+      new THREE.MeshBasicMaterial({color:0xffe9a0}));   // warmes Licht 🛏
+    winH.position.set(0, 9, 3.65); g.add(winH);
+  }
+  if(mods.includes("modScope")){
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(1.6,2.0,10,12),
+      new THREE.MeshStandardMaterial({color:0x3a4254, metalness:.6, roughness:.35}));
+    tube.position.y = -9; g.add(tube);
+    const lens = new THREE.Mesh(new THREE.CylinderGeometry(1.7,1.7,0.5,12),
+      new THREE.MeshBasicMaterial({color:0x9fd8ff}));
+    lens.position.y = -14.2; g.add(lens);
+  }
+  if(mods.includes("modFunk")){
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,5,8), MAT.gray);
+    pole.position.set(7, 5.5, 0); g.add(pole);
+    const dish = new THREE.Mesh(new THREE.SphereGeometry(3.2,14,8,0,Math.PI*2,0,Math.PI/2.5),
+      new THREE.MeshStandardMaterial({color:0xe8ecf5, side:THREE.DoubleSide}));
+    dish.position.set(7, 8.5, 0); dish.rotation.x = -0.5; g.add(dish);
+  }
+  return g;
 }
 function setFlames(grp, on, scale){
   grp.traverse(o=>{
@@ -1901,6 +2372,30 @@ const Flight = {
       return m;
     })();
     this.nodeMarker = mkMarker("Δv","#5fc46a");
+    this.stationMarker = mkMarker("ISS","#39c2ff");
+    // Raumstation »Große Pause« – wächst mit jedem gelieferten Modul
+    this.stationMesh = null;
+    this.rebuildStation();
+    // Anomalie-Leuchtfeuer: türkis glühende Säulen auf den Oberflächen
+    const glowTex = (()=>{
+      const c = document.createElement("canvas"); c.width=c.height=64;
+      const x = c.getContext("2d");
+      const g = x.createRadialGradient(32,32,2,32,32,30);
+      g.addColorStop(0,"rgba(160,240,255,1)"); g.addColorStop(1,"rgba(160,240,255,0)");
+      x.fillStyle=g; x.fillRect(0,0,64,64);
+      return new THREE.CanvasTexture(c);
+    })();
+    this.anomalyMeshes = ANOMALIES.map(a=>{
+      const g = new THREE.Group();
+      const beam = new THREE.Mesh(new THREE.ConeGeometry(45, 900, 6),
+        new THREE.MeshBasicMaterial({color:0x8fe0ff, transparent:true, opacity:.8}));
+      beam.position.y = 450; g.add(beam);
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+        map:glowTex, transparent:true, depthWrite:false}));
+      spr.scale.set(4000,4000,1); spr.position.y = 500; g.add(spr);
+      this.world.add(g);
+      return {a, g};
+    });
     // geplante Bahn nach dem Manöver (grün)
     const ng = new THREE.BufferGeometry();
     ng.setAttribute("position", new THREE.BufferAttribute(new Float32Array(602*3),3));
@@ -1939,8 +2434,10 @@ const Flight = {
       if(e.key===".") this.warpUp();
       if(e.key===",") this.warpDown();
       if(e.key==="v"||e.key==="V") this.toggleEVA();
-      if((e.key==="x"||e.key==="X") && !this.eva) this.throttle=0;
-      if((e.key==="z"||e.key==="Z") && !this.eva) this.throttle=1;
+      if(e.key==="l"||e.key==="L") this.toggleDock();
+      if(e.key==="i"||e.key==="I") this.installModule();
+      if((e.key==="x"||e.key==="X") && !this.eva && !this.commDead) this.throttle=0;
+      if((e.key==="z"||e.key==="Z") && !this.eva && !this.commDead) this.throttle=1;
       if(e.key==="Escape"){
         this.paused = !this.paused;
         this.showMsg(this.paused ? "⏸ PAUSE – weiter mit [Esc]" : "▶ Weiter geht's!", this.paused?999:1.5);
@@ -2018,7 +2515,7 @@ const Flight = {
   start(vessel){
     this.v = vessel;
     this.v.fairingIntact = vessel.stack.some(id=>PARTS[id].type==="fairing");
-    const h = vessel.stack.reduce((a,id)=>a+PARTS[id].h,0);
+    const h = stackHeight(vessel.stack);
     // Startplatz auf dem (um die Sonne wandernden) Planeten Leibniz
     this.launchLocal = V3(LEIBNIZ.R + h/2, 0, 0);
     this.pos = bodyPos(LEIBNIZ, 0).add(this.launchLocal);
@@ -2032,6 +2529,7 @@ const Flight = {
     this.chuteOpen=false; this.infinite=false;
     this.sats.forEach(s=>this.world.remove(s.mesh));
     this.sats = []; this.satL=false; this.satM=false; this.visitedMonti=false;
+    this.docked = false; this.dockOffset = null;
     if(this.eva){ this.world.remove(this.eva.mesh); this.eva = null; }
     this.sas = "off"; this._cd = 0; this.expCount = 0; this._wasSpace = undefined;
     this.heatDmg = 0; this._heatMsgT = undefined;
@@ -2045,14 +2543,40 @@ const Flight = {
     // Statistik für den Flugbericht
     this.statMaxAlt = 0; this.statMaxSpeed = 0;
     this.statSci = Game.science; this.statMissions = Game.done.length;
-    // Crew: Kapsel = Pilot*in, Labor = zusätzlich Wissenschaftler*in
-    const NAMES = ["Alex","Bo","Charlie","Deniz","Eli","Fynn","Gül","Hanna","Ilias","Juno","Kim","Luca","Mika","Nova","Ola","Pia"];
-    this.crew = [];
+    // Crew: Kapsel = Pilot*in, Labor = zusätzlich Wissenschaftler*in.
+    // Karriere: aus dem Astronaut*innen-Kader (mit XP & Rollen-Boni),
+    // Sandbox/Tutorial: Gast-Crew mit Zufallsnamen.
+    this.crew = []; this.crewObjs = [];
     if(vessel.stack.some(id=>PARTS[id].type==="pod")){
-      const pick = ()=>NAMES.splice(Math.floor(Math.random()*NAMES.length),1)[0];
-      this.crew.push("🧑‍🚀 "+pick());
-      if(vessel.stack.includes("lab")) this.crew.push("🥼 Dr. "+pick());
+      if(!Game.sandbox && Game.roster){
+        const free = Game.roster.filter(a=>a.status==="bereit");
+        const pickRole = role=>{
+          const c = [...free].sort((a,b)=>(a.role===role?-1:1)-(b.role===role?-1:1) || a.flights-b.flights)[0];
+          if(c) free.splice(free.indexOf(c),1);
+          return c;
+        };
+        const p1 = pickRole("pilot");
+        if(p1) this.crewObjs.push(p1);
+        if(vessel.stack.includes("lab")){
+          const p2 = pickRole("sci");
+          if(p2) this.crewObjs.push(p2);
+        }
+        this.crew = this.crewObjs.map(a=>
+          ROLES[a.role].icon+" "+a.name+(crewLevel(a)?" "+"⭐".repeat(crewLevel(a)):""));
+        if(!this.crew.length) this.crew = ["🧑‍🚀 Gast (Kader erschöpft!)"];
+      } else {
+        const NAMES = ["Bo","Charlie","Deniz","Eli","Hanna","Juno","Kim","Luca","Mika","Ola"];
+        const pick = ()=>NAMES.splice(Math.floor(Math.random()*NAMES.length),1)[0];
+        this.crew.push("🧑‍🚀 "+pick());
+        if(vessel.stack.includes("lab")) this.crew.push("🥼 Dr. "+pick());
+      }
     }
+    // Langzeit-Systeme: Flags, Kader-Boni, Stationsausbau, Orbit-Inventar
+    this.statOrbit=false; this.statDocked=false; this.statForeign=false;
+    this.rescued=[]; this.rescueLanded=false;
+    this.commDead=false; this._commMsgT=undefined;
+    this.rebuildStation();
+    this.spawnAssets();
     this.node = null; this.nodeDir = null;
     this.debris.forEach(d=>this.world.remove(d.mesh));
     this.debris = [];
@@ -2082,7 +2606,12 @@ const Flight = {
     }
     this.showMsg("Bereit zum Start – [Leertaste] zündet die erste Stufe!", 5);
   },
-  height(){ return this.v.stack.reduce((a,id)=>a+PARTS[id].h,0); },
+  height(){ return stackHeight(this.v.stack); },
+  /* höchstes Level einer Rolle in der aktuellen Crew (Kader-Bonus) */
+  crewLvl(role){
+    if(!this.crewObjs || !this.crewObjs.length) return 0;
+    return Math.max(0, ...this.crewObjs.filter(a=>a.role===role).map(crewLevel));
+  },
   mass(){
     let m=0;
     for(const s of this.v.segs) m+=s.dry+s.fuelLeft+s.srbLeft;
@@ -2211,11 +2740,153 @@ const Flight = {
     this.showMsg(this.panelsOut ? "☀️ Solarpanele ausgefahren (+3 ⚡/s)" : "Solarpanele eingeklappt.",2);
   },
   toggleSAS(){
-    const order = this.node ? ["off","pro","retro","node"] : ["off","pro","retro"];
+    const order = ["off","pro","retro"];
+    if(this.node) order.push("node");
+    // Nahe der Raumstation: Extra-Modus zum Abbauen der Relativgeschwindigkeit
+    if(!this.docked && !this.landed && this.pos.distanceTo(stationPos(this.t)) < 50000)
+      order.push("tgt");
+    if(!order.includes(this.sas)) this.sas = "off";
     this.sas = order[(order.indexOf(this.sas)+1) % order.length];
     const txt = {off:"SAS AUS", pro:"SAS: PROGRADE halten ▲", retro:"SAS: RETROGRADE halten ▼",
-      node:"SAS: auf MANÖVERKNOTEN ausrichten ◆"};
+      node:"SAS: auf MANÖVERKNOTEN ausrichten ◆",
+      tgt:"SAS: ZIEL-BREMSE 🛰 – Schub baut die Relativgeschwindigkeit zur Station ab!"};
     this.showMsg(txt[this.sas], 2);
+  },
+  toggleDock(){
+    if(!this.v || this.crashed || this.ended || this.landed) return;
+    if(this.docked){
+      this.docked = false;
+      const away = this.pos.clone().sub(stationPos(this.t)).normalize();
+      this.vel.copy(stationVel(this.t)).addScaledVector(away, 0.8);
+      this.showMsg("🔓 Abgedockt – sanft abgestoßen. Gute Weiterreise!",3);
+      return;
+    }
+    if(!this.v.stack.some(id=>PARTS[id].type==="dock")){
+      this.showMsg("Kein Docking-Port an Bord! 🔗 (Bauteil »Klette«, Kategorie Kommando)",3); return;
+    }
+    const d  = this.pos.distanceTo(stationPos(this.t));
+    const rv = this.vel.distanceTo(stationVel(this.t));
+    if(d > 30){
+      this.showMsg("Zu weit weg zum Andocken: "+(d>=10000?(d/1000).toFixed(1)+" km":d.toFixed(0)+" m")+" (unter 30 m ranfliegen!)",3); return;
+    }
+    if(rv > 3){ this.showMsg("Zu schnell zum Andocken: "+rv.toFixed(1)+" m/s relativ – erst auf unter 3 m/s abbremsen (SAS: ZIEL-BREMSE)!",3); return; }
+    this.docked = true;
+    this.dockOffset = this.pos.clone().sub(stationPos(this.t));
+    if(this.dockOffset.length() < 12) this.dockOffset.setLength(12);
+    this.warpI = Math.min(this.warpI, 1);
+    if(this.sas==="tgt") this.sas = "off";
+    this.throttle = 0;
+    this.statDocked = true;
+    // Solarfarm »Sonnendeck«: angedockte Schiffe tanken Strom
+    if(stationModsEff().includes("modSolar") && this.maxCharge){
+      this.charge = this.maxCharge;
+      this.showMsg("🔗 ANGEDOCKT! ☀️ Die Solarfarm lädt deine Batterien voll. ([L] = abdocken)",5);
+    } else this.showMsg("🔗 ANGEDOCKT an der Raumstation »Große Pause«! 🎉 ([L] = wieder abdocken)",5);
+    const mod = this.deliverableMod();
+    if(mod) setTimeout(()=>this.showMsg("🏗 "+mod.icon+" Modul an Bord erkannt: "+mod.name+" – mit [I] einbauen!",6), 5200);
+  },
+  rebuildStation(){
+    if(this.stationMesh) this.world.remove(this.stationMesh);
+    this.stationMesh = buildStationMesh(stationModsEff());
+    this.world.add(this.stationMesh);
+  },
+  /* erstes noch nicht gebautes Modul, dessen Teile komplett an Bord sind */
+  deliverableMod(){
+    if(Game.sandbox) return null;
+    const stack = [...this.v.stack];
+    return STATION_MODS.find(m=>{
+      if(stationHasMod(m.id)) return false;
+      const pool = [...stack];
+      return m.needs.every(pid=>{
+        const i = pool.indexOf(pid);
+        if(i<0) return false;
+        pool.splice(i,1); return true;
+      });
+    }) || null;
+  },
+  removePart(pid){
+    const si = this.v.stack.indexOf(pid);
+    if(si>=0) this.v.stack.splice(si,1);
+    const seg = this.v.segs.find(s=>s.parts.includes(pid));
+    if(seg){
+      seg.parts.splice(seg.parts.indexOf(pid),1);
+      seg.dry -= PARTS[pid].mass;
+    }
+  },
+  installModule(){
+    if(!this.v || this.crashed || this.ended) return;
+    if(Game.sandbox){
+      this.showMsg("Die Station ist in Sandbox & Tutorial schon voll ausgebaut – Ausbau ist ein Karriere-Projekt! 🏗",3); return;
+    }
+    if(!this.docked){ this.showMsg("Erst an der »Großen Pause« andocken [L] – dann einbauen!",3); return; }
+    const mod = this.deliverableMod();
+    if(!mod){
+      const open = STATION_MODS.filter(m=>!stationHasMod(m.id));
+      this.showMsg(open.length
+        ? "Kein passendes Modul komplett an Bord. Nächster Ausbau: "+open[0].icon+" "+open[0].name+" ("+open[0].desc+")"
+        : "🏆 Die »Große Pause« ist KOMPLETT ausgebaut – Wahnsinn!", 5);
+      return;
+    }
+    for(const pid of mod.needs) this.removePart(pid);
+    Game.stationMods = Game.stationMods||[];
+    Game.stationMods.push(mod.id);
+    autoSave();
+    this.rebuildRocket();
+    this.rebuildStation();
+    this.showMsg("🏗 "+mod.icon+" "+mod.name+" EINGEBAUT! Bonus: "+mod.bonus,7);
+  },
+  /* ---------- Persistente Orbit-Objekte (Sats, Wracks mit Crew) ---------- */
+  assetPos(d, t){
+    const b = BODY_BY_NAME()[d.body] || LEIBNIZ;
+    const r = b.R + d.alt, w = Math.sqrt(b.mu/Math.pow(r,3));
+    const a = d.phase + w*t;
+    return bodyPos(b,t).add(V3(Math.cos(a)*r, 0, -Math.sin(a)*r));
+  },
+  assetVel(d, t){
+    const b = BODY_BY_NAME()[d.body] || LEIBNIZ;
+    const r = b.R + d.alt, w = Math.sqrt(b.mu/Math.pow(r,3));
+    const a = d.phase + w*t, v = w*r;
+    return bodyVel(b,t).add(V3(-Math.sin(a)*v, 0, -Math.cos(a)*v));
+  },
+  spawnAssets(){
+    if(this.assetObjs) this.assetObjs.forEach(o=>this.world.remove(o.mesh));
+    this.assetObjs = [];
+    if(Game.sandbox) return;   // Assets sind Karriere-Inventar
+    for(const d of (Game.assets||[])){
+      let mesh;
+      if(d.kind==="wreck"){
+        mesh = new THREE.Group();
+        const capsule = buildPartMesh("pod"); capsule.position.y = -7; mesh.add(capsule);
+        const tank = buildPartMesh("tankS"); tank.position.y = -23; mesh.add(tank);
+      } else {
+        mesh = new THREE.Group();
+        mesh.add(buildPartMesh("probe"));
+        const pan = buildPartMesh("solar"); pan.position.y = -2; mesh.add(pan);
+      }
+      this.world.add(mesh);
+      this.assetObjs.push({d, mesh});
+    }
+  },
+  /* Rettung: mit Kapsel nah ran (< 40 m, < 4 m/s) → Crew steigt um */
+  checkRescue(){
+    if(!this.assetObjs || this.landed || this.crashed || this.ended) return;
+    if(!this.v.stack.some(id=>PARTS[id].type==="pod")) return;
+    for(let i=this.assetObjs.length-1; i>=0; i--){
+      const o = this.assetObjs[i];
+      if(o.d.kind!=="wreck" || !o.d.crew || !o.d.crew.length) continue;
+      const d = this.pos.distanceTo(this.assetPos(o.d, this.t));
+      if(d > 40) continue;
+      const rv = this.vel.distanceTo(this.assetVel(o.d, this.t));
+      if(rv > 4) continue;
+      this.rescued = this.rescued||[];
+      this.rescued.push(...o.d.crew);
+      this.crew.push(...o.d.crew.map(n=>"🆘 "+n));
+      Game.assets.splice(Game.assets.indexOf(o.d),1);
+      this.world.remove(o.mesh);
+      this.assetObjs.splice(i,1);
+      autoSave();
+      this.showMsg("🆘➡️🚀 GERETTET: "+o.d.crew.join(", ")+" ist an Bord geklettert! Jetzt sicher auf Leibniz landen!",7);
+    }
   },
   /* ---------- Manöverknoten ---------- */
   addNode(){
@@ -2354,6 +3025,8 @@ const Flight = {
     if(this.v.fairingIntact){ this.showMsg("Erst das Fairing absprengen! [F]",2); return; }
     const seg = this.v.segs.find(s=>s.parts.includes("probe"));
     if(!seg){ this.showMsg("Kein Sondenkern an Bord! 📡",3); return; }
+    this._satHadAntenna = seg.parts.includes("antenna");
+    this._satHadSolar = seg.parts.includes("solar");
     for(const pid of ["probe","solar","antenna"]){
       const i = seg.parts.indexOf(pid);
       if(i>=0){
@@ -2372,7 +3045,28 @@ const Flight = {
     const o = this.orbit();
     if(o.body===LEIBNIZ && o.pe>LEIBNIZ.atmoH && o.ap>0) this.satL = true;
     if(o.body===MONTI && o.pe>0 && o.ap>0 && o.ap<MONTI.soi) this.satM = true;
-    this.showMsg("📡 Satellit ausgesetzt!",3);
+    // Karriere: Satellit bleibt DAUERHAFT im Orbit (Spielstand). Mit Antenne +
+    // Solar wird er zum Relais fürs Funknetz!
+    let msg = "📡 Satellit ausgesetzt!";
+    const bodyKey = Object.keys(BODY_BY_NAME()).find(k=>BODY_BY_NAME()[k]===o.body);
+    if(!Game.sandbox && bodyKey && o.pe > (o.body.atmoH||0) && o.ap > 0){
+      Game.assets = Game.assets||[];
+      const nSats = Game.assets.filter(a=>a.kind==="sat").length;
+      if(nSats >= 12){
+        const i = Game.assets.findIndex(a=>a.kind==="sat");
+        if(i>=0) Game.assets.splice(i,1);   // ältesten Satelliten "außer Dienst stellen"
+      }
+      const isRelay = this._satHadAntenna && this._satHadSolar;
+      Game.assets.push({kind:"sat", body:bodyKey,
+        alt:Math.round(o.alt), phase:Math.random()*Math.PI*2,
+        name:"Satellit #"+(nSats+1), relay:isRelay});
+      if(isRelay){
+        Game.relays = (Game.relays||0)+1;
+        msg = "📡 RELAIS-Satellit ausgesetzt! Funknetz: "+commRelays()+" Relais.";
+      } else msg = "📡 Satellit ausgesetzt – er bleibt dauerhaft im Orbit!";
+      autoSave();
+    }
+    this.showMsg(msg,4);
   },
   toggleChute(){
     const top = this.v.segs[this.v.segs.length-1];
@@ -2418,9 +3112,16 @@ const Flight = {
       this.showMsg("Diesen Ort hast du schon erforscht – flieg woanders hin! 🔭",3); return;
     }
     Game.labDone.push(sit.id);
-    Game.science += sit.sci;
+    // Boni: Labormodul der Station (+50 %) und Wissenschaftler*in an Bord (+10 %/Level)
+    let sci = sit.sci;
+    const boni = [];
+    if(stationHasMod("modLab")){ sci *= 1.5; boni.push("🔬 Stationslabor"); }
+    const lvl = this.crewLvl("sci");
+    if(lvl){ sci *= 1 + 0.1*lvl; boni.push("🥼 Level "+lvl); }
+    sci = Math.round(sci);
+    Game.science += sci;
     autoSave();
-    this.showMsg("🔬 Experiment "+sit.name+": +"+sit.sci+" 🧪!",4);
+    this.showMsg("🔬 Experiment "+sit.name+": +"+sci+" 🧪!"+(boni.length?" (Bonus: "+boni.join(" + ")+")":""),4);
   },
   toggleMap(){
     this.map = !this.map;
@@ -2462,11 +3163,30 @@ const Flight = {
   },
   step(dt){
     if(this.crashed||this.ended) return;
+    // Angedockt: Schiff folgt der Station exakt auf ihren Schienen (warpfest & stabil)
+    if(this.docked){
+      this.t += dt;
+      this.pos.copy(stationPos(this.t)).add(this.dockOffset);
+      this.vel.copy(stationVel(this.t));
+      return;
+    }
     const warp = WARPS[this.warpI];
-    // Wendigkeit: Basis-Reaktionsräder sind träge, RCS-Ringe machen agil
+    // Funknetz: Sonden ohne Signal sind taub (Karriere; bemannt immer ok)
+    if(!Game.sandbox && !this.landed){
+      const cc = commCheck(this.v.stack, this.pos, this.t);
+      this.comm = cc;
+      if(!cc.ok && !this.commDead){
+        this.commDead = true; this.warpI = Math.min(this.warpI, 2);
+        this.showMsg("📡 KEIN FUNKKONTAKT – die Sonde reagiert nicht mehr! ("+cc.why+")",5);
+      } else if(cc.ok && this.commDead){
+        this.commDead = false;
+        this.showMsg("📡 Funkkontakt wiederhergestellt! ("+cc.why+")",3);
+      }
+    } else { this.commDead = false; this.comm = null; }
+    // Wendigkeit: Basis-Reaktionsräder sind träge, RCS macht agil, Pilot*innen-Erfahrung hilft
     const nRcs = this.v.stack.filter(id=>PARTS[id].type==="rcs").length;
-    const agility = Math.min(1.8, 0.35 + 0.65*nRcs);
-    if(warp<=2 && !this.powerDead && !this.eva){
+    const agility = Math.min(1.8, 0.35 + 0.65*nRcs) * (1 + 0.08*this.crewLvl("pilot"));
+    if(warp<=2 && !this.powerDead && !this.commDead && !this.eva){
       const rot = agility*dt, k=this.keys;
       const dq = new THREE.Quaternion();
       const apply=(axis,ang)=>{ dq.setFromAxisAngle(axis,ang); this.q.multiply(dq); };
@@ -2479,15 +3199,23 @@ const Flight = {
       // SAS: Nase sanft auf Prograde/Retrograde drehen (sofern keine Handeingabe).
       // Wichtig: Geschwindigkeit RELATIV zum dominanten Körper (nicht zur Sonne)!
       const sasRelVel = this.vel.clone().sub(bodyVel(this.body(), this.t));
-      if(this.sas!=="off" && sasRelVel.length()>5 &&
+      const sasReady = this.sas==="tgt" || sasRelVel.length()>5;
+      if(this.sas!=="off" && sasReady &&
          !(k["w"]||k["s"]||k["a"]||k["d"]||k["q"]||k["e"])){
-        let target;
+        let target = null;
         if(this.sas==="node" && this.nodeDir) target = this.nodeDir.clone();
+        else if(this.sas==="tgt"){
+          // Ziel-Bremse: Nase GEGEN die Relativgeschwindigkeit zur Station
+          const rel = this.vel.clone().sub(stationVel(this.t));
+          if(rel.length() > 0.2) target = rel.normalize().negate();
+        }
         else { target = sasRelVel.clone().normalize(); if(this.sas==="retro") target.negate(); }
-        const nose = V3(0,1,0).applyQuaternion(this.q);
-        const full = new THREE.Quaternion().setFromUnitVectors(nose, target);
-        const stepQ = new THREE.Quaternion().slerp(full, Math.min(1, agility*1.6*dt));
-        this.q.premultiply(stepQ);
+        if(target){
+          const nose = V3(0,1,0).applyQuaternion(this.q);
+          const full = new THREE.Quaternion().setFromUnitVectors(nose, target);
+          const stepQ = new THREE.Quaternion().slerp(full, Math.min(1, agility*1.6*dt));
+          this.q.premultiply(stepQ);
+        }
       }
       if(k["arrowup"])   this.throttle=Math.min(1,this.throttle+1.2*dt);
       if(k["arrowdown"]) this.throttle=Math.max(0,this.throttle-1.2*dt);
@@ -2515,12 +3243,14 @@ const Flight = {
       } else if(this.powerDead && this.charge > 5) this.powerDead = false;
     }
     const m = this.mass(), s = this.activeSeg();
+    // Ingenieur*innen an Bord sparen Treibstoff
+    const fuelEff = 1 + 0.04*this.crewLvl("ing");
     let thrust = 0;
-    if(s && s.ignited && warp<=2 && !this.powerDead){
+    if(s && s.ignited && warp<=2 && !this.powerDead && !this.commDead){
       if(this.infinite){ s.fuelLeft=s.fuel; s.srbLeft=s.srbFuel; }
       if(s.fuelLeft>0 && s.thrust){
         thrust += s.thrust*this.throttle;
-        if(!this.infinite) s.fuelLeft -= s.thrust*this.throttle/(s.isp*G0)*dt;
+        if(!this.infinite) s.fuelLeft -= s.thrust*this.throttle/(s.isp*G0*fuelEff)*dt;
         if(s.fuelLeft<0) s.fuelLeft=0;
       }
       if(s.srbLeft>0 && s.srbThrust){
@@ -2684,6 +3414,7 @@ const Flight = {
     }
     this.checkContact();
     this.checkMissions();
+    this.checkRescue();
     // Warnung beim Überschreiten der Fluchtgeschwindigkeit (relativ zu Leibniz)
     const relL = this.pos.clone().sub(bodyPos(LEIBNIZ,this.t));
     const rL = relL.length();
@@ -2732,8 +3463,46 @@ const Flight = {
           this.landed = true;
           this.showMsg("🛬 Gelandet auf "+b.name+"! ("+vrel.toFixed(1)+" m/s)"+
             (this.crew.length?" Die Crew ist wohlauf! 👋":""),5);
+          this.onLanded(b);
         }
       }
+    }
+  },
+  /* Nach sicherer Landung: Anomalien entdecken & gerettete Crew heimbringen */
+  onLanded(b){
+    if(b!==LEIBNIZ) this.statForeign = true;
+    // Anomalie in der Nähe? (Winkelabstand auf der Oberfläche)
+    const names = BODY_BY_NAME();
+    const here = this.landedRel.clone().normalize();
+    for(const a of ANOMALIES){
+      if(names[a.body]!==b || anomalyFound(a.id)) continue;
+      const ang = here.angleTo(V3(...a.dir).normalize());
+      if(ang < 0.25){
+        if(Game.sandbox){
+          this.showMsg(a.icon+" ANOMALIE ENTDECKT: "+a.name+"! (Im Training ohne Wissenschaft – finde sie in der Karriere!)",6);
+        } else {
+          Game.anomaliesFound = Game.anomaliesFound||[];
+          Game.anomaliesFound.push(a.id);
+          Game.science += a.sci;
+          autoSave();
+          this.showMsg(a.icon+" ANOMALIE ENTDECKT: "+a.name+"! +"+a.sci+" 🧪 – Eintrag in der Missionszentrale!",7);
+        }
+        break;
+      }
+    }
+    // Gerettete Crew sicher zu Hause?
+    if(b===LEIBNIZ && this.rescued && this.rescued.length && !Game.sandbox){
+      this.rescueLanded = true;
+      let sci = 0;
+      for(const n of this.rescued){
+        const a = (Game.roster||[]).find(x=>x.name===n);
+        if(a){ a.status="bereit"; a.xp += 3; }
+        sci += 25;
+      }
+      Game.science += sci;
+      autoSave();
+      this.showMsg("🏅 HELDENHAFT! "+this.rescued.join(", ")+" wieder sicher zu Hause! +"+sci+" 🧪",8);
+      this.rescued = [];
     }
   },
   orbit(){
@@ -2753,9 +3522,14 @@ const Flight = {
     if(Game.sandbox || this.crashed) return;
     const o = this.orbit();
     if(o.body===MONTI) this.visitedMonti = true;
+    if(o.body===LEIBNIZ && o.pe>LEIBNIZ.atmoH && o.ap>0) this.statOrbit = true;
     const state = {alt:o.alt, speed:o.speed, ap:o.ap, pe:o.pe, body:o.body,
       landed:this.landed, flew:this.flew,
       satL:this.satL, satM:this.satM, visitedMonti:this.visitedMonti,
+      docked:!!this.docked,
+      relays:commRelays(), mods:Game.stationMods||[],
+      anomalies:(Game.anomaliesFound||[]).length,
+      rescueLanded:!!this.rescueLanded,
       labAny:Game.labDone.length>0};
     // Nur die AKTIVE (angenommene) Mission kann erfüllt werden – wie KSP-Verträge
     const am = MISSIONS.find(m=>m.id===Game.activeMission);
@@ -2774,8 +3548,41 @@ const Flight = {
   endFlight(){
     this.ended = true;
     if(Tut.active){ Tut.stop(); return; }   // führt zurück zur Tutorial-Übersicht
+    this.settleCrewAndAssets();
     UI.show("vab");
     this.showSummary();
+  },
+  /* Flugende (Karriere): XP verteilen, Gestrandete & Wracks im Save verewigen */
+  settleCrewAndAssets(){
+    if(Game.sandbox || !this.flew) return;
+    const inSpace = !this.landed && !this.crashed;
+    const missionsDone = Game.done.length - this.statMissions;
+    // Crew-Erfahrung: fliegen, Orbit, Docking, fremde Welten, heil zurück
+    for(const a of (this.crewObjs||[])){
+      a.flights = (a.flights||0)+1;
+      if(!this.crashed){
+        let xp = 1 + 2*missionsDone;
+        if(this.statOrbit) xp += 1;
+        if(this.statDocked) xp += 2 + (stationHasMod("modHab") ? 2 : 0);
+        if(this.statForeign) xp += 4;
+        if(this.landed) xp += 1;
+        a.xp = (a.xp||0) + xp;
+      }
+      // Status: gelandet/angedockt = sicher zu Hause; im All = GESTRANDET!
+      if(inSpace && !this.docked) a.status = "gestrandet";
+      else a.status = "bereit";   // Crash = Schleudersitz, alle kommen heim
+    }
+    // Schiff mit Crew im Orbit zurückgelassen → Wrack als Rettungsziel speichern
+    if(inSpace && !this.docked && this.crewObjs && this.crewObjs.length){
+      const o = this.orbit();
+      const bodyKey = Object.keys(BODY_BY_NAME()).find(k=>BODY_BY_NAME()[k]===o.body) || "LEIBNIZ";
+      const alt = Math.max(o.body.atmoH ? o.body.atmoH+15000 : 15000, Math.round(o.alt));
+      Game.assets = Game.assets||[];
+      Game.assets.push({kind:"wreck", body:bodyKey, alt, phase:Math.random()*Math.PI*2,
+        name:"Wrack ("+this.crewObjs.map(a=>a.name).join(", ")+")",
+        crew:this.crewObjs.map(a=>a.name)});
+    }
+    autoSave();
   },
   showSummary(){
     if(!this.flew) return;   // ohne Start kein Bericht
@@ -3103,6 +3910,28 @@ const Flight = {
     // Partikel altern mit SIMULATIONS-Zeit (sonst driften sie bei Warp gegen die Planetenbewegung)
     this.updateParticles(simmed);
     for(const sat of this.sats) sat.mesh.position.copy(sat.pos);
+    // Anomalie-Leuchtfeuer & Orbit-Inventar (Sats/Wracks) positionieren
+    const bodyMap = BODY_BY_NAME();
+    for(const {a, g} of this.anomalyMeshes){
+      const b = bodyMap[a.body];
+      const adir = V3(a.dir[0], a.dir[1], a.dir[2]).normalize();
+      g.position.copy(bodyPos(b, this.t)).addScaledVector(adir, b.R);
+      g.quaternion.setFromUnitVectors(V3(0,1,0), adir);
+      g.visible = !this.map && !anomalyFound(a.id);
+    }
+    if(this.assetObjs) for(const o of this.assetObjs){
+      o.mesh.position.copy(this.assetPos(o.d, this.t));
+      o.mesh.visible = !this.map;
+    }
+    // Raumstation »Große Pause« auf ihrer Bahn + Kartenmarker
+    this.stationMesh.position.copy(stationPos(this.t));
+    this.stationMesh.visible = !this.map;
+    this.stationMarker.visible = this.map;
+    if(this.map){
+      this.stationMarker.position.copy(this.stationMesh.position);
+      const sms = this._cd ? this._cd*0.045 : this.camDist*0.045;
+      this.stationMarker.scale.set(sms, sms/2, 1);
+    }
     if(this.eva){
       this.eva.mesh.position.copy(this.eva.pos);
       const eUp = this.frameAt(this.eva.pos).up;
@@ -3266,6 +4095,27 @@ const Flight = {
       x.moveTo(px-11,py); x.lineTo(px-5,py);
       x.moveTo(px+5,py); x.lineTo(px+11,py); x.stroke();
     }
+    // Ziel-Marker: türkises ◆ zeigt Richtung Raumstation (nur wenn sie nah ist)
+    const stDir = stationPos(this.t).sub(this.pos);
+    if(!this.docked && stDir.length()>1 && stDir.length()<50000){
+      const tv = stDir.normalize();
+      const tPitch = 90 - THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(tv.dot(fr.up),-1,1)));
+      const th2 = tv.clone().addScaledVector(fr.up, -tv.dot(fr.up));
+      let tHead = heading;
+      if(th2.lengthSq()>1e-8){
+        th2.normalize();
+        tHead = THREE.MathUtils.radToDeg(Math.atan2(th2.dot(fr.east), th2.dot(fr.north)));
+        if(tHead<0) tHead+=360;
+      }
+      let dh2 = tHead-heading; if(dh2>180)dh2-=360; if(dh2<-180)dh2+=360;
+      const tx = cx + THREE.MathUtils.clamp(dh2,-50,50)*1.1;
+      const ty = cy + THREE.MathUtils.clamp(pitch-tPitch,-50,50)*1.1;
+      x.strokeStyle="#39c2ff"; x.lineWidth=2.5;
+      x.beginPath();
+      x.moveTo(tx,ty-8); x.lineTo(tx+8,ty); x.lineTo(tx,ty+8); x.lineTo(tx-8,ty);
+      x.closePath(); x.stroke();
+      x.beginPath(); x.arc(tx,ty,2,0,7); x.stroke();
+    }
     // Fadenkreuz (Nase)
     x.strokeStyle="#f7941d"; x.lineWidth=3;
     x.beginPath(); x.moveTo(cx-16,cy); x.lineTo(cx-5,cy);
@@ -3328,6 +4178,32 @@ const Flight = {
       <br>⚡ ${this.charge.toFixed(0)}/${this.maxCharge}${this.panelsOut?" ☀️":""}${this.powerDead?' <b style="color:var(--red)">STROM LEER</b>':""}
       ${this.infinite?'<br><b style="color:var(--green)">∞ Endlos-Treibstoff</b>':""}
       ${this.sats.length?'<br>📡 Satelliten: '+this.sats.length:""}
+      ${(()=>{ const sd=this.pos.distanceTo(stationPos(this.t));
+        let out = "";
+        if(this.docked){
+          out = '<br><b style="color:var(--green)">🔗 ANGEDOCKT: »Große Pause«</b> <small>[L] abdocken</small>';
+          const mod = this.deliverableMod();
+          if(mod) out += '<br><b style="color:var(--orange)">🏗 [I] einbauen: '+mod.icon+' '+mod.name+'</b>';
+        } else if(sd<=400000){
+          const sv=this.vel.distanceTo(stationVel(this.t));
+          out = '<br>🛰 »Große Pause«: <b>'+(sd>=10000?(sd/1000).toFixed(1)+" km":sd.toFixed(0)+" m")+
+            '</b> · rel. <b>'+sv.toFixed(1)+' m/s</b>';
+        }
+        return out; })()}
+      ${!Game.sandbox && !this.landed ? '<br>📡 Funk: '+(this.commDead
+        ? '<b style="color:var(--red)">KEIN SIGNAL</b>'
+        : '<span style="color:var(--green)">OK</span>')+
+        (this.comm ? ' <small style="color:var(--muted)">('+this.comm.why+')</small>' : "") : ""}
+      ${(()=>{ if(!this.assetObjs) return "";
+        let best=null, bd=1/0;
+        for(const o of this.assetObjs){
+          if(o.d.kind!=="wreck" || !o.d.crew || !o.d.crew.length) continue;
+          const d = this.pos.distanceTo(this.assetPos(o.d,this.t));
+          if(d<bd){ bd=d; best=o; }
+        }
+        if(!best || bd>300000) return "";
+        return '<br><b style="color:var(--red)">🆘 '+best.d.crew.join(", ")+': '+
+          (bd>=10000?(bd/1000).toFixed(1)+" km":bd.toFixed(0)+" m")+'</b>'; })()}
       ${this.eva?'<br><b style="color:var(--green)">🧑‍🚀 EVA · Abstand: '+this.eva.pos.distanceTo(this.pos).toFixed(0)+' m</b>':""}
       ${Game.sandbox?"":"<br>🧪 "+Game.science}
       ${!Game.sandbox && Game.activeMission ? '<br><b style="color:var(--orange)">🎯 '+
