@@ -38,7 +38,10 @@ SUN · KEPLER (Glutplanet innen, 5.3e9 m) · LEIBNIZ (R 600 km, Atmo 70 km) + Mo
 ## Wichtige Systeme (Stichworte → Suchbegriff in index.html)
 - Karriere: `MISSIONS` (Verträge, nur `Game.activeMission` erfüllbar, `req`-Ketten), `TECH` (DAG, SVG-Äste), `Game.labDone` (Experimente [B] je `situation()` einmalig).
 - `Flight.step(dt)`: semi-implizit Euler; Warp `WARPS`, adaptives `maxDt`; Steuereingabe bricht Warp>2 ab; in der Atmosphäre max. 50× (`canWarp` + Auto-Drossel in `step`); Drag-Clamp `min(fd/(m*v), 0.5/dt)`; Auto-Cutoff am Manöverknoten (`nodeBurned`).
-- Agilität: `0.35 + 0.65*nRcs` (Rotation UND SAS-Slerp).
+- Agilität: `0.12 + 0.78*nRcs` (Rotation UND SAS-Slerp) – ohne RCS bewusst sehr träge.
+- Temperatur (didaktisch, HUD): `ambTemp()` (−6,5 °C/km, All −270 °C) + `updateTemps(dt)` → `shipTemp` (Atmo: Staupunkt `amb + v²/2050`, dichtegewichtet `min(1,rho/2e-3)`; Vakuum: Schwarzkörper ∝ 1/√Sonnenabstand, bei Leibniz ≈ +5 °C; träge Annäherung `k=0.03+2rho`).
+- Komplett-Satelliten `satW`/`satR`/`satS` (type "sat", passen in Buchten): [N] ruft `deploySpecialSat()` – prüft Orbit-Anforderung (satW stabil · satR Pe>250 km · satS Pe>70/Ap<130 km), setzt Flags `satWeather/satRad/satSpy` für die Missionen satWetter/satStrahlung/satSpion. `probeS` = flacher Sondenbus (type "probe", wird NIE ausgesetzt).
+- Fairing: `buildFairingShell(r,H,phiStart?,phiLength?)` (Lathe-Ogive); [F] spawnt 2 Halbschalen als Debris (seitlich + Spin).
 - Partikel-Pool (110 Sprites, `fresh`-Flag, altern mit Sim-Zeit `simmed`), Rauch nur in Atmosphäre.
 - Tutorials: `Tut.start(id)` erzwingt Sandbox + ∞-Strom; Szenario: `stack`, `orbit:{body,alt,pe?}` oder `nearStation:<m hinter Station>`; Checks `check(o,F)` laufen pro Frame.
 - Admin-Cam: `AdminCam` (eigene Three-Szene, echte Ephemeriden, Fokus-Buttons, Zeitraffer) – Vollbild aus dem Universum-Screen.

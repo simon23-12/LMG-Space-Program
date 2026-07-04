@@ -467,6 +467,8 @@ const CATS = [
 const PARTS = {
   probePod:{name:"Sondenkapsel »Fernblick«",  type:"probe",  cat:"cmd", mass:400,  w:10,h:10, tech:"start", charge:200,
             info:"Ferngesteuerte Kapsel – fliegt unbemannt. Braucht Strom (0,25 ⚡/s)! Interne Batterie: 200 ⚡."},
+  probeS: {name:"Sondenbus »Teller«",         type:"probe",  cat:"cmd", mass:120,  w:9,h:3,   tech:"payload", charge:120,
+            info:"Flache, runde Mini-Steuereinheit für Satellitenstarts: Satellit obendrauf bauen, im Zielorbit mit [N] abstoßen – wie in echt! Braucht Strom (0,25 ⚡/s)."},
   pod:    {name:"Kommandokapsel »Leibniz I«", type:"pod",    cat:"cmd", mass:800,  w:10,h:14, tech:"crewed", charge:150, info:"Sitz für eine mutige Pilotin / einen mutigen Piloten. Interne Batterie: 150 ⚡."},
   chute:  {name:"Fallschirm Mk1",            type:"chute",  cat:"cmd", mass:100,  w:10,h:5,  tech:"start", info:"Für die sichere Landung. Mit [P] auslösen."},
   lab:    {name:"Materiallabor »Curie«",     type:"lab",    cat:"cmd", mass:180,  w:10,h:7,  tech:"surv",
@@ -483,7 +485,7 @@ const PARTS = {
   decoupler:{name:"Stufentrenner",           type:"decoupler", cat:"struct", mass:50, w:10,h:4, tech:"struct", info:"Trennt Stufen voneinander. [Leertaste]"},
   legs:   {name:"Landebeine",                type:"legs",   cat:"struct", mass:120,  w:14,h:6, tech:"explore", info:"Erlauben Landungen bis 12 m/s (sonst 8 m/s)."},
   rcs:    {name:"RCS-Steuerdüsen",           type:"rcs",    cat:"struct", mass:70,   w:11,h:2.5, tech:"advProp",
-           info:"Düsenring fürs schnelle Wenden im All – ohne RCS dreht das Schiff nur träge!"},
+           info:"Düsenring fürs schnelle Wenden im All – ohne RCS dreht das Schiff SEHR träge!"},
   srb:    {name:"Feststoffbooster »Böller«", type:"srb",    cat:"lower", mass:450,  fuel:1700, thrust:230000, isp:220, w:10,h:24, tech:"basic", info:"Viel Schub, nicht drosselbar!"},
   fin:    {name:"Stabilisierungsflosse",     type:"fin",    cat:"lower", mass:40,   w:14,h:6, tech:"basic", info:"Verringert den Luftwiderstand."},
   tankL:  {name:"Treibstofftank L",          type:"tank",   cat:"lower", mass:800,  fuel:5600, w:12,h:42, tech:"heavy", info:"5,6 t Treibstoff – schwer, gehört nach unten."},
@@ -501,6 +503,12 @@ const PARTS = {
   bayS:   {name:"Servicebucht S",            type:"bay",    cat:"sat", mass:45,  w:9,h:2.5, covers:1, tech:"payload",
            info:"Kompakte Bucht – verkleidet EIN Bauteil darüber, perfekt für Batterie oder Solarpanele. Öffnen: [O]"},
   antenna:{name:"Antenne »Quassel«",         type:"antenna",cat:"sat", mass:40,  w:4,h:5, tech:"payload", info:"Funkt Daten nach Leibniz."},
+  satW:   {name:"Wettersatellit »Wolkengucker«", type:"sat", cat:"sat", mass:200, w:8,h:6, tech:"payload",
+           info:"Kameras für Wolken & Stürme über Leibniz. In STABILEM Orbit aussetzen [N] – Karriere-Mission!"},
+  satR:   {name:"Forschungssatellit »Strahlenspäher«", type:"sat", cat:"sat", mass:280, w:8,h:7, tech:"fine",
+           info:"Misst kosmische Strahlung – funktioniert nur im HOHEN Orbit (Periapsis > 250 km). Aussetzen: [N]"},
+  satS:   {name:"Spähsatellit »Adlerauge«",  type:"sat",    cat:"sat", mass:350, w:9,h:6, tech:"fine",
+           info:"Streng geheim! Scharfe Fotos gelingen nur im TIEFEN Orbit (Pe > 70 km, Ap < 130 km). Aussetzen: [N]"},
   fairing:{name:"Nutzlast-Fairing",          type:"fairing",cat:"sat", mass:120, w:12,h:5, tech:"payload", info:"Halber Luftwiderstand. Mit [F] absprengen!"},
   tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"fine", info:"0,7 t für Satelliten-Manöver."},
   engT:   {name:"Triebwerk »Floh«",          type:"engine", cat:"sat", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"fine", info:"Winziges Manövriertriebwerk (8 kN)."},
@@ -640,6 +648,12 @@ const MISSIONS = [
    req:["orbit"], check:s=>s.body===LEIBNIZ && s.pe>250000},
   {id:"sat1",    name:"Erster Satellit",     desc:"Setze einen Satelliten in einem stabilen Orbit um Leibniz aus. [N]", sci:30,
    req:["orbit"], check:s=>s.satL},
+  {id:"satWetter", name:"Wetterdienst Leibniz", desc:"Setze den Wettersatelliten »Wolkengucker« in einem stabilen Orbit um Leibniz aus [N]. Ab morgen gibt's Pausenhof-Wettervorhersage! (Tipp: Sondenbus »Teller« als Steuereinheit.)", sci:35,
+   req:["sat1"], check:s=>s.satWeather},
+  {id:"satStrahlung", name:"Strahlungsgürtel kartieren", desc:"Bring den Forschungssatelliten »Strahlenspäher« in einen HOHEN Orbit (Periapsis > 250 km) und setze ihn dort aus [N]. Nur dort oben lässt sich die kosmische Strahlung sauber messen.", sci:50,
+   req:["satWetter","highOrbit"], check:s=>s.satRad},
+  {id:"satSpion", name:"Geheimauftrag »Adlerauge«", desc:"Die Schulleitung will wissen, was auf dem Pausenhof der Nachbarschule vor sich geht… Setze den Spähsatelliten in einem TIEFEN Orbit aus (Pe > 70 km, Ap < 130 km) [N]. Pssst!", sci:55,
+   req:["satWetter"], check:s=>s.satSpy},
   {id:"dock1",   name:"Rendezvous: »Große Pause«", desc:"Docke mit einem Docking-Port [L] an der Raumstation »Große Pause« an (100-km-Orbit). Tipp: erst das Tutorial »Rendezvous & Docking«!", sci:55,
    req:["highOrbit"], check:s=>s.docked},
   {id:"relay1",  name:"Funknetz I: Erstes Relais", desc:"Setze einen Relais-Satelliten aus: Sondenkern + Antenne + Solar in stabilem Leibniz-Orbit [N]. Sonden im tiefen All brauchen Funkkontakt!", sci:35,
@@ -1433,6 +1447,58 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
     ant.position.set(0, h*1.2, 0); g.add(ant);
     return g;
   }
+  if(id==="probeS"){
+    // Sondenbus: flache, runde Scheibe (wie die Batterie, nur runder) mit Sensorauge
+    add(cylinder(r*0.94, r*0.82, h*0.75, MAT.white, 24), h*0.4);
+    add(cylinder(r*0.96, r*0.96, h*0.22, MAT.dark, 24), h*0.72);
+    add(cylinder(r*0.55, r*0.6, h*0.2, MAT.gray, 20), h*0.92);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(r*0.14,10,10),
+      new THREE.MeshBasicMaterial({color:0x9fd8ff}));
+    eye.position.set(0, h*0.45, r*0.85); g.add(eye);
+    return g;
+  }
+  if(p.type==="sat"){
+    // Komplett-Satelliten: eigenes Gesicht pro Typ, kleine Flügel (Start: eingeklappt)
+    const wing = (side, w, col)=>{
+      const pan = new THREE.Mesh(new THREE.BoxGeometry(w, h*0.5, 0.22),
+        col||MAT.panel);
+      pan.name = "wing";
+      pan.geometry.translate(side*w/2, 0, 0);
+      pan.position.set(side*r*0.75, h*0.5, 0);
+      pan.scale.x = 0.1;
+      g.add(pan);
+    };
+    if(id==="satW"){
+      // Wettersatellit: weißer Kasten, blaue Sensorleiste, Wetterschüssel oben
+      add(new THREE.Mesh(new THREE.BoxGeometry(p.w*0.62,h*0.72,p.w*0.62), MAT.white), h*0.4);
+      add(new THREE.Mesh(new THREE.BoxGeometry(p.w*0.64,h*0.16,p.w*0.64), MAT.blue), h*0.4);
+      const dish = new THREE.Mesh(new THREE.SphereGeometry(r*0.5,12,6,0,Math.PI*2,0,Math.PI/2.3),
+        new THREE.MeshStandardMaterial({color:0xd6dbe6, side:THREE.DoubleSide}));
+      dish.position.y = h*0.95; dish.rotation.x = Math.PI; g.add(dish);
+      wing(-1, p.w*0.8); wing(1, p.w*0.8);
+    } else if(id==="satR"){
+      // Strahlungsmessung: goldfolierter Kasten mit Messfühler-Stacheln
+      add(new THREE.Mesh(new THREE.BoxGeometry(p.w*0.6,h*0.7,p.w*0.6), MAT.gold), h*0.42);
+      for(let k=0;k<4;k++){
+        const a = k*Math.PI/2 + Math.PI/4;
+        const spike = cylinder(0.12,0.12,h*0.9,MAT.gray,6);
+        spike.position.set(Math.cos(a)*p.w*0.34, h*0.75, Math.sin(a)*p.w*0.34);
+        spike.rotation.z = Math.cos(a)*0.5; spike.rotation.x = -Math.sin(a)*0.5;
+        g.add(spike);
+      }
+      add(cylinder(r*0.2,r*0.2,h*0.35,MAT.dark,8), h*0.95);
+      wing(-1, p.w*0.7); wing(1, p.w*0.7);
+    } else {
+      // Spähsatellit: dunkler Tubus mit großer Linse – unauffällig…
+      add(cylinder(r*0.55, r*0.55, h*0.85, MAT.dark, 18), h*0.45);
+      add(cylinder(r*0.6, r*0.6, h*0.14, MAT.gray, 18), h*0.16);
+      const lens = new THREE.Mesh(new THREE.SphereGeometry(r*0.4,14,14),
+        new THREE.MeshStandardMaterial({color:0x123a6e, roughness:.1, metalness:.5}));
+      lens.position.y = h*0.94; g.add(lens);
+      wing(-1, p.w*0.9); wing(1, p.w*0.9);
+    }
+    return g;
+  }
   switch(p.type){
     case "pod":{
       // breitere Spitze, damit Fallschirm/Docking-Port bündig aufsetzen
@@ -1474,8 +1540,12 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       const band = add(cylinder(r*1.01, r*1.01, h*0.16, MAT.orange), h*0.5);
       break;}
     case "engine":{
-      add(cylinder(r*0.35, r*0.5, h*0.35, MAT.dark), h*0.82);
-      add(cylinder(r*0.3, r*0.92, h*0.65, MAT.gray), h*0.33);
+      // Deutliche Glocken-Silhouette: Schubrahmen, schmale Taille, breite Glocke –
+      // sonst "verschwindet" das Triebwerk optisch unterm Tank (fast gleiche Breite)
+      add(cylinder(r*0.88, r*0.88, h*0.14, MAT.dark), h*0.93);
+      add(cylinder(r*0.32, r*0.22, h*0.34, MAT.gray), h*0.66);
+      add(cylinder(r*0.22, r*0.8, h*0.55, MAT.gray), h*0.26);
+      add(cylinder(r*0.81, r*0.84, h*0.08, MAT.dark), h*0.04);
       // Flamme (wird im Flug ein-/ausgeblendet)
       const fl = new THREE.Mesh(new THREE.ConeGeometry(r*0.7, h*3.2, 14), MAT.flame);
       fl.rotation.x = Math.PI; fl.position.y = -h*1.4; fl.visible = false; fl.name = "flame";
@@ -1600,6 +1670,24 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
   }
   return g;
 }
+/* Nutzlast-Fairing-Hülle: ovale Ogiven-Form wie echte Fairings.
+   phiStart/phiLength → Halbschalen für die Absprengungs-Animation. */
+function buildFairingShell(rBase, H, phiStart, phiLength){
+  const cyl = H*0.42;
+  const pts = [new THREE.Vector2(rBase*0.82, 0),
+               new THREE.Vector2(rBase, H*0.05),
+               new THREE.Vector2(rBase, cyl)];
+  for(let k=1;k<=9;k++){
+    const t = k/9;   // Ogive: sanft gerundete Spitze statt Kegel
+    pts.push(new THREE.Vector2(
+      Math.max(rBase*Math.pow(Math.cos(t*Math.PI/2), 0.72), 0.3),
+      cyl + (H-cyl)*t));
+  }
+  const geo = new THREE.LatheGeometry(pts, 24, phiStart||0, phiLength||Math.PI*2);
+  const mat = new THREE.MeshStandardMaterial({color:0xe8ecf5, roughness:.35,
+    metalness:.25, side:THREE.DoubleSide});
+  return new THREE.Mesh(geo, mat);
+}
 /* Solarflügel eines fertig gebauten Meshes ausklappen (Sats im Orbit etc.) */
 function deployWings(g){
   g.traverse(o=>{ if(o.name==="wing") o.scale.x = 1; });
@@ -1609,7 +1697,7 @@ function deployWings(g){
    (covers = Anzahl Bauteile DIREKT DARÜBER; Radialteile zählen nicht.)
    Nur KLEINE Nutzlast-Teile passen hinein – Triebwerke, Tanks & Co. würden
    sonst optisch "verschluckt" (z. B. Bucht unter der Oberstufe). */
-const BAY_FITS = new Set(["battery","solar","probe","antenna","lab"]);
+const BAY_FITS = new Set(["battery","solar","probe","antenna","lab","sat"]);
 function bayCoverage(stack){
   const map = new Map();   // Bucht-Index -> [verdeckte Indizes, oberstes zuletzt]
   stack.forEach((id,i)=>{
@@ -1689,9 +1777,8 @@ function buildRocketGroup(stack, fairingIntact){
     }
     if(fairingIntact && fIdx===i && fIdx>0){
       const coveredH = stackHeight(stack.slice(0,fIdx));
-      const shell = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.4, p.w/2, coveredH+6, 20), MAT.white);
-      shell.position.y = y + p.h + (coveredH+6)/2;
+      const shell = buildFairingShell(p.w/2, coveredH+6);
+      shell.position.y = y + p.h;
       grp.add(shell);
     }
   }
@@ -2671,6 +2758,8 @@ const Flight = {
     this.chuteOpen=false; this.infinite=false;
     this.sats.forEach(s=>this.world.remove(s.mesh));
     this.sats = []; this.satL=false; this.satM=false; this.visitedMonti=false;
+    this.satWeather=false; this.satRad=false; this.satSpy=false;
+    this.shipTemp = 15;   // startet bei Bodentemperatur
     this.docked = false; this.dockOffset = null;
     if(this.eva){ this.world.remove(this.eva.mesh); this.eva = null; }
     this.sas = "off"; this._cd = 0; this.expCount = 0; this._wasSpace = undefined;
@@ -2907,6 +2996,36 @@ const Flight = {
       return;
     }
     this.showMsg(this.panelsOut ? "☀️ Solarpanele ausgefahren (+3 ⚡/s)" : "Solarpanele eingeklappt.",2);
+  },
+  /* Umgebungstemperatur in °C: Boden warm, mit der Höhe kälter, im All ~ -270 °C */
+  ambTemp(){
+    const alt = leibnizAlt(this.pos, this.t);
+    if(alt >= LEIBNIZ.atmoH) return -270;
+    if(alt < 40000) return Math.max(-60, 15 - alt/1000*6.5);   // −6,5 °C pro km
+    return -60 - (alt-40000)/(LEIBNIZ.atmoH-40000)*210;        // Übergang ins All
+  },
+  /* Schiffstemperatur: nähert sich träge dem Zielwert –
+     Atmosphäre: Staupunkt-Temperatur (T + v²/2·cp, echte Physik!),
+     Vakuum: Strahlungsgleichgewicht je nach Sonnenabstand */
+  updateTemps(dt){
+    const alt = leibnizAlt(this.pos, this.t);
+    let target, k;
+    if(alt < LEIBNIZ.atmoH){
+      const v = this.vel.distanceTo(bodyVel(LEIBNIZ, this.t));
+      const rho = LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH);
+      // Staupunkt-Temperatur (T + v²/2·cp), gewichtet mit der Luftdichte –
+      // ganz oben in der Restatmosphäre heizt fast nichts mehr
+      const w = Math.min(1, rho/2e-3);
+      target = this.ambTemp() + v*v/2050*w;                    // cp Luft ≈ 1005 J/(kg·K)
+      k = 0.03 + rho*2;   // dünne Luft heizt/kühlt langsam
+    } else {
+      // Schwarzkörper-Gleichgewicht: bei Leibniz' Sonnenabstand ≈ +5 °C
+      const dRef = bodyPos(LEIBNIZ, this.t).length();
+      target = 278*Math.sqrt(dRef/Math.max(1, this.pos.length())) - 273;
+      k = 0.03;
+    }
+    this.shipTemp = this.shipTemp ?? 15;
+    this.shipTemp += (target - this.shipTemp)*Math.min(1, k*dt);
   },
   /* steckt mindestens ein Solarpanel in einer Servicebucht? */
   solarInBay(){
@@ -3182,6 +3301,29 @@ const Flight = {
   },
   jettisonFairing(){
     if(!this.v || !this.v.fairingIntact || this.crashed || this.ended) return;
+    // Zwei Halbschalen fliegen seitlich weg – wie bei echten Fairings
+    const stack = this.v.stack;
+    const fIdx = stack.findIndex(id=>PARTS[id].type==="fairing");
+    if(fIdx > 0){
+      const coveredH = stackHeight(stack.slice(0,fIdx));
+      let yb = 0;   // Unterkante der Hülle (= Oberkante des Fairing-Rings)
+      for(let i=stack.length-1; i>=fIdx; i--) if(!isRadial(stack[i])) yb += PARTS[stack[i]].h;
+      const hh = this.height()/2;
+      const dir = V3(0,1,0).applyQuaternion(this.q);
+      const sideX = V3(1,0,0).applyQuaternion(this.q);
+      for(const sgn of [-1,1]){
+        const half = buildFairingShell(PARTS[stack[fIdx]].w/2, coveredH+6,
+          sgn>0 ? -Math.PI/2 : Math.PI/2, Math.PI);
+        this.world.add(half);
+        this.debris.push({
+          pos: this.pos.clone().addScaledVector(dir, yb - hh),
+          vel: this.vel.clone().addScaledVector(sideX, sgn*9).addScaledVector(dir, 2.5),
+          q: this.q.clone(),
+          spin: sideX.clone().cross(dir).multiplyScalar(sgn*0.8),
+          mesh: half, tEnd: this.t+180
+        });
+      }
+    }
     this.v.fairingIntact = false;
     for(const seg of this.v.segs){
       let i;
@@ -3198,8 +3340,15 @@ const Flight = {
     if(!this.v || this.crashed || this.ended) return;
     if(this.landed){ this.showMsg("Erst starten – dann Satelliten aussetzen!",2); return; }
     if(this.v.fairingIntact){ this.showMsg("Erst das Fairing absprengen! [F]",2); return; }
+    // Komplett-Satelliten (Wetter/Strahlung/Späh) haben Vorrang vor dem Bausatz
+    for(const sg of this.v.segs){
+      const satId = sg.parts.find(id=>PARTS[id].type==="sat");
+      if(!satId) continue;
+      this.deploySpecialSat(satId, sg);
+      return;
+    }
     const seg = this.v.segs.find(s=>s.parts.includes("probe"));
-    if(!seg){ this.showMsg("Kein Sondenkern an Bord! 📡",3); return; }
+    if(!seg){ this.showMsg("Kein Satellit oder Sondenkern an Bord! 📡",3); return; }
     this._satHadAntenna = seg.parts.includes("antenna");
     this._satHadSolar = seg.parts.includes("solar");
     for(const pid of ["probe","solar","antenna"]){
@@ -3242,6 +3391,49 @@ const Flight = {
       autoSave();
     }
     this.showMsg(msg,4);
+  },
+  /* Komplett-Satellit (Wetter/Strahlung/Späh) aussetzen: prüft die Orbit-
+     Anforderungen des jeweiligen Typs und setzt die Missions-Flags */
+  deploySpecialSat(satId, seg){
+    seg.dry -= PARTS[satId].mass;
+    seg.parts.splice(seg.parts.indexOf(satId),1);
+    const si = this.v.stack.indexOf(satId);
+    if(si>=0) this.v.stack.splice(si,1);
+    this.rebuildRocket();
+    const up = this.pos.clone().normalize();
+    const mesh = deployWings(buildPartMesh(satId));
+    this.world.add(mesh);
+    this.sats.push({pos:this.pos.clone().addScaledVector(up,20), vel:this.vel.clone(), mesh});
+    const o = this.orbit();
+    const stable = o.body===LEIBNIZ && o.pe>LEIBNIZ.atmoH && o.ap>0;
+    if(stable) this.satL = true;
+    let msg = "📡 "+PARTS[satId].name+" ausgesetzt!";
+    if(satId==="satW"){
+      if(stable){ this.satWeather = true; msg += " ☁️ Wetterdaten laufen ein!"; }
+      else msg += " ⚠️ Kein stabiler Leibniz-Orbit – keine Wetterdaten!";
+    }
+    if(satId==="satR"){
+      if(o.body===LEIBNIZ && o.pe>250000 && o.ap>0){ this.satRad = true; msg += " ☢️ Strahlungsmessung aktiv!"; }
+      else msg += " ⚠️ Zu niedrig! Strahlungsmessung braucht Pe > 250 km.";
+    }
+    if(satId==="satS"){
+      if(stable && o.ap<130000){ this.satSpy = true; msg += " 🕵️ Die Fotos sind gestochen scharf…"; }
+      else msg += " ⚠️ Falscher Orbit! Späh-Fotos brauchen Pe > 70 km und Ap < 130 km.";
+    }
+    // Karriere: bleibt dauerhaft im Orbit-Inventar
+    const bodyKey = Object.keys(BODY_BY_NAME()).find(k=>BODY_BY_NAME()[k]===o.body);
+    if(!Game.sandbox && bodyKey && o.pe > (o.body.atmoH||0) && o.ap > 0){
+      Game.assets = Game.assets||[];
+      const nSats = Game.assets.filter(a=>a.kind==="sat").length;
+      if(nSats >= 12){
+        const i = Game.assets.findIndex(a=>a.kind==="sat");
+        if(i>=0) Game.assets.splice(i,1);
+      }
+      Game.assets.push({kind:"sat", body:bodyKey, alt:Math.round(o.alt),
+        phase:Math.random()*Math.PI*2, name:PARTS[satId].name});
+      autoSave();
+    }
+    this.showMsg(msg,5);
   },
   toggleChute(){
     const top = this.v.segs[this.v.segs.length-1];
@@ -3361,7 +3553,8 @@ const Flight = {
     } else { this.commDead = false; this.comm = null; }
     // Wendigkeit: Basis-Reaktionsräder sind träge, RCS macht agil, Pilot*innen-Erfahrung hilft
     const nRcs = this.v.stack.filter(id=>PARTS[id].type==="rcs").length;
-    const agility = Math.min(1.8, 0.35 + 0.65*nRcs) * (1 + 0.08*this.crewLvl("pilot"));
+    // Ohne RCS DEUTLICH träger (nur schwache Reaktionsräder), jeder Ring hilft kräftig
+    const agility = Math.min(1.8, 0.12 + 0.78*nRcs) * (1 + 0.08*this.crewLvl("pilot"));
     if(warp<=2 && !this.powerDead && !this.commDead && !this.eva){
       const rot = agility*dt, k=this.keys;
       const dq = new THREE.Quaternion();
@@ -3462,6 +3655,7 @@ const Flight = {
       this.warpI = WARPS.indexOf(50);
       this.showMsg("⏩ Atmosphäre erreicht – Zeitraffer auf 50× begrenzt!",3);
     }
+    this.updateTemps(dt);
     if(alt < LEIBNIZ.atmoH){
       const rho = LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH);
       // Luftgeschwindigkeit = relativ zum Planeten (Leibniz bewegt sich um die Sonne!)
@@ -3710,6 +3904,7 @@ const Flight = {
     const state = {alt:o.alt, speed:o.speed, ap:o.ap, pe:o.pe, body:o.body,
       landed:this.landed, flew:this.flew,
       satL:this.satL, satM:this.satM, visitedMonti:this.visitedMonti,
+      satWeather:this.satWeather, satRad:this.satRad, satSpy:this.satSpy,
       docked:!!this.docked,
       relays:commRelays(), mods:Game.stationMods||[],
       anomalies:(Game.anomaliesFound||[]).length,
@@ -4363,6 +4558,10 @@ const Flight = {
       <div class="row"><span>Δv (Stufe)</span><span>${dvLeft>0?dvLeft.toFixed(0)+" m/s":"–"}</span></div>
       ${brakeRow}
       <div class="row"><span>Masse</span><span>${(mNow/1000).toFixed(2)} t</span></div>
+      <div class="row"><span>Temp. Umgebung</span><span>${this.ambTemp().toFixed(0)} °C</span></div>
+      <div class="row"><span>Temp. Schiff</span><span style="${
+        this.shipTemp>600?'color:var(--red);font-weight:700':(this.shipTemp>150?'color:#ffb347':'')
+      }">${(this.shipTemp??15).toFixed(0)} °C${this.shipTemp>600?" 🔥":""}</span></div>
       <div class="row"><span>Missionszeit</span><span>${this.t.toFixed(0)} s</span></div>
       <div class="row" style="margin-top:4px;border-top:1px solid var(--blue-dark);padding-top:4px;">
         <span>${this.crew.length ? this.crew.join("<br>") : "🤖 unbemannte Sonde"}</span></div>`;
