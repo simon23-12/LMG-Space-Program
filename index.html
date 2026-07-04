@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LMG Space Program 3D</title>
 <script src="three.min.js"></script>
+<script src="nebulae.js"></script>
 <style>
 :root{
   --orange:#f7941d; --blue:#1b5faa; --blue-dark:#0d3a6e;
@@ -2651,7 +2652,7 @@ const Flight = {
     host.appendChild(this.renderer.domElement);
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x04060e);
-    this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 8e10);
+    this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 2.2e11);   // weit genug für die Nebel-Kulisse hinter Newton
     // Floating Origin: alles Welt-Feste liegt in dieser Gruppe, die jeden Frame
     // um -Schiffsposition verschoben wird. So bleibt die Kamera nahe am Ursprung
     // und Float32-Präzisionszittern verschwindet.
@@ -2721,6 +2722,43 @@ const Flight = {
     this.starField = new THREE.Points(starGeo,
       new THREE.PointsMaterial({color:0xffffff, size:2.2, sizeAttenuation:false, transparent:true}));
     this.scene.add(this.starField);
+    // Nebel-Fotos (nebulae.js): weit hinter allen Planeten, mit weichem
+    // Radial-Verlauf ausgestanzt + additiv geblendet -> keine sichtbaren Ränder.
+    // Sichtbarkeit koppelt frame() an die Sternen-Opacity (Atmosphäre blendet aus).
+    this.nebulae = [];
+    if(typeof NEBULAE !== "undefined"){
+      const defs = [
+        {img:NEBULAE[0], dir:V3(0.55, 0.42, -0.72), size:3.6e10, base:0.5},
+        {img:NEBULAE[1], dir:V3(-0.68, -0.3, 0.67), size:2.9e10, base:0.6}
+      ];
+      for(const d of defs){
+        const cv = document.createElement("canvas");
+        cv.width = cv.height = 512;
+        const tex = new THREE.CanvasTexture(cv);
+        const im = new Image();
+        im.onload = ()=>{
+          const cx = cv.getContext("2d");
+          // Bild einpassen (cover), dann Kanten mit Radialverlauf weich löschen
+          const s = Math.max(cv.width/im.width, cv.height/im.height);
+          cx.drawImage(im, (cv.width-im.width*s)/2, (cv.height-im.height*s)/2, im.width*s, im.height*s);
+          const g = cx.createRadialGradient(256,256,110, 256,256,256);
+          g.addColorStop(0, "rgba(0,0,0,0)");
+          g.addColorStop(1, "rgba(0,0,0,1)");
+          cx.globalCompositeOperation = "destination-out";
+          cx.fillStyle = g; cx.fillRect(0,0,512,512);
+          tex.needsUpdate = true;
+        };
+        im.src = d.img.data;
+        const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+          map:tex, transparent:true, depthWrite:false,
+          blending:THREE.AdditiveBlending, opacity:d.base}));
+        spr.position.copy(d.dir.normalize()).multiplyScalar(7e10);
+        spr.scale.set(d.size, d.size*d.img.aspect, 1);
+        spr.userData.base = d.base;
+        this.scene.add(spr);
+        this.nebulae.push(spr);
+      }
+    }
     // Lokaler Boden am Startplatz (Tangentialebene; die Kugel ist zu grob für Bodennähe)
     this.groundPlane = new THREE.Mesh(
       new THREE.CircleGeometry(40000, 48),
@@ -4390,6 +4428,9 @@ const Flight = {
     const sky = new THREE.Color(0x04060e).lerp(new THREE.Color(0x87b6ea), this.map?0:f*f);
     this.scene.background = sky;
     this.starField.material.opacity = this.map ? 1 : 1-f;
+    // Nebel-Kulisse: wie die Sterne in der Atmosphäre ausblenden
+    for(const neb of this.nebulae)
+      neb.material.opacity = (this.map ? 1 : 1-f) * neb.userData.base;
     this.groundPlane.visible = !this.map && alt<16000;
     this.padGroup.visible = !this.map && alt<25000;
     for(const [,ring] of this.moonRings) ring.visible = this.map;

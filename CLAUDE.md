@@ -8,6 +8,7 @@ LMG-Branding (orange `--orange` / blau `--blue`).
 - `index.html` – DAS Spiel. Alles inline (CSS, Screens, komplette Logik, Three.js-Szenen).
 - `tutorials.js` – `const TUTORIALS`: 10 interaktive Szenario-Tutorials (lädt NACH index.html; in index.html heißt das Alt-Array `TUTORIALS_LEGACY`).
 - `three.min.js` – Three.js **r128** UMD, lokal (funktioniert via file://). Kein Modul-Build verwenden!
+- `nebulae.js` – `NEBULAE`: 2 Nebel-Fotos als Base64-Data-URIs (file:// erlaubt keine Datei-Bilder als WebGL-Textur!). `Flight.init` baut daraus Sprites bei Radius 7e10 (additiv, Radial-Alpha-Maske gegen Kanten); Opacity koppelt `frame()` an die Sternen-Ausblendung; Kamera-Far dafür 2.2e11.
 - Assets: `mainmenu.png`, `loading.png`, `space.mp3` (Menü), `hangar*.mp3` / `inspace*.mp3` (Playlists, Rotation via `ended`).
 - `.claude/launch.json` – Preview: `npx serve -l 8642` (Name `lmg-space-program`). Eintrag `lmgsongrodeo` gehört dem User – nicht anfassen.
 
