@@ -142,6 +142,8 @@ input[type=file]{display:none;}
       <span id="vabSci" class="scibadge"></span>
       <button class="btn" id="vabTechBtn" onclick="UI.show('tech')">🔬 Forschung</button>
       <button class="btn" id="vabMisBtn" onclick="UI.show('missions')">📋 Missionen</button>
+      <button class="btn" onclick="VAB.saveRocket()">💾 Speichern</button>
+      <button class="btn" onclick="VAB.openHangar()">📂 Hangar</button>
       <button class="btn" onclick="UI.show('menu')">☰ Menü</button>
       <button class="btn orange" onclick="UI.launch()">🚀 START</button>
     </div>
@@ -286,6 +288,21 @@ input[type=file]{display:none;}
       <button class="btn" id="tutPrev" onclick="tutNav(-1)">← Zurück</button>
       <button class="btn orange" id="tutNext" style="flex:1" onclick="tutNav(1)">Weiter →</button>
       <button class="btn" onclick="document.getElementById('tutModal').style.display='none'">✕</button>
+    </div>
+  </div>
+</div>
+
+<!-- HANGAR: gespeicherte Raketen ("Workhorses") -->
+<div id="hangarModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:60;
+  align-items:center;justify-content:center;">
+  <div style="background:var(--panel);border:2px solid var(--blue);border-radius:14px;
+    max-width:560px;width:90%;margin:20px;padding:24px;">
+    <h2 style="color:var(--orange);margin-bottom:4px;">📂 Hangar – gespeicherte Raketen</h2>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">
+      Bewährte Raketen laden und immer wieder fliegen. Speichern: 💾 in der Montagehalle.</div>
+    <div id="hangarList" style="max-height:320px;overflow-y:auto;"></div>
+    <div style="display:flex;gap:10px;margin-top:18px;">
+      <button class="btn" style="flex:1" onclick="document.getElementById('hangarModal').style.display='none'">Schließen</button>
     </div>
   </div>
 </div>
@@ -479,10 +496,10 @@ const PARTS = {
   probe:  {name:"Sondenkern »Pixel«",        type:"probe",  cat:"sat", mass:150, w:8,h:6, tech:"payload", charge:80, info:"Unbemanntes Gehirn – braucht ständig Strom (0,25 ⚡/s)! Interne Batterie: 80 ⚡."},
   solar:  {name:"Solarpanele (ausfahrbar)",  type:"solar",  cat:"sat", mass:60,  w:14,h:4, tech:"payload", info:"Mit [G] ausfahren: +3 ⚡/s. Vorsicht: reißen im Fahrtwind ab!"},
   battery:{name:"Batterie",                  type:"battery",cat:"sat", mass:60,  w:8,h:5, tech:"payload", charge:500, info:"Speichert 500 ⚡ für Sonden, SAS und Experimente."},
-  bay:    {name:"Servicebucht",              type:"bay",    cat:"sat", mass:80,  w:11,h:9, tech:"payload",
-           info:"Aerodynamischer Stauraum: verkleidet das Bauteil DIREKT DARÜBER (Batterie, Labor …) und senkt den Luftwiderstand. Öffnen: [O]"},
-  bayS:   {name:"Servicebucht S",            type:"bay",    cat:"sat", mass:45,  w:9,h:6, tech:"payload",
-           info:"Kompakte Bucht – perfekt für Batterie oder Solarpanele. Öffnen: [O]"},
+  bay:    {name:"Servicebucht M",            type:"bay",    cat:"sat", mass:80,  w:11,h:5, covers:2, tech:"payload",
+           info:"Aerodynamischer Stauraum: verkleidet die ZWEI Bauteile DIREKT DARÜBER (z. B. Satellit + Batterie) und senkt den Luftwiderstand. Öffnen: [O]"},
+  bayS:   {name:"Servicebucht S",            type:"bay",    cat:"sat", mass:45,  w:9,h:2.5, covers:1, tech:"payload",
+           info:"Kompakte Bucht – verkleidet EIN Bauteil darüber, perfekt für Batterie oder Solarpanele. Öffnen: [O]"},
   antenna:{name:"Antenne »Quassel«",         type:"antenna",cat:"sat", mass:40,  w:4,h:5, tech:"payload", info:"Funkt Daten nach Leibniz."},
   fairing:{name:"Nutzlast-Fairing",          type:"fairing",cat:"sat", mass:120, w:12,h:5, tech:"payload", info:"Halber Luftwiderstand. Mit [F] absprengen!"},
   tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"fine", info:"0,7 t für Satelliten-Manöver."},
@@ -1418,20 +1435,22 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
   }
   switch(p.type){
     case "pod":{
-      add(cylinder(r*0.22, r, h, MAT.white), h/2);
-      add(cylinder(r*0.2, r*0.22, h*0.12, MAT.gray), h+ h*0.05);
+      // breitere Spitze, damit Fallschirm/Docking-Port bündig aufsetzen
+      add(cylinder(r*0.44, r, h, MAT.white), h/2);
+      add(cylinder(r*0.4, r*0.44, h*0.12, MAT.gray), h+ h*0.05);
       const win = new THREE.Mesh(new THREE.SphereGeometry(r*0.28,12,12), MAT.blue);
       win.position.set(0,h*0.45,r*0.62); g.add(win);
       break;}
     case "chute":{
-      // KSP-Style: dunkler Basisring + weiß gerundete Kuppel mit Glas-Top
-      add(cylinder(r*0.66, r*0.74, h*0.32, MAT.dark), h*0.16);
+      // KSP-Style: dunkler Basisring + weiß gerundete Kuppel mit Glas-Top –
+      // schmal gehalten, damit er bündig auf der Kapselspitze sitzt
+      add(cylinder(r*0.36, r*0.44, h*0.32, MAT.dark), h*0.16);
       const dome = new THREE.Mesh(
-        new THREE.SphereGeometry(r*0.6, 18, 10, 0, Math.PI*2, 0, Math.PI/2), MAT.white);
-      dome.scale.y = 1.15; dome.position.y = h*0.3; g.add(dome);
-      const glass = new THREE.Mesh(new THREE.SphereGeometry(r*0.22, 10, 8),
+        new THREE.SphereGeometry(r*0.36, 18, 10, 0, Math.PI*2, 0, Math.PI/2), MAT.white);
+      dome.scale.y = 1.5; dome.position.y = h*0.3; g.add(dome);
+      const glass = new THREE.Mesh(new THREE.SphereGeometry(r*0.13, 10, 8),
         new THREE.MeshStandardMaterial({color:0x9fd8ff, roughness:.15, metalness:.3}));
-      glass.position.y = h*0.3 + r*0.6*1.05; g.add(glass);
+      glass.position.y = h*0.3 + r*0.36*1.4; g.add(glass);
       break;}
     case "shield":{
       // ablativer Schild: flacher brauner Kegelstumpf mit Goldrand
@@ -1512,7 +1531,9 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
         pan.name = "wing";
         // Drehpunkt an der Innenkante, damit das Ausfahren von innen nach außen wächst
         pan.geometry.translate(side*p.w*0.45, 0, 0);
-        pan.position.set(side*p.w*0.3, h/2, 0); g.add(pan);
+        pan.position.set(side*p.w*0.3, h/2, 0);
+        pan.scale.x = 0.1;   // Start: eingefahren (Ausfahren animiert [G] im Flug)
+        g.add(pan);
       }
       break;}
     case "battery":
@@ -1560,11 +1581,12 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       }
       break;}
     case "dock":{
-      // Koppelstutzen: Ring mit Führungstrichter und dunkler Öffnung
-      add(cylinder(r*0.72, r*0.95, h*0.7, MAT.gray), h*0.35);
-      add(cylinder(r*0.97, r*0.97, h*0.3, MAT.orange), h*0.35);
-      add(cylinder(r*0.62, r*0.62, h*0.35, MAT.dark), h*0.85);
-      const rim = new THREE.Mesh(new THREE.TorusGeometry(r*0.62, r*0.08, 8, 20),
+      // Koppelstutzen: Ring mit Führungstrichter und dunkler Öffnung –
+      // kompakt, passend zur breiten Kapselspitze / Fallschirmkuppel
+      add(cylinder(r*0.38, r*0.5, h*0.7, MAT.gray), h*0.35);
+      add(cylinder(r*0.52, r*0.52, h*0.3, MAT.orange), h*0.35);
+      add(cylinder(r*0.33, r*0.33, h*0.35, MAT.dark), h*0.85);
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(r*0.33, r*0.05, 8, 20),
         new THREE.MeshStandardMaterial({color:0xd6dbe6, metalness:.5, roughness:.4}));
       rim.rotation.x = Math.PI/2; rim.position.y = h; g.add(rim);
       break;}
@@ -1578,13 +1600,36 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
   }
   return g;
 }
+/* Solarflügel eines fertig gebauten Meshes ausklappen (Sats im Orbit etc.) */
+function deployWings(g){
+  g.traverse(o=>{ if(o.name==="wing") o.scale.x = 1; });
+  return g;
+}
+/* Servicebuchten: welche Stack-Indizes verkleidet welche Bucht?
+   (covers = Anzahl Bauteile DIREKT DARÜBER; Radialteile zählen nicht) */
+function bayCoverage(stack){
+  const map = new Map();   // Bucht-Index -> [verdeckte Indizes, oberstes zuletzt]
+  stack.forEach((id,i)=>{
+    if(PARTS[id].type!=="bay") return;
+    const list = [];
+    let j = i-1;
+    while(j>=0 && list.length < (PARTS[id].covers||1)){
+      if(!isRadial(stack[j]) && PARTS[stack[j]].type!=="bay") list.push(j);
+      else if(PARTS[stack[j]].type==="bay") break;   // Buchten verkleiden sich nicht gegenseitig
+      j--;
+    }
+    if(list.length) map.set(i, list);
+  });
+  return map;
+}
 /* Komplette Rakete; Ursprung = Unterkante des untersten Teils, +Y = oben */
 function buildRocketGroup(stack, fairingIntact){
   const grp = new THREE.Group();
   const fIdx = stack.findIndex(id=>PARTS[id].type==="fairing");
-  // Servicebuchten verkleiden das Bauteil direkt darüber
+  // Servicebuchten verkleiden 1–2 Bauteile direkt darüber (PARTS[..].covers)
+  const bayMap = bayCoverage(stack);
   const inBay = new Set();
-  stack.forEach((id,i)=>{ if(PARTS[id].type==="bay" && i>0) inBay.add(i-1); });
+  for(const list of bayMap.values()) list.forEach(j=>inBay.add(j));
   // Unterkanten-Y jedes Teils vorab (Radialteile belegen keine Höhe)
   const yBot = new Array(stack.length).fill(0);
   {
@@ -1610,15 +1655,19 @@ function buildRocketGroup(stack, fairingIntact){
     const mesh = buildPartMesh(id);
     mesh.position.y = y;
     grp.add(mesh);
-    if(p.type==="bay" && i>0 && inBay.has(i-1)){
-      const hh2 = PARTS[stack[i-1]].h;
+    if(p.type==="bay" && bayMap.has(i)){
+      const covered = bayMap.get(i);   // 1–2 Indizes, oberstes zuletzt
+      const topJ = covered[covered.length-1];
+      const hh2 = yBot[topJ] + PARTS[stack[topJ]].h - (y + p.h);   // Gesamthöhe des Inhalts
       const bayIdx = grp.userData.nBays = (grp.userData.nBays||0)+1;
-      // Inhalt (z. B. Batterie/Labor): unsichtbar bis die Bucht öffnet
-      const content = buildPartMesh(stack[i-1]);
-      content.position.y = y + p.h;
-      content.name = "bayContent"; content.userData.bayIdx = bayIdx-1;
-      content.visible = false;
-      grp.add(content);
+      // Inhalt (z. B. Satellit + Batterie): unsichtbar bis die Bucht öffnet
+      for(const j of covered){
+        const content = buildPartMesh(stack[j]);
+        content.position.y = yBot[j];
+        content.name = "bayContent"; content.userData.bayIdx = bayIdx-1;
+        content.visible = false;
+        grp.add(content);
+      }
       const shell = new THREE.Mesh(new THREE.CylinderGeometry(p.w/2, p.w/2, hh2+0.6, 8), MAT.white);
       shell.position.y = y + p.h + hh2/2;
       shell.name = "bayShell";
@@ -2069,6 +2118,70 @@ const VAB = {
     this.refresh();
   },
   remove(i){ this.stack.splice(i,1); this.refresh(); },
+  /* ---------- Hangar: Raketen speichern & wiederverwenden ("Workhorses") ---------- */
+  savedRockets(){
+    try{ return JSON.parse(localStorage.getItem("lmgRockets")) || []; }catch(e){ return []; }
+  },
+  saveRocket(){
+    if(!this.stack.length){ alert("Die Rakete ist leer – erst bauen, dann speichern!"); return; }
+    const name = (prompt("Name für diese Rakete (z. B. »Arbeitspferd I«):", this.lastRocketName||"") || "").trim();
+    if(!name) return;
+    const all = this.savedRockets();
+    const i = all.findIndex(r=>r.name===name);
+    if(i>=0 && !confirm("»"+name+"« gibt es schon – überschreiben?")) return;
+    const entry = {name, stack:[...this.stack]};
+    if(i>=0) all[i] = entry; else all.push(entry);
+    localStorage.setItem("lmgRockets", JSON.stringify(all));
+    this.lastRocketName = name;
+    alert("💾 »"+name+"« gespeichert! Wieder laden über 📂 Hangar.");
+  },
+  openHangar(){
+    this.renderHangar();
+    document.getElementById("hangarModal").style.display = "flex";
+  },
+  renderHangar(){
+    const list = document.getElementById("hangarList");
+    const all = this.savedRockets();
+    if(!all.length){
+      list.innerHTML = '<div style="color:var(--muted);padding:18px 4px;">Noch keine Raketen gespeichert. Bau eine in der Montagehalle und drücke 💾 Speichern!</div>';
+      return;
+    }
+    list.innerHTML = "";
+    all.forEach((r,i)=>{
+      const parts = r.stack.filter(id=>PARTS[id]);
+      const mass = parts.reduce((a,id)=>a+PARTS[id].mass+(PARTS[id].fuel||0),0);
+      const locked = Game.sandbox ? [] :
+        [...new Set(parts.filter(id=>!isUnlocked(PARTS[id].tech)).map(id=>PARTS[id].name))];
+      const div = document.createElement("div");
+      div.style.cssText = "display:flex;align-items:center;gap:10px;padding:9px 10px;margin:5px 0;"+
+        "background:rgba(255,255,255,.04);border:1px solid #2a3a64;border-radius:8px;";
+      div.innerHTML = `<div style="flex:1;min-width:0;"><b>🚀 ${r.name}</b><br>
+        <small style="color:var(--muted)">${parts.length} Teile · ${(mass/1000).toFixed(2)} t
+        ${locked.length?'<br><span style="color:var(--red)">🔒 Noch nicht erforscht: '+locked.join(", ")+'</span>':''}</small></div>`;
+      const load = document.createElement("button");
+      load.className = "btn orange"; load.textContent = "Laden";
+      if(locked.length){ load.disabled = true; load.style.opacity = .45; load.title = "Erst die fehlenden Teile erforschen!"; }
+      else load.onclick = ()=>this.loadRocket(i);
+      const del = document.createElement("button");
+      del.className = "btn"; del.textContent = "✕"; del.title = "Löschen";
+      del.onclick = ()=>{
+        if(!confirm("»"+r.name+"« wirklich löschen?")) return;
+        const a = this.savedRockets(); a.splice(i,1);
+        localStorage.setItem("lmgRockets", JSON.stringify(a));
+        this.renderHangar();
+      };
+      div.appendChild(load); div.appendChild(del);
+      list.appendChild(div);
+    });
+  },
+  loadRocket(i){
+    const r = this.savedRockets()[i];
+    if(!r) return;
+    this.stack = r.stack.filter(id=>PARTS[id]);   // Teile-IDs prüfen (alte Speicherstände)
+    this.lastRocketName = r.name;
+    document.getElementById("hangarModal").style.display = "none";
+    this.refresh();
+  },
   validate(){
     if(!this.stack.some(x=>["pod","probe"].includes(PARTS[x].type)))
       return "Deine Rakete braucht eine Kommandokapsel oder einen Sondenkern!";
@@ -2655,6 +2768,11 @@ const Flight = {
     if(this.v.segs.length>1){
       const dropped = this.v.segs.shift();
       this.v.stack.splice(this.v.stack.length-dropped.parts.length, dropped.parts.length);
+      // Hingen Seitenbooster an der abgeworfenen Stufe, fliegen sie mit weg –
+      // sonst schiebt ihr (unsichtbarer) Treibstoffpool ungedrosselt weiter!
+      const bo = this.v.boost;
+      if(bo && bo.attached && dropped.parts.some(id=>PARTS[id].type==="sideboost"))
+        bo.attached = false;
       this.rebuildRocket();
       // abgeworfene Stufe wird zu physischem Trümmerteil
       const debrisStack = [...dropped.parts].reverse();
@@ -2767,7 +2885,19 @@ const Flight = {
     }
     if(this.panelsBroken){ this.showMsg("Die Panele sind abgerissen… 😬",2); return; }
     this.panelsOut = !this.panelsOut;
+    // Stecken die Panele in einer geschlossenen Servicebucht? Bucht mit öffnen!
+    if(this.panelsOut && !this.bayOpen && this.solarInBay()){
+      this.bayOpen = true;
+      this.showMsg("📦 Servicebucht öffnet sich – ☀️ Solarpanele ausgefahren (+3 ⚡/s)",3);
+      return;
+    }
     this.showMsg(this.panelsOut ? "☀️ Solarpanele ausgefahren (+3 ⚡/s)" : "Solarpanele eingeklappt.",2);
+  },
+  /* steckt mindestens ein Solarpanel in einer Servicebucht? */
+  solarInBay(){
+    for(const list of bayCoverage(this.v.stack).values())
+      if(list.some(j=>PARTS[this.v.stack[j]].type==="solar")) return true;
+    return false;
   },
   toggleSAS(){
     const order = ["off","pro","retro"];
@@ -2891,7 +3021,7 @@ const Flight = {
       } else {
         mesh = new THREE.Group();
         mesh.add(buildPartMesh("probe"));
-        const pan = buildPartMesh("solar"); pan.position.y = -2; mesh.add(pan);
+        const pan = deployWings(buildPartMesh("solar")); pan.position.y = -2; mesh.add(pan);
       }
       this.world.add(mesh);
       this.assetObjs.push({d, mesh});
@@ -3069,7 +3199,7 @@ const Flight = {
     const up = this.pos.clone().normalize();
     const mesh = new THREE.Group();
     mesh.add(buildPartMesh("probe"));
-    const pan = buildPartMesh("solar"); pan.position.y=-2; mesh.add(pan);
+    const pan = deployWings(buildPartMesh("solar")); pan.position.y=-2; mesh.add(pan);
     this.world.add(mesh);
     this.sats.push({pos:this.pos.clone().addScaledVector(up,20), vel:this.vel.clone(), mesh});
     const o = this.orbit();
@@ -3162,8 +3292,9 @@ const Flight = {
   warpDown(){ this.warpI=Math.max(0,this.warpI-1); },
   canWarp(i){
     if(i<=1) return true;
-    if(leibnizAlt(this.pos, this.t) < LEIBNIZ.atmoH){
-      this.showMsg("Zeitraffer erst außerhalb der Atmosphäre!",2); return false;
+    // In der Atmosphäre (und auf der Rampe) maximal 50× – im Vakuum unbegrenzt
+    if(leibnizAlt(this.pos, this.t) < LEIBNIZ.atmoH && WARPS[i] > 50){
+      this.showMsg("In der Atmosphäre maximal 50× Zeitraffer!",2); return false;
     }
     return true;
   },
@@ -3311,6 +3442,11 @@ const Flight = {
     a.addScaledVector(dir, thrust/m);
     this.gLoad = thrust/(m*G0);
     const alt = leibnizAlt(this.pos, this.t);
+    // Beim (Wieder-)Eintritt in die Atmosphäre den Zeitraffer auf 50× drosseln
+    if(alt < LEIBNIZ.atmoH && WARPS[this.warpI] > 50){
+      this.warpI = WARPS.indexOf(50);
+      this.showMsg("⏩ Atmosphäre erreicht – Zeitraffer auf 50× begrenzt!",3);
+    }
     if(alt < LEIBNIZ.atmoH){
       const rho = LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH);
       // Luftgeschwindigkeit = relativ zum Planeten (Leibniz bewegt sich um die Sonne!)
@@ -3330,7 +3466,9 @@ const Flight = {
         a.addScaledVector(airVel, -kDrag);
         this.gLoad = (thrust/m + fd/m)/G0;
         // Ausgefahrene Solarpanele reißen im Fahrtwind ab
-        if(this.panelsOut && !this.panelsBroken && rho*v*v > 12000){
+        // (in einer GESCHLOSSENEN Servicebucht sind sie geschützt)
+        if(this.panelsOut && !this.panelsBroken && rho*v*v > 12000 &&
+           !(!this.bayOpen && this.solarInBay())){
           this.panelsBroken = true; this.panelsOut = false;
           this.showMsg("💥 Solarpanele im Fahrtwind abgerissen! (Erst im Vakuum ausfahren!)",4);
         }
