@@ -144,6 +144,7 @@ input[type=file]{display:none;}
       <button class="btn" id="vabMisBtn" onclick="UI.show('missions')">📋 Missionen</button>
       <button class="btn" onclick="VAB.saveRocket()">💾 Speichern</button>
       <button class="btn" onclick="VAB.openHangar()">📂 Hangar</button>
+      <button class="btn" id="musicBtnVab" onclick="toggleMusic()">🔊 Musik</button>
       <button class="btn" onclick="UI.show('menu')">☰ Menü</button>
       <button class="btn orange" onclick="UI.launch()">🚀 START</button>
     </div>
@@ -303,6 +304,24 @@ input[type=file]{display:none;}
     <div id="hangarList" style="max-height:320px;overflow-y:auto;"></div>
     <div style="display:flex;gap:10px;margin-top:18px;">
       <button class="btn" style="flex:1" onclick="document.getElementById('hangarModal').style.display='none'">Schließen</button>
+    </div>
+  </div>
+</div>
+
+<!-- KARRIERE-INTRO: Begrüßung vom Bodenteam -->
+<div id="introModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:70;
+  align-items:center;justify-content:center;">
+  <div style="background:var(--panel);border:2px solid var(--orange);border-radius:14px;
+    max-width:620px;width:92%;margin:20px;padding:22px;display:flex;gap:18px;align-items:flex-start;">
+    <div style="font-size:64px;line-height:1;filter:drop-shadow(0 4px 6px rgba(0,0,0,.5));" id="introFace">🧑‍🚀</div>
+    <div style="flex:1;min-width:0;">
+      <h2 id="introTitle" style="color:var(--orange);margin-bottom:2px;"></h2>
+      <div id="introStep" style="color:var(--muted);font-size:12px;margin-bottom:10px;"></div>
+      <div id="introText" style="font-size:15px;line-height:1.55;min-height:130px;"></div>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button class="btn" id="introSkip" onclick="introFinish()">Überspringen</button>
+        <button class="btn orange" id="introNext" style="flex:1" onclick="introNav()">Weiter →</button>
+      </div>
     </div>
   </div>
 </div>
@@ -470,7 +489,10 @@ const PARTS = {
   probeS: {name:"Sondenbus »Teller«",         type:"probe",  cat:"cmd", mass:120,  w:9,h:3,   tech:"payload", charge:120,
             info:"Flache, runde Mini-Steuereinheit für Satellitenstarts: Satellit obendrauf bauen, im Zielorbit mit [N] abstoßen – wie in echt! Braucht Strom (0,25 ⚡/s)."},
   pod:    {name:"Kommandokapsel »Leibniz I«", type:"pod",    cat:"cmd", mass:800,  w:10,h:14, tech:"crewed", charge:150, info:"Sitz für eine mutige Pilotin / einen mutigen Piloten. Interne Batterie: 150 ⚡."},
-  chute:  {name:"Fallschirm Mk1",            type:"chute",  cat:"cmd", mass:100,  w:10,h:5,  tech:"start", info:"Für die sichere Landung. Mit [P] auslösen."},
+  chute:  {name:"Fallschirm Mk1",            type:"chute",  cat:"cmd", mass:100,  w:10,h:5,  tech:"start", chuteA:500,
+           info:"Für die sichere Landung leichter Kapseln – bremst bis ca. 2 t sicher. Mit [P] auslösen."},
+  chute3: {name:"Fallschirm Mk2 (Dreifach)", type:"chute",  cat:"cmd", mass:260,  w:10,h:5,  tech:"crewed", chuteA:2000,
+           info:"Drei Kappen wie bei der Dragon-Kapsel: bremst auch schwere Schiffe bis ca. 8 t. Mit [P] auslösen."},
   lab:    {name:"Materiallabor »Curie«",     type:"lab",    cat:"cmd", mass:180,  w:10,h:7,  tech:"surv",
            info:"Führt Experimente durch [B] – jeder neue Ort bringt einmalig Wissenschaft!"},
   shield: {name:"Hitzeschild",               type:"shield", cat:"cmd", mass:200,  w:11,h:3,  tech:"surv",
@@ -519,6 +541,19 @@ const PARTS = {
    und belegen KEINE eigene Höhe im Stack – wie in echt. */
 function isRadial(id){ const t = PARTS[id] && PARTS[id].type; return t==="fin" || t==="sideboost"; }
 function stackHeight(stack){ return stack.reduce((a,id)=>a+(isRadial(id)?0:PARTS[id].h),0); }
+/* ---------- Preise (Karriere): jedes Bauteil kostet 🪙 ----------
+   Balancing: Startbudget 2500 · erste Rakete ~700 · Missionen zahlen 150+10×🧪.
+   Gelandete Raketen werden voll erstattet – nur Verbrauchtes/Verlorenes kostet. */
+const PART_COSTS = {
+  probePod:350, probeS:250, pod:700, chute:60, chute3:220, lab:380, shield:140,
+  tankS:100, engS:220, tankM:180, engVac:420, engNuc:1400, engIon:900, tankXL:700,
+  decoupler:40, legs:90, rcs:130, srb:150, fin:25, tankL:350, engMain:650, srbL:300,
+  sb2:260, sb4:500, probe:180, solar:70, battery:50, bay:80, bayS:50, antenna:60,
+  satW:320, satR:420, satS:550, fairing:80, tankXS:70, engT:120, dock:100
+};
+for(const [id,c] of Object.entries(PART_COSTS)) if(PARTS[id]) PARTS[id].cost = c;
+function stackCost(stack){ return stack.reduce((a,id)=>a+(PARTS[id].cost||0),0); }
+function missionCash(m){ return 150 + m.sci*10; }
 
 /* ---------- Raumstation »Große Pause« (ISS – Internationale Schul-Station) ----------
    Fliegt "on rails" in einem exakten 100-km-Kreisorbit um Leibniz – in Karriere,
@@ -627,7 +662,9 @@ const TECH = [
   {id:"heavy",     name:"Schwerlast-Raketen",     cost:60,  req:["advProp"],            desc:"Große Tanks, großes Triebwerk – große Ziele."},
   {id:"heavyPlus", name:"Schwerlast II",          cost:80,  req:["heavy"],              desc:"Der monströse »Donner«-Booster."},
   {id:"explore",   name:"Erkundung",              cost:90,  req:["surv","advProp"],     desc:"Landebeine für fremde Welten."},
-  {id:"future",    name:"Zukunftstechnik",        cost:140, req:["heavy","payload"],    desc:"Atomantrieb – interplanetare Reisen werden komfortabel."}
+  {id:"future",    name:"Zukunftstechnik",        cost:140, req:["heavy","payload"],    desc:"Atomantrieb – interplanetare Reisen werden komfortabel."},
+  {id:"mission2",  name:"Missionsplanung",        cost:20,  req:["struct"],             desc:"Das Bodenteam wächst: Nimm ZWEI Missionen gleichzeitig an."},
+  {id:"mission3",  name:"Missionszentrale",       cost:75,  req:["mission2","payload"], desc:"Profi-Planung mit großem Kontrollraum: DREI Missionen gleichzeitig."}
 ];
 /* Missionen wie KSP-Verträge: erst ANNEHMEN, dann im Flug erfüllen.
    req = welche Missionen vorher erledigt sein müssen (steigender Schwierigkeitsgrad). */
@@ -700,23 +737,44 @@ const MISSIONS = [
 function missionAvailable(m){
   return !Game.done.includes(m.id) && m.req.every(id=>Game.done.includes(id));
 }
-function acceptMission(id){
-  Game.activeMission = id; autoSave(); renderMissions();
+/* Wie viele Missionen gleichzeitig? Forschung »Missionsplanung«/»Missionszentrale« erhöht */
+function maxMissions(){
+  return 1 + (Game.unlocked.includes("mission2")?1:0) + (Game.unlocked.includes("mission3")?1:0);
 }
-function cancelMission(){
-  Game.activeMission = null; autoSave(); renderMissions();
+function acceptMission(id){
+  Game.activeMissions = Game.activeMissions||[];
+  if(Game.activeMissions.includes(id)) return;
+  if(Game.activeMissions.length >= maxMissions()){
+    alert("Alle Vertragsplätze belegt ("+maxMissions()+")! Erst eine Mission erfüllen oder abbrechen.\nTipp: Die Forschung »Missionsplanung« erlaubt mehrere Missionen gleichzeitig.");
+    return;
+  }
+  Game.activeMissions.push(id); autoSave(); renderMissions();
+}
+function cancelMission(id){
+  Game.activeMissions = (Game.activeMissions||[]).filter(x=>x!==id);
+  autoSave(); renderMissions();
 }
 
 /* ---------- Spielstand ---------- */
 let Game = newGame();
 function newGame(){
-  return {science:0, unlocked:["start"], done:[], labDone:[], tutsDone:[], sandbox:false,
-    activeMission:null, design:[],   // Hangar startet leer – selbst bauen!
+  return {science:0, funds:2500, unlocked:["start"], done:[], labDone:[], tutsDone:[], sandbox:false,
+    activeMissions:[], design:[],    // Hangar startet leer – selbst bauen!
+    introSeen:false,                 // Karriere-Begrüßung vom Bodenteam
     stationMods:[],                  // ausgebaute Module der »Großen Pause«
     roster:newRoster(),              // Astronaut*innen-Kader mit XP
     relays:0,                        // Relais-Satelliten fürs Funknetz
     anomaliesFound:[],               // entdeckte Anomalien
     assets:[]};                      // zurückgelassene Sats/Wracks im Orbit
+}
+/* Alte Spielstände auf neue Felder heben (Geld, Mehrfach-Missionen) */
+function migrateGame(){
+  if(typeof Game.funds !== "number") Game.funds = 2500;
+  if(!Array.isArray(Game.activeMissions))
+    Game.activeMissions = Game.activeMission ? [Game.activeMission] : [];
+  delete Game.activeMission;
+  // Wer schon Missionen erledigt hat, kennt die Karriere bereits
+  if(Game.introSeen===undefined) Game.introSeen = Game.done.length>0;
 }
 /* Auto-Save: Fortschritt überlebt das Schließen des Browsers.
    (Der JSON-Download bleibt für Backups & Rechnerwechsel.) */
@@ -727,6 +785,7 @@ try{
   const d = JSON.parse(localStorage.getItem("lmgAutoSave"));
   if(d && Array.isArray(d.unlocked)) Game = Object.assign(newGame(), d);
 }catch(e){}
+migrateGame();
 function resetProgress(){
   if(!confirm("Wirklich den GESAMTEN Fortschritt löschen? (Wissenschaft, Forschung, Missionen, Tutorials)")) return;
   localStorage.removeItem("lmgAutoSave");
@@ -759,14 +818,30 @@ const UI = {
     const target = (!this.prev || this.prev==="flight" || (cur && this.prev===cur.id)) ? "menu" : this.prev;
     this.show(target);
   },
-  startCareer(){ Game.sandbox=false; this.inGame=true; VAB.stack=[]; this.show("vab"); showHint("career"); },
+  startCareer(){
+    Game.sandbox=false; this.inGame=true; VAB.stack=[]; this.show("vab");
+    if(!Game.introSeen) showIntro();   // Erster Karrierestart: Lotte erklärt alles
+    else showHint("career");
+  },
   startSandbox(){ Game.sandbox=true; this.inGame=true; VAB.stack=[]; this.show("vab"); showHint("sandbox"); },
   launch(){
     const v = VAB.validate();
     if(v){ alert(v); return; }
+    // Karriere: die Rakete muss bezahlt werden – Bergung nach Landung erstattet sie
+    let cost = 0;
+    if(!Game.sandbox){
+      cost = stackCost(VAB.stack);
+      if(cost > Game.funds){
+        alert("💸 Zu teuer! Diese Rakete kostet 🪙 "+cost+", in der Kasse sind nur 🪙 "+Game.funds+".\n\n"+
+          "Tipps: Missionen erfüllen bringt Geld – und sicher auf Leibniz gelandete Raketen werden voll erstattet!");
+        return;
+      }
+      Game.funds -= cost;
+    }
     Game.design = [...VAB.stack];
     autoSave();
     Flight.start(VAB.buildVessel());
+    Flight.launchCost = cost;
     this.show("flight");
     showHint("flight3d");
   },
@@ -785,6 +860,7 @@ const UI = {
         const d = JSON.parse(t);
         if(!Array.isArray(d.unlocked)) throw 0;
         Game = Object.assign(newGame(), d);
+        migrateGame();
         VAB.stack = [...Game.design];
         alert("Spielstand geladen! 🛰️ Wissenschaft: "+Game.science);
       }catch(e){ alert("Datei konnte nicht gelesen werden."); }
@@ -792,8 +868,71 @@ const UI = {
     });
   }
 };
-function sciBadge(){ return Game.sandbox ? "Sandbox-Modus" : "🧪 "+Game.science+" Wissenschaft"; }
+function sciBadge(){ return Game.sandbox ? "Sandbox-Modus" : "🧪 "+Game.science+" · 🪙 "+Game.funds; }
 function isUnlocked(tech){ return Game.sandbox || Game.unlocked.includes(tech); }
+
+/* ---------- Karriere-Intro: Flugleiterin Lotte erklärt den Karrieremodus ---------- */
+const INTRO_PAGES = [
+  {face:"👩‍🚀", title:"Willkommen im LMG-Raumfahrtprogramm!", text:
+    `Na endlich, die neue Raumfahrt-Direktion ist da – <b>DU</b>! 🎉<br><br>
+     Ich bin <b>Flugleiterin Lotte</b> vom Bodenteam. Ich kümmere mich um Funk, Kaffee
+     und dass hier nichts Wichtiges explodiert (nun ja … <i>selten</i>).<br><br>
+     Bevor du deine erste Rakete zusammenschraubst, zeige ich dir kurz, wie unser
+     Raumfahrtprogramm funktioniert. Versprochen, es lohnt sich!`},
+  {face:"🪙", title:"Das liebe Geld", text:
+    `Raketen wachsen leider nicht auf Bäumen: <b>Jedes Bauteil kostet 🪙</b>.
+     Dein Startbudget: <b>🪙 2500</b>.<br><br>
+     Die gute Nachricht: Landet deine Rakete <b>sicher auf Leibniz</b>, bergen wir sie
+     und du bekommst den <b>vollen Restwert zurück</b>! 💰<br><br>
+     Die schlechte: Was <b>crasht</b> 💥 oder <b>im All zurückbleibt</b> 🛰, ist futsch.
+     Abgeworfene Stufen übrigens auch – baue also schlau!`},
+  {face:"📋", title:"Missionen & Wissenschaft", text:
+    `Unter <b>📋 Missionen</b> warten Verträge: erst <b>annehmen</b>, dann im Flug
+     erfüllen – das bringt <b>Wissenschaft 🧪 UND Geld 🪙</b>.<br><br>
+     Extra-🧪 gibt's mit dem <b>Materiallabor</b> [B] an jedem neuen Ort und für
+     versteckte <b>Anomalien</b> auf den Planeten.<br><br>
+     Mit 🧪 schaltest du unter <b>🔬 Forschung</b> neue Bauteile frei – vom
+     Feststoffbooster bis zum Atomantrieb. Und die Forschung <b>»Missionsplanung«</b>
+     erlaubt dir sogar mehrere Missionen gleichzeitig!`},
+  {face:"🛰", title:"Die großen Projekte", text:
+    `Für Profis gibt es Langzeit-Projekte:<br><br>
+     🛰 Die Raumstation <b>»Große Pause«</b> im 100-km-Orbit will Stück für Stück
+     <b>ausgebaut</b> werden (andocken [L], Modul einbauen [I]).<br>
+     🧑‍🚀 Dein <b>Astronaut*innen-Kader</b> sammelt Erfahrung und wird immer besser –
+     aber lass niemanden im All zurück, sonst braucht es eine <b>Rettungsmission</b>!<br>
+     📡 Ein <b>Funknetz</b> aus Relais-Satelliten, damit deine Sonden auch weit
+     draußen noch auf dich hören.`},
+  {face:"🌌", title:"Deine Ziele", text:
+    `Und wohin geht die Reise? Ganz einfach – zu ALLEM: 😄<br><br>
+     🏆 <b>Alle Missionen</b> erfüllen – vom 5-km-Hüpfer bis zur <b>Newton-Landung</b>
+     am Rand des Systems.<br>
+     🏗 Die »Große Pause« <b>komplett ausbauen</b> (5 Module).<br>
+     🗺 Alle <b>8 Anomalien</b> aufspüren.<br>
+     ⭐ Deine Crew zu <b>LEGENDEN</b> machen.<br><br>
+     Fang klein an: Rakete bauen, [Leertaste], staunen. Wir vom Bodenteam drücken
+     die Daumen. <b>Gut Flug, Direktor*in!</b> 🚀`}
+];
+let introIdx = 0;
+function showIntro(){
+  introIdx = 0; introRender();
+  document.getElementById("introModal").style.display = "flex";
+}
+function introRender(){
+  const p = INTRO_PAGES[introIdx];
+  document.getElementById("introFace").textContent = p.face;
+  document.getElementById("introTitle").innerHTML = p.title;
+  document.getElementById("introStep").textContent = "Flugleiterin Lotte · Bodenteam – Seite "+(introIdx+1)+" / "+INTRO_PAGES.length;
+  document.getElementById("introText").innerHTML = p.text;
+  document.getElementById("introNext").textContent = introIdx < INTRO_PAGES.length-1 ? "Weiter →" : "An die Arbeit! 🚀";
+}
+function introNav(){
+  if(introIdx < INTRO_PAGES.length-1){ introIdx++; introRender(); }
+  else introFinish();
+}
+function introFinish(){
+  document.getElementById("introModal").style.display = "none";
+  Game.introSeen = true; autoSave();
+}
 
 /* ---------- Hinweise ---------- */
 const HINTS = {
@@ -1064,20 +1203,13 @@ function renderTech(){
     });
     col.forEach((t,ri)=>row[t.id]=ri);
   });
-  const CW=255, CH=225, NW=215;
-  const W = cols.length*CW+20, H = Math.max(...cols.map(c=>c.length))*CH+20;
+  const CW=255, NW=215, GAP=26;
+  const W = cols.length*CW+20;
   document.getElementById("tech").style.overflowX = "auto";
-  grid.style.cssText = `position:relative;width:${W}px;height:${H}px;max-width:none;flex:none;align-self:flex-start;margin:0 auto;`;
-  // Verbindungslinien (Äste)
-  grid.innerHTML = `<svg width="${W}" height="${H}" style="position:absolute;left:0;top:0;pointer-events:none;">`+
-    TECH.flatMap(t=>t.req.map(rid=>{
-      const x1=depth[rid]*CW+10+NW, y1=row[rid]*CH+55;
-      const x2=depth[t.id]*CW+10,  y2=row[t.id]*CH+55;
-      const ok = isUnlocked(rid) && isUnlocked(t.id);
-      const half = isUnlocked(rid) && !isUnlocked(t.id);
-      return `<path d="M${x1},${y1} C${x1+45},${y1} ${x2-45},${y2} ${x2},${y2}"
-        fill="none" stroke="${ok?"#4caf50":half?"#f7941d":"#2a3a64"}" stroke-width="2.5"/>`;
-    })).join("")+`</svg>`;
+  grid.style.cssText = `position:relative;width:${W}px;height:400px;max-width:none;flex:none;align-self:flex-start;margin:0 auto;`;
+  grid.innerHTML = "";
+  // Pass 1: Karten bauen (Höhen sind unterschiedlich – je nach Teile-Liste!)
+  const divs = {};
   for(const t of TECH){
     const parts = Object.values(PARTS).filter(p=>p.tech===t.id).map(p=>"<li>"+p.name+"</li>").join("");
     const un = isUnlocked(t.id);
@@ -1085,7 +1217,7 @@ function renderTech(){
     const can = !un && reqOk && Game.science>=t.cost;
     const div = document.createElement("div");
     div.className = "tech-node"+(un?" unlocked":"");
-    div.style.cssText = `position:absolute;left:${depth[t.id]*CW+10}px;top:${row[t.id]*CH+10}px;width:${NW}px;padding:10px;`;
+    div.style.cssText = `position:absolute;left:${depth[t.id]*CW+10}px;top:0;width:${NW}px;padding:10px;`;
     if(!un && !reqOk) div.style.opacity = ".5";
     div.innerHTML = `<h3 style="font-size:14px">${un?"✅ ":!reqOk?"🔒 ":""}${t.name}</h3>
       <p style="font-size:11px;color:var(--muted)">${t.desc}</p>
@@ -1094,7 +1226,36 @@ function renderTech(){
           : `<button class="btn orange" style="padding:5px 10px;font-size:12px" ${can?"":"disabled"}
               onclick="unlockTech('${t.id}')">Erforschen (🧪 ${t.cost})</button>`);
     grid.appendChild(div);
+    divs[t.id] = div;
   }
+  // Pass 2: Spaltenweise stapeln – Wunschhöhe nahe den Eltern, aber NIE überlappend
+  const top = {};
+  let H = 0;
+  cols.forEach(col=>{
+    let yMin = 10;
+    for(const t of col){
+      const hEl = divs[t.id].offsetHeight || 150 + 16*(divs[t.id].querySelectorAll("li").length);
+      const want = t.req.length
+        ? t.req.reduce((s,id)=>s+(top[id]||10),0)/t.req.length : 10;
+      const y = Math.max(yMin, want);
+      top[t.id] = y;
+      divs[t.id].style.top = y+"px";
+      yMin = y + hEl + GAP;
+      H = Math.max(H, y + hEl + 20);
+    }
+  });
+  grid.style.height = H+"px";
+  // Verbindungslinien (Äste) – Ankerpunkte aus den echten Kartenpositionen
+  grid.insertAdjacentHTML("afterbegin",
+    `<svg width="${W}" height="${H}" style="position:absolute;left:0;top:0;pointer-events:none;">`+
+    TECH.flatMap(t=>t.req.map(rid=>{
+      const x1=depth[rid]*CW+10+NW, y1=(top[rid]||10)+42;
+      const x2=depth[t.id]*CW+10,  y2=(top[t.id]||10)+42;
+      const ok = isUnlocked(rid) && isUnlocked(t.id);
+      const half = isUnlocked(rid) && !isUnlocked(t.id);
+      return `<path d="M${x1},${y1} C${x1+45},${y1} ${x2-45},${y2} ${x2},${y2}"
+        fill="none" stroke="${ok?"#4caf50":half?"#f7941d":"#2a3a64"}" stroke-width="2.5"/>`;
+    })).join("")+`</svg>`);
 }
 function unlockTech(id){
   const t = TECH.find(x=>x.id===id);
@@ -1105,9 +1266,10 @@ function unlockTech(id){
 function renderMissions(){
   document.getElementById("misSci").textContent = sciBadge();
   const list = document.getElementById("missionList"); list.innerHTML = "";
+  const act = Game.activeMissions||[];
   const sections = [
-    ["🎯 Aktive Mission", m=>Game.activeMission===m.id && !Game.done.includes(m.id)],
-    ["📋 Verfügbar – wähle eine Mission!", m=>missionAvailable(m) && Game.activeMission!==m.id],
+    [`🎯 Aktive Missionen (${act.length}/${maxMissions()})`, m=>act.includes(m.id) && !Game.done.includes(m.id)],
+    ["📋 Verfügbar – wähle eine Mission!", m=>missionAvailable(m) && !act.includes(m.id)],
     ["✅ Erledigt", m=>Game.done.includes(m.id)],
     ["🔒 Noch gesperrt", m=>!Game.done.includes(m.id) && !missionAvailable(m)]
   ];
@@ -1120,8 +1282,9 @@ function renderMissions(){
     list.appendChild(h);
     for(const m of ms){
       const done = Game.done.includes(m.id);
-      const active = Game.activeMission===m.id && !done;
+      const active = act.includes(m.id) && !done;
       const locked = !done && !missionAvailable(m);
+      const full = !active && act.length >= maxMissions();
       const div = document.createElement("div");
       div.className = "mission-card"+(done?" done":"");
       if(active) div.style.borderColor = "var(--orange)";
@@ -1129,13 +1292,15 @@ function renderMissions(){
       const reqNames = m.req.map(id=>MISSIONS.find(x=>x.id===id).name).join(", ");
       div.innerHTML = `<span class="check">${done?"✅":active?"🎯":locked?"🔒":"⬜"}</span>
         <div><h3>${m.name}</h3><p>${locked ? "Vorher erledigen: "+reqNames : m.desc}</p></div>
-        <span class="sci">🧪 ${m.sci}</span>`;
+        <span class="sci">🧪 ${m.sci}<br>🪙 ${missionCash(m)}</span>`;
       if(!done && !locked){
         const btn = document.createElement("button");
         btn.className = "btn"+(active?"":" orange");
         btn.style.cssText = "padding:6px 12px;font-size:13px;white-space:nowrap;";
-        btn.textContent = active ? "Abbrechen" : "Annehmen";
-        btn.onclick = active ? cancelMission : ()=>acceptMission(m.id);
+        btn.textContent = active ? "Abbrechen" : full ? "Plätze voll" : "Annehmen";
+        if(full && !active){ btn.disabled = true; btn.style.opacity = ".5";
+          btn.title = "Forschung »Missionsplanung« erlaubt mehr gleichzeitige Missionen!"; }
+        btn.onclick = active ? ()=>cancelMission(m.id) : ()=>acceptMission(m.id);
         div.appendChild(btn);
       }
       list.appendChild(div);
@@ -1508,9 +1673,24 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       win.position.set(0,h*0.45,r*0.62); g.add(win);
       break;}
     case "chute":{
-      // KSP-Style: dunkler Basisring + weiß gerundete Kuppel mit Glas-Top –
+      // KSP-Style: dunkler Basisring + weiß gerundete Kuppel(n) –
       // schmal gehalten, damit er bündig auf der Kapselspitze sitzt
       add(cylinder(r*0.36, r*0.44, h*0.32, MAT.dark), h*0.16);
+      if(id==="chute3"){
+        // Mk2: drei Kapseln im Dreieck (wie Dragon)
+        for(let k=0;k<3;k++){
+          const a = k*2*Math.PI/3;
+          const dome = new THREE.Mesh(
+            new THREE.SphereGeometry(r*0.22, 14, 8, 0, Math.PI*2, 0, Math.PI/2), MAT.white);
+          dome.scale.y = 1.6;
+          dome.position.set(Math.cos(a)*r*0.2, h*0.3, Math.sin(a)*r*0.2);
+          g.add(dome);
+          const dot = new THREE.Mesh(new THREE.SphereGeometry(r*0.07, 8, 6), MAT.red);
+          dot.position.set(Math.cos(a)*r*0.2, h*0.3 + r*0.32, Math.sin(a)*r*0.2);
+          g.add(dot);
+        }
+        break;
+      }
       const dome = new THREE.Mesh(
         new THREE.SphereGeometry(r*0.36, 18, 10, 0, Math.PI*2, 0, Math.PI/2), MAT.white);
       dome.scale.y = 1.5; dome.position.y = h*0.3; g.add(dome);
@@ -2187,6 +2367,7 @@ const VAB = {
         let det = p.mass/1000+" t";
         if(p.fuel) det += " · "+p.fuel/1000+" t Treibstoff";
         if(p.thrust) det += " · "+p.thrust/1000+" kN";
+        if(!Game.sandbox && p.cost) det += " · 🪙 "+p.cost;
         b.innerHTML = `<b>${p.name}</b><small>${det}</small><small>${p.info}</small>`;
         if(un){
           b.onclick = ()=>this.add(id);
@@ -2339,8 +2520,10 @@ const VAB = {
     const bMass = bParts.reduce((a,id)=>a+PARTS[id].mass+PARTS[id].fuel,0);
     const bThrust = bParts.reduce((a,id)=>a+PARTS[id].thrust,0);
     total += bMass;
+    const cost = stackCost(this.stack);
     let html = `<h3>Rakete</h3>
       <div class="stat"><span>Gesamtmasse</span><span>${(total/1000).toFixed(2)} t</span></div>
+      ${Game.sandbox?"":`<div class="stat"><span>Kosten</span><span style="${cost>Game.funds?"color:var(--red);font-weight:700":""}">🪙 ${cost}${cost>Game.funds?" – zu teuer!":""}</span></div>`}
       <div class="stat"><span>Teile</span><span>${this.stack.length}</span></div>
       <div class="stat"><span>Stufen</span><span>${segs.length}</span></div>
       <h3>Stufen (von unten)</h3>`;
@@ -3447,7 +3630,22 @@ const Flight = {
   attachChute(){
     if(!this.chuteOpen || !this.rocketGroup) return;
     if(this.rocketGroup.getObjectByName("chuteVis")) return;
-    const chute = buildChuteMesh();
+    let chute;
+    if(this.v.stack.includes("chute3")){
+      // Mk2: drei Kappen fächern schräg nach außen (wie Dragon-Landung)
+      chute = new THREE.Group();
+      chute.name = "chuteVis";
+      for(let k=0;k<3;k++){
+        const a = k*2*Math.PI/3;
+        const c = buildChuteMesh();
+        c.name = "";                       // nur die Gruppe heißt chuteVis
+        c.scale.set(0.72, 0.72, 0.72);
+        c.rotation.z = Math.cos(a)*0.42;
+        c.rotation.x = -Math.sin(a)*0.42;
+        c.position.set(Math.cos(a)*2.2, 0, Math.sin(a)*2.2);
+        chute.add(c);
+      }
+    } else chute = buildChuteMesh();
     chute.position.y = this.rocketGroup.userData.height;  // an der Spitze
     chute.scale.set(0.05, 0.05, 0.05);
     this.rocketGroup.add(chute);
@@ -3667,7 +3865,9 @@ const Flight = {
         if(this.v.fairingIntact) cdA *= 0.5;
         const nBay = this.v.stack.filter(id=>PARTS[id].type==="bay").length;
         if(nBay) cdA *= Math.pow(0.92, Math.min(2,nBay));
-        if(this.chuteOpen && alt<30000) cdA += 850;
+        // Bremskraft je nach Schirm: Mk1 reicht bis ~2 t, Mk2 (Dreifach) bis ~8 t
+        if(this.chuteOpen && alt<30000)
+          cdA += this.v.stack.reduce((a,id)=>a+(PARTS[id].chuteA||0),0);
         const fd = 0.5*rho*v*v*cdA;
         // numerisch stabil: Bremsimpuls pro Schritt darf die Geschwindigkeit
         // höchstens halbieren (sonst explodiert die Integration bei großem dt)
@@ -3910,15 +4110,19 @@ const Flight = {
       anomalies:(Game.anomaliesFound||[]).length,
       rescueLanded:!!this.rescueLanded,
       labAny:Game.labDone.length>0};
-    // Nur die AKTIVE (angenommene) Mission kann erfüllt werden – wie KSP-Verträge
-    const am = MISSIONS.find(m=>m.id===Game.activeMission);
-    if(am && !Game.done.includes(am.id) && am.check(state)){
+    // Nur AKTIVE (angenommene) Missionen können erfüllt werden – wie KSP-Verträge.
+    // Mit »Missionsplanung« laufen bis zu 3 Verträge parallel.
+    for(const id of [...(Game.activeMissions||[])]){
+      const am = MISSIONS.find(m=>m.id===id);
+      if(!am || Game.done.includes(am.id) || !am.check(state)) continue;
       Game.done.push(am.id);
       Game.science += am.sci;
-      Game.activeMission = null;
+      const cash = missionCash(am);
+      Game.funds += cash;
+      Game.activeMissions.splice(Game.activeMissions.indexOf(id),1);
       autoSave();
       const t = document.getElementById("milestoneToast");
-      t.innerHTML = "🏆 Mission erfüllt: "+am.name+" &nbsp;+"+am.sci+" 🧪";
+      t.innerHTML = "🏆 Mission erfüllt: "+am.name+" &nbsp;+"+am.sci+" 🧪 · +"+cash+" 🪙";
       t.style.display="block";
       clearTimeout(this._toastT);
       this._toastT = setTimeout(()=>t.style.display="none", 5000);
@@ -3935,6 +4139,13 @@ const Flight = {
   settleCrewAndAssets(){
     if(Game.sandbox || !this.flew) return;
     const inSpace = !this.landed && !this.crashed;
+    // Geld: sicher auf Leibniz gelandet = Rakete wird geborgen (voller Restwert).
+    // Crash oder im All zurückgelassen = Totalverlust.
+    this.statRefund = 0;
+    if(!this.crashed && this.landed && this.landedBody===LEIBNIZ){
+      this.statRefund = stackCost(this.v.stack);
+      Game.funds += this.statRefund;
+    }
     const missionsDone = Game.done.length - this.statMissions;
     // Crew-Erfahrung: fliegen, Orbit, Docking, fremde Welten, heil zurück
     for(const a of (this.crewObjs||[])){
@@ -3980,7 +4191,10 @@ const Flight = {
         <span>Höchstgeschwindigkeit</span><b>${this.statMaxSpeed.toFixed(0)} m/s</b>
         <span>Satelliten ausgesetzt</span><b>${this.sats.length}</b>
         ${Game.sandbox?"":`<span>Wissenschaft verdient</span><b style="color:var(--orange)">+${sci} 🧪</b>
-        <span>Neue Missionen</span><b style="color:var(--green)">${missions} 🏆</b>`}
+        <span>Neue Missionen</span><b style="color:var(--green)">${missions} 🏆</b>
+        <span>Startkosten</span><b style="color:var(--red)">−${this.launchCost||0} 🪙</b>
+        <span>Bergung (Landung auf Leibniz)</span><b style="color:var(--green)">+${this.statRefund||0} 🪙</b>
+        <span>Kontostand</span><b>🪙 ${Game.funds}</b>`}
       </div>`;
     const lbl = document.getElementById("modalNoShowLabel");
     if(lbl) lbl.style.display = "none";
@@ -4600,9 +4814,9 @@ const Flight = {
         return '<br><b style="color:var(--red)">🆘 '+best.d.crew.join(", ")+': '+
           (bd>=10000?(bd/1000).toFixed(1)+" km":bd.toFixed(0)+" m")+'</b>'; })()}
       ${this.eva?'<br><b style="color:var(--green)">🧑‍🚀 EVA · Abstand: '+this.eva.pos.distanceTo(this.pos).toFixed(0)+' m</b>':""}
-      ${Game.sandbox?"":"<br>🧪 "+Game.science}
-      ${!Game.sandbox && Game.activeMission ? '<br><b style="color:var(--orange)">🎯 '+
-        (MISSIONS.find(m=>m.id===Game.activeMission)||{}).name+"</b>" :
+      ${Game.sandbox?"":"<br>🧪 "+Game.science+" · 🪙 "+Game.funds}
+      ${!Game.sandbox && (Game.activeMissions||[]).length ? '<br><b style="color:var(--orange)">🎯 '+
+        Game.activeMissions.map(id=>(MISSIONS.find(m=>m.id===id)||{}).name).join("<br>🎯 ")+"</b>" :
         (!Game.sandbox && !Tut.active ? '<br><small style="color:var(--muted)">Keine Mission angenommen</small>' : "")}`;
     document.getElementById("throttleFill").style.height=(this.throttle*100)+"%";
     document.getElementById("fuelFill").style.height=((s&&(s.fuel+s.srbFuel))?fuelPct:0)+"%";
@@ -4649,8 +4863,10 @@ function setTrack(name){
   music.play().catch(()=>{});
 }
 function updateMusic(){
-  const btn = document.getElementById("musicBtn");
-  btn.textContent = musicOn ? "🔊 Musik" : "🔇 Musik";
+  for(const bid of ["musicBtn","musicBtnVab"]){
+    const b = document.getElementById(bid);
+    if(b) b.textContent = musicOn ? "🔊 Musik" : "🔇 Musik";
+  }
   let want = null;
   if(!document.getElementById("loader")){
     const act = document.querySelector(".screen.active");
