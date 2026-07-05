@@ -199,12 +199,23 @@ input[type=file]{display:none;}
     padding:5px 10px;font-size:11px;z-index:5;opacity:.85;" onclick="Flight.toggleControlsBar()">⌨ [H]</button>
   <div id="gauges">
     <div class="gauge"><div class="bar"><div id="throttleFill" class="fill"></div></div><label>Schub</label></div>
-    <div class="gauge"><div class="bar"><div id="fuelFill" class="fill"></div></div><label>Tank</label></div>
+    <div class="gauge"><div class="bar"><div id="fuelFill" class="fill"></div>
+      <div id="fuelMark" style="display:none;position:absolute;left:0;right:0;bottom:12%;height:2px;z-index:2;
+        background:var(--orange);box-shadow:0 0 5px var(--orange);pointer-events:none;"></div>
+    </div><label>Tank</label></div>
     <div class="gauge" id="boostGauge" style="display:none"><div class="bar"><div id="boostFill" class="fill" style="background:linear-gradient(180deg,#f7941d,#a85f10);"></div></div><label>Booster</label></div>
     <div class="gauge"><div class="bar"><div id="powerFill" class="fill" style="background:linear-gradient(180deg,#e8c540,#a8861a);"></div></div><label>⚡</label></div>
   </div>
   <canvas id="crewCam" width="180" height="92" style="position:absolute;right:12px;top:150px;
     background:rgba(10,16,32,.82);border:1px solid var(--blue-dark);border-radius:8px;display:none;"></canvas>
+  <!-- Booster-Autopilot: Beobachtungsfenster für die Falcon-Landung der 1. Stufe -->
+  <div id="boosterCam" style="display:none;position:absolute;right:12px;top:255px;width:300px;z-index:6;
+    background:#04060e;border:2px solid var(--orange);border-radius:10px;overflow:hidden;">
+    <div style="padding:4px 9px;font-size:11px;background:rgba(10,16,32,.92);display:flex;justify-content:space-between;align-items:baseline;">
+      <b style="color:var(--orange)">🛬 Booster-Autopilot</b><span id="boosterCamState" style="color:var(--muted)"></span></div>
+    <div id="boosterCamView" style="width:300px;height:180px;"></div>
+    <div id="boosterCamInfo" style="padding:4px 9px;font-size:11px;color:var(--muted);background:rgba(10,16,32,.92);"></div>
+  </div>
   <div id="hudControls">
     <button class="btn" onclick="Flight.stage()">Stufe [Leer]</button>
     <button class="btn" id="sasBtn" onclick="Flight.toggleSAS()">SAS [T]</button>
@@ -511,6 +522,8 @@ const PARTS = {
            info:"Düsenring fürs schnelle Wenden im All – ohne RCS dreht das Schiff SEHR träge!"},
   srb:    {name:"Feststoffbooster »Böller«", type:"srb",    cat:"lower", mass:450,  fuel:1700, thrust:230000, isp:220, w:10,h:24, tech:"basic", info:"Viel Schub, nicht drosselbar!"},
   fin:    {name:"Stabilisierungsflosse",     type:"fin",    cat:"lower", mass:40,   w:14,h:6, tech:"basic", info:"Verringert den Luftwiderstand."},
+  gridfin:{name:"Gitterflossen »Falke«",     type:"gridfin",cat:"lower", mass:150,  w:12,h:3, tech:"reuse",
+           info:"Macht die ERSTE STUFE wiederverwendbar: Mit Restsprit abtrennen (orange Marke an der Tank-Anzeige!) – der Autopilot landet sie im Falcon-Stil und du bekommst ihr Geld zurück."},
   tankL:  {name:"Treibstofftank L",          type:"tank",   cat:"lower", mass:800,  fuel:5600, w:12,h:42, tech:"heavy", info:"5,6 t Treibstoff – schwer, gehört nach unten."},
   engMain:{name:"Triebwerk »Hauptstufe«",    type:"engine", cat:"lower", mass:1500, thrust:600000, isp:290, w:12,h:12, tech:"heavy", info:"600 kN Schub für schwere Raketen."},
   srbL:   {name:"Feststoffbooster »Donner«", type:"srb",    cat:"lower", mass:900,  fuel:3800, thrust:480000, isp:230, w:12,h:34, tech:"heavyPlus", info:"Brachialer Startschub."},
@@ -540,7 +553,7 @@ const PARTS = {
 };
 /* Radialteile (Flossen, Seitenbooster): hängen seitlich am Nachbartank
    und belegen KEINE eigene Höhe im Stack – wie in echt. */
-function isRadial(id){ const t = PARTS[id] && PARTS[id].type; return t==="fin" || t==="sideboost"; }
+function isRadial(id){ const t = PARTS[id] && PARTS[id].type; return t==="fin" || t==="sideboost" || t==="gridfin"; }
 function stackHeight(stack){ return stack.reduce((a,id)=>a+(isRadial(id)?0:PARTS[id].h),0); }
 /* ---------- Preise (Karriere): jedes Bauteil kostet 🪙 ----------
    Balancing: Startbudget 2500 · erste Rakete ~700 · Missionen zahlen 150+10×🧪.
@@ -548,7 +561,7 @@ function stackHeight(stack){ return stack.reduce((a,id)=>a+(isRadial(id)?0:PARTS
 const PART_COSTS = {
   probePod:350, probeS:250, pod:700, chute:60, chute3:220, lab:380, shield:140,
   tankS:100, engS:220, tankM:180, engVac:420, engNuc:1400, engIon:900, tankXL:700,
-  decoupler:40, legs:90, rcs:130, srb:150, fin:25, tankL:350, engMain:650, srbL:300,
+  decoupler:40, legs:90, rcs:130, srb:150, fin:25, gridfin:240, tankL:350, engMain:650, srbL:300,
   sb2:260, sb4:500, probe:180, solar:70, battery:50, bay:80, bayS:50, antenna:60,
   satW:320, satR:420, satS:550, fairing:80, tankXS:70, engT:120, dock:100
 };
@@ -664,6 +677,7 @@ const TECH = [
   {id:"heavyPlus", name:"Schwerlast II",          cost:80,  req:["heavy"],              desc:"Der monströse »Donner«-Booster."},
   {id:"explore",   name:"Erkundung",              cost:90,  req:["surv","advProp"],     desc:"Landebeine für fremde Welten."},
   {id:"future",    name:"Zukunftstechnik",        cost:140, req:["heavy","payload"],    desc:"Atomantrieb – interplanetare Reisen werden komfortabel."},
+  {id:"reuse",     name:"Wiederverwendbarkeit",   cost:50,  req:["heavy"],              desc:"Gitterflossen + Landeautopilot: Die erste Stufe landet wie eine Falcon 9 – und bringt ihr Geld zurück!"},
   {id:"mission2",  name:"Missionsplanung",        cost:20,  req:["struct"],             desc:"Das Bodenteam wächst: Nimm ZWEI Missionen gleichzeitig an."},
   {id:"mission3",  name:"Missionszentrale",       cost:75,  req:["mission2","payload"], desc:"Profi-Planung mit großem Kontrollraum: DREI Missionen gleichzeitig."}
 ];
@@ -686,6 +700,8 @@ const MISSIONS = [
    req:["orbit"], check:s=>s.body===LEIBNIZ && s.pe>250000},
   {id:"sat1",    name:"Erster Satellit",     desc:"Setze einen Satelliten in einem stabilen Orbit um Leibniz aus. [N]", sci:30,
    req:["orbit"], check:s=>s.satL},
+  {id:"reuse1",  name:"Sie landet doch!", desc:"Wiederverwendung wie bei der Falcon 9: Rüste die erste Stufe mit Gitterflossen aus (Forschung »Wiederverwendbarkeit«), trenne sie MIT Restsprit ab (orange Marke an der Tank-Anzeige) und lass den Autopiloten sie heil landen!", sci:45,
+   req:["orbit"], check:s=>s.boosterLanded},
   {id:"satWetter", name:"Wetterdienst Leibniz", desc:"Setze den Wettersatelliten »Wolkengucker« in einem stabilen Orbit um Leibniz aus [N]. Ab morgen gibt's Pausenhof-Wettervorhersage! (Tipp: Sondenbus »Teller« als Steuereinheit.)", sci:35,
    req:["sat1"], check:s=>s.satWeather},
   {id:"satStrahlung", name:"Strahlungsgürtel kartieren", desc:"Bring den Forschungssatelliten »Strahlenspäher« in einen HOHEN Orbit (Periapsis > 250 km) und setze ihn dort aus [N]. Nur dort oben lässt sich die kosmische Strahlung sauber messen.", sci:50,
@@ -1416,6 +1432,20 @@ function universeFrame(){
   ctx.fillStyle="#04060e"; ctx.fillRect(0,0,W,H);
   ctx.fillStyle="rgba(255,255,255,.7)";
   for(let i=0;i<70;i++) ctx.fillRect((i*97.3)%W,(i*211.7)%H,(i%3===0?2:1),(i%3===0?2:1));
+  // Nebel-Kulisse: dieselben weich maskierten Bilder wie in den 3D-Szenen,
+  // additiv ("lighter") auf den schwarzen Hintergrund gelegt
+  const nebTexs = nebulaTextures();
+  if(nebTexs){
+    const spots = [[0.16,0.26,0.5],[0.85,0.18,0.38],[0.13,0.8,0.44],[0.88,0.78,0.34],[0.52,0.08,0.3]];
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = 0.5;
+    nebTexs.forEach((tx,i)=>{
+      const s = Math.min(W,H)*spots[i][2];
+      ctx.drawImage(tx.image, spots[i][0]*W - s/2, spots[i][1]*H - s/2, s, s);
+    });
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+  }
   // Heliozentrisch: Sonne im Zentrum, Leibniz (mit Mond Monti) und Minzi außen
   const cx=W/2, cy=H/2, orbPx=Math.min(W,H)*0.46;
   const r0=orbPx*0.3, r1=orbPx*0.55, r2=orbPx*0.78, r3=orbPx*1.0;
@@ -1505,6 +1535,9 @@ const AdminCam = {
     sg.setAttribute("position", new THREE.BufferAttribute(sp,3));
     this.scene.add(new THREE.Points(sg,
       new THREE.PointsMaterial({color:0xffffff, size:2, sizeAttenuation:false})));
+    // Nebel-Kulisse: gleiche Fotos wie im Flug, nur weiter draußen skaliert
+    // (Radius jenseits von Newton & Max-Zoom, innerhalb der Far-Plane 4e11)
+    addNebulae(this.scene, 1.8e11, 2.6, 0.85);
     // Fokus-Buttons
     const icons = {Sonne:"☀️", Leibniz:"🌍", Monti:"🌗", Minzi:"🍬", Kepler:"🔥", Newton:"🔵"};
     const span = document.getElementById("admFocusBtns");
@@ -1762,6 +1795,39 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
         g.add(fin);
       }
       break;}
+    case "gridfin":{
+      // 4 Gitterflossen à la Falcon 9: oben am Wirtstank, Start ANGELEGT
+      // (rotation.z animiert der Landeautopilot via Mesh-Name "gfin")
+      const ar = attach ? attach.r : r*0.5;
+      const ay = attach ? attach.h*0.92 : h;
+      if(!buildPartMesh._gridTex){
+        const cv = document.createElement("canvas"); cv.width = cv.height = 128;
+        const cx = cv.getContext("2d");
+        cx.strokeStyle = "#cdd3df"; cx.lineWidth = 7;
+        for(let k=-128;k<256;k+=22){
+          cx.beginPath(); cx.moveTo(k,0); cx.lineTo(k+128,128); cx.stroke();
+          cx.beginPath(); cx.moveTo(k+128,0); cx.lineTo(k,128); cx.stroke();
+        }
+        cx.lineWidth = 14; cx.strokeRect(0,0,128,128);
+        buildPartMesh._gridTex = new THREE.CanvasTexture(cv);
+      }
+      const finMat = new THREE.MeshStandardMaterial({map:buildPartMesh._gridTex,
+        transparent:true, alphaTest:0.3, side:THREE.DoubleSide,
+        color:0xb9c0cf, metalness:.55, roughness:.45});
+      for(let k=0;k<4;k++){
+        const a = k*Math.PI/2 + Math.PI/4;   // versetzt zu den Flossen
+        const geo = new THREE.PlaneGeometry(3.2, 4.6);
+        geo.translate(0, -2.5, 0);           // Scharnier an der Oberkante
+        geo.rotateY(Math.PI/2);              // angelegt: schmiegt sich an die Hülle
+        const fin = new THREE.Mesh(geo, finMat);
+        fin.name = "gfin";
+        const pivot = new THREE.Group();
+        pivot.position.set(Math.cos(a)*(ar+0.35), ay, Math.sin(a)*(ar+0.35));
+        pivot.rotation.y = -a;
+        pivot.add(fin);
+        g.add(pivot);
+      }
+      break;}
     case "legs":{
       add(cylinder(r*0.35,r*0.35,h,MAT.white), h/2);
       for(let k=0;k<3;k++){
@@ -1868,6 +1934,55 @@ function buildFairingShell(rBase, H, phiStart, phiLength){
   const mat = new THREE.MeshStandardMaterial({color:0xe8ecf5, roughness:.35,
     metalness:.25, side:THREE.DoubleSide});
   return new THREE.Mesh(geo, mat);
+}
+/* ---------- Nebel-Kulisse (nebulae.js) ----------
+   Radial-Maske stanzt die Bildränder weich in Schwarz aus, additives Blending
+   lässt die Fotos nahtlos in den Himmel übergehen – keine sichtbaren Kanten.
+   Gut verteilt über die Himmelskugel; genutzt von Flug-Szene UND AdminCam. */
+const NEBULA_DEFS = [
+  {i:0, dir:[ 0.55,  0.42, -0.72], size:3.6e10, base:0.5},
+  {i:1, dir:[-0.68, -0.30,  0.67], size:2.9e10, base:0.6},
+  {i:2, dir:[ 0.10, -0.75, -0.65], size:3.2e10, base:0.5},
+  {i:3, dir:[-0.45,  0.62, -0.35], size:2.2e10, base:0.5},
+  {i:4, dir:[ 0.80,  0.12,  0.55], size:2.1e10, base:0.55}
+];
+let NEBULA_TEXTURES = null;
+function nebulaTextures(){
+  if(NEBULA_TEXTURES || typeof NEBULAE === "undefined") return NEBULA_TEXTURES;
+  NEBULA_TEXTURES = NEBULAE.map(n=>{
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = 512;
+    const tex = new THREE.CanvasTexture(cv);
+    const im = new Image();
+    im.onload = ()=>{
+      const cx = cv.getContext("2d");
+      const s = Math.max(cv.width/im.width, cv.height/im.height);   // cover
+      cx.drawImage(im, (cv.width-im.width*s)/2, (cv.height-im.height*s)/2, im.width*s, im.height*s);
+      const g = cx.createRadialGradient(256,256,110, 256,256,256);
+      g.addColorStop(0, "rgba(0,0,0,0)");
+      g.addColorStop(1, "rgba(0,0,0,1)");
+      cx.globalCompositeOperation = "destination-out";
+      cx.fillStyle = g; cx.fillRect(0,0,512,512);
+      tex.needsUpdate = true;
+    };
+    im.src = n.data;
+    return tex;
+  });
+  return NEBULA_TEXTURES;
+}
+function addNebulae(scene, radius, sizeScale, opacityScale){
+  const texs = nebulaTextures();
+  if(!texs) return [];
+  return NEBULA_DEFS.map(d=>{
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+      map:texs[d.i], transparent:true, depthWrite:false,
+      blending:THREE.AdditiveBlending, opacity:d.base*opacityScale}));
+    spr.position.set(d.dir[0], d.dir[1], d.dir[2]).normalize().multiplyScalar(radius);
+    spr.scale.set(d.size*sizeScale, d.size*sizeScale*NEBULAE[d.i].aspect, 1);
+    spr.userData.base = d.base*opacityScale;
+    scene.add(spr);
+    return spr;
+  });
 }
 /* Solarflügel eines fertig gebauten Meshes ausklappen (Sats im Orbit etc.) */
 function deployWings(g){
@@ -2722,43 +2837,9 @@ const Flight = {
     this.starField = new THREE.Points(starGeo,
       new THREE.PointsMaterial({color:0xffffff, size:2.2, sizeAttenuation:false, transparent:true}));
     this.scene.add(this.starField);
-    // Nebel-Fotos (nebulae.js): weit hinter allen Planeten, mit weichem
-    // Radial-Verlauf ausgestanzt + additiv geblendet -> keine sichtbaren Ränder.
-    // Sichtbarkeit koppelt frame() an die Sternen-Opacity (Atmosphäre blendet aus).
-    this.nebulae = [];
-    if(typeof NEBULAE !== "undefined"){
-      const defs = [
-        {img:NEBULAE[0], dir:V3(0.55, 0.42, -0.72), size:3.6e10, base:0.5},
-        {img:NEBULAE[1], dir:V3(-0.68, -0.3, 0.67), size:2.9e10, base:0.6}
-      ];
-      for(const d of defs){
-        const cv = document.createElement("canvas");
-        cv.width = cv.height = 512;
-        const tex = new THREE.CanvasTexture(cv);
-        const im = new Image();
-        im.onload = ()=>{
-          const cx = cv.getContext("2d");
-          // Bild einpassen (cover), dann Kanten mit Radialverlauf weich löschen
-          const s = Math.max(cv.width/im.width, cv.height/im.height);
-          cx.drawImage(im, (cv.width-im.width*s)/2, (cv.height-im.height*s)/2, im.width*s, im.height*s);
-          const g = cx.createRadialGradient(256,256,110, 256,256,256);
-          g.addColorStop(0, "rgba(0,0,0,0)");
-          g.addColorStop(1, "rgba(0,0,0,1)");
-          cx.globalCompositeOperation = "destination-out";
-          cx.fillStyle = g; cx.fillRect(0,0,512,512);
-          tex.needsUpdate = true;
-        };
-        im.src = d.img.data;
-        const spr = new THREE.Sprite(new THREE.SpriteMaterial({
-          map:tex, transparent:true, depthWrite:false,
-          blending:THREE.AdditiveBlending, opacity:d.base}));
-        spr.position.copy(d.dir.normalize()).multiplyScalar(7e10);
-        spr.scale.set(d.size, d.size*d.img.aspect, 1);
-        spr.userData.base = d.base;
-        this.scene.add(spr);
-        this.nebulae.push(spr);
-      }
-    }
+    // Nebel-Fotos: weit hinter allen Planeten; frame() koppelt die Opacity
+    // an die Sternen-Ausblendung (Atmosphäre blendet sie aus)
+    this.nebulae = addNebulae(this.scene, 7e10, 1, 1);
     // Lokaler Boden am Startplatz (Tangentialebene; die Kugel ist zu grob für Bodennähe)
     this.groundPlane = new THREE.Mesh(
       new THREE.CircleGeometry(40000, 48),
@@ -2981,6 +3062,11 @@ const Flight = {
     this.sats = []; this.satL=false; this.satM=false; this.visitedMonti=false;
     this.satWeather=false; this.satRad=false; this.satSpy=false;
     this.shipTemp = 15;   // startet bei Bodentemperatur
+    // Booster-Autopilot aufräumen (Mesh, Fenster, Statistik)
+    if(this.booster && this.booster.mesh) this.world.remove(this.booster.mesh);
+    this.booster = null;
+    this.statBoosterLanded = false; this.statBoosterRefund = 0;
+    document.getElementById("boosterCam").style.display = "none";
     this.docked = false; this.dockOffset = null;
     if(this.eva){ this.world.remove(this.eva.mesh); this.eva = null; }
     this.sas = "off"; this._cd = 0; this.expCount = 0; this._wasSpace = undefined;
@@ -3099,21 +3185,42 @@ const Flight = {
       if(bo && bo.attached && dropped.parts.some(id=>PARTS[id].type==="sideboost"))
         bo.attached = false;
       this.rebuildRocket();
-      // abgeworfene Stufe wird zu physischem Trümmerteil
+      // abgeworfene Stufe wird zu physischem Trümmerteil – ODER, mit
+      // Gitterflossen + Restsprit, zum autopilot-gelandeten Falcon-Booster!
       const debrisStack = [...dropped.parts].reverse();
       const dMesh = buildRocketGroup(debrisStack, false);
       this.world.add(dMesh);
       const dir = V3(0,1,0).applyQuaternion(this.q);
-      this.debris.push({
-        pos: this.pos.clone().addScaledVector(dir, -(this.height()/2+5)),
-        vel: this.vel.clone().addScaledVector(dir, -4),
-        q: this.q.clone(),
-        spin: V3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).multiplyScalar(0.8),
-        mesh: dMesh, tEnd: this.t+300
-      });
+      const dPos = this.pos.clone().addScaledVector(dir, -(this.height()/2+5));
+      const dVel = this.vel.clone().addScaledVector(dir, -4);
+      const canLand = !this.booster &&
+        dropped.parts.some(id=>PARTS[id].type==="gridfin") &&
+        dropped.thrust>0 && dropped.fuelLeft>0 &&
+        leibnizAlt(this.pos, this.t) < 250000;
+      if(canLand){
+        this.booster = {
+          pos:dPos, vel:dVel, q:this.q.clone(), mesh:dMesh,
+          fuel:dropped.fuelLeft, fuelMax:Math.max(1,dropped.fuel),
+          thrust:dropped.thrust, isp:dropped.isp||290, dry:dropped.dry,
+          height:stackHeight(debrisStack),
+          value:stackCost(debrisStack),
+          state:"flip", stateT:0, finDeploy:0, throttle:0, doneT:0
+        };
+        const lowFuel = dropped.fuelLeft < dropped.fuel*0.12;
+        this.showMsg(lowFuel
+          ? "🛬 Booster-Autopilot übernimmt – ⚠️ wenig Restsprit, das wird knapp!"
+          : "🛬 Booster-Autopilot übernimmt die erste Stufe – Landeanflug!", 4);
+      } else {
+        this.debris.push({
+          pos:dPos, vel:dVel, q:this.q.clone(),
+          spin: V3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).multiplyScalar(0.8),
+          mesh: dMesh, tEnd: this.t+300
+        });
+      }
       const n = this.activeSeg();
-      if(n && (n.thrust||n.srbThrust)){ n.ignited=true; this.showMsg("Stufentrennung + Zündung!",2); }
-      else this.showMsg("Stufentrennung!",2);
+      if(n && (n.thrust||n.srbThrust)) n.ignited = true;
+      if(!canLand)   // Booster-Autopilot-Meldung nicht überschreiben
+        this.showMsg(n && n.ignited ? "Stufentrennung + Zündung!" : "Stufentrennung!",2);
     }
   },
   toggleInfinite(){
@@ -3247,6 +3354,147 @@ const Flight = {
     }
     this.shipTemp = this.shipTemp ?? 15;
     this.shipTemp += (target - this.shipTemp)*Math.min(1, k*dt);
+  },
+  /* Beobachtungsfenster: eigene Kamera folgt dem Booster (gleiche Szene).
+     Öffnet sich beim Abtrennen, schließt ~4 s nach Landung/Crash automatisch. */
+  updateBoosterCam(){
+    const el = document.getElementById("boosterCam");
+    const b = this.booster;
+    if(!b || (b.doneT && performance.now()-b.doneT > 4000)){
+      if(el.style.display!=="none") el.style.display = "none";
+      return;
+    }
+    el.style.display = "block";
+    if(!this.pipRenderer){
+      this.pipRenderer = new THREE.WebGLRenderer({antialias:true});
+      this.pipRenderer.setSize(300, 180);
+      document.getElementById("boosterCamView").appendChild(this.pipRenderer.domElement);
+      this.pipCam = new THREE.PerspectiveCamera(50, 300/180, 0.5, 2.2e11);
+    }
+    const states = {flip:"🔄 Wende-Manöver", coast:"🪂 Abstieg (Gitterflossen)",
+      burn:"🔥 LANDING BURN", landed:"✅ GELANDET!", crashed:"💥 verloren"};
+    document.getElementById("boosterCamState").textContent = states[b.state]||"";
+    const lp = bodyPos(LEIBNIZ, this.t);
+    const alt = Math.max(0, b.pos.distanceTo(lp)-LEIBNIZ.R);
+    const vrel = b.vel.clone().sub(bodyVel(LEIBNIZ,this.t)).length();
+    document.getElementById("boosterCamInfo").textContent =
+      "Höhe "+(alt>=10000?(alt/1000).toFixed(1)+" km":alt.toFixed(0)+" m")+
+      " · "+vrel.toFixed(0)+" m/s · Sprit "+(b.fuel/b.fuelMax*100).toFixed(0)+" %";
+    if(!b.mesh) return;   // nach Crash: Fenster zeigt nur noch den Status
+    // Kamera: seitlich versetzt, Abstand wächst mit der Sinkgeschwindigkeit
+    const bRel = b.pos.clone().sub(this.pos);   // Szene ist ship-zentriert
+    const up = b.pos.clone().sub(lp).normalize();
+    let east = new THREE.Vector3().crossVectors(V3(0,1,0), up);
+    if(east.lengthSq()<1e-9) east = V3(1,0,0); else east.normalize();
+    const dist = Math.min(180, 45 + vrel*0.35);
+    this.pipCam.position.copy(bRel)
+      .addScaledVector(east, dist)
+      .addScaledVector(up, b.height*0.5 + dist*0.18);
+    this.pipCam.up.copy(up);
+    this.pipCam.lookAt(bRel.clone().addScaledVector(up, b.height*0.5));
+    this.pipRenderer.render(this.scene, this.pipCam);
+  },
+  /* ---------- Booster-Autopilot: landet die 1. Stufe im Falcon-9-Stil ----------
+     Zustände: flip (retrograde drehen) → coast (Gitterflossen raus, Aerobraking)
+     → burn (Suicide Burn) → landed/crashed. Läuft substep-integriert, damit
+     auch bei Zeitraffer (≤50×) nichts explodiert. */
+  updateBooster(dt){
+    const b = this.booster;
+    if(!b || b.state==="crashed") return;
+    const lp = bodyPos(LEIBNIZ, this.t), lv = bodyVel(LEIBNIZ, this.t);
+    if(b.state==="landed"){
+      b.pos.copy(lp).add(b.local);   // folgt dem wandernden Planeten
+      b.vel.copy(lv);
+      return;
+    }
+    const n = Math.min(40, Math.max(1, Math.ceil(dt/0.05)));
+    const dtb = dt/n;
+    for(let i=0;i<n;i++){
+      const rel = b.pos.clone().sub(lp);
+      const r = rel.length(), alt = r - LEIBNIZ.R;
+      const up = rel.clone().normalize();
+      const airVel = b.vel.clone().sub(lv);
+      const v = airVel.length(), vDown = -airVel.dot(up);
+      const m = b.dry + b.fuel;
+      const g = LEIBNIZ.mu/(r*r);
+      b.stateT += dtb;
+      // Zustandsmaschine
+      if(b.state==="flip"){
+        if(b.stateT > 3){ b.state = "coast"; b.stateT = 0; }
+      } else if(b.state==="coast"){
+        b.finDeploy = Math.min(1, b.finDeploy + dtb/1.8);   // Flossen ausklappen
+        const aNet = Math.max(0.5, b.thrust/m - g);
+        const burnDist = vDown>0 ? vDown*vDown/(2*aNet) : 0;
+        // großzügige Marge: lieber früher, sanfter Burn als Falcon-Hoverslam
+        if(vDown>0 && alt <= burnDist*1.6 + 150){ b.state = "burn"; b.stateT = 0; }
+      } else if(b.state==="burn"){
+        if(b.fuel<=0){ b.throttle = 0; }
+        else if(vDown > 3){
+          // kontrolliert bremsen: genau so, dass v am Boden ~0 ist
+          const aDes = vDown*vDown/(2*Math.max(alt*0.82, 3)) + g;
+          b.throttle = Math.min(1, Math.max(0.04, aDes*m/b.thrust));
+        } else {
+          // Endanflug/überbremst: knapp unter Schwebeschub -> sanft absetzen
+          b.throttle = Math.min(1, g*m/b.thrust*0.92);
+        }
+      }
+      // Ausrichtung: retrograde (Flossen steuern = schnellere Drehung),
+      // im Endanflug senkrecht aufrichten
+      let target = v>12 ? airVel.clone().normalize().negate() : up.clone();
+      const nose = V3(0,1,0).applyQuaternion(b.q);
+      const full = new THREE.Quaternion().setFromUnitVectors(nose, target);
+      b.q.premultiply(new THREE.Quaternion().slerp(full,
+        Math.min(1, (0.35 + 0.8*b.finDeploy)*dtb)));
+      // Kräfte: Gravitation + Schub + Luftwiderstand
+      const a = this.accel(b.pos, this.t);
+      if(b.state==="burn" && b.fuel>0 && b.throttle>0){
+        const thrustDir = V3(0,1,0).applyQuaternion(b.q);
+        a.addScaledVector(thrustDir, b.thrust*b.throttle/m);
+        b.fuel = Math.max(0, b.fuel - b.thrust*b.throttle/(b.isp*G0)*dtb);
+      }
+      if(alt < LEIBNIZ.atmoH && v>0.1){
+        const rho = LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH);
+        const cdA = 5 + 8*b.finDeploy;   // Gitterflossen bremsen kräftig mit
+        const fd = 0.5*rho*v*v*cdA;
+        a.addScaledVector(airVel, -Math.min(fd/(m*v), 0.5/dtb));
+      }
+      b.vel.addScaledVector(a, dtb);
+      b.pos.addScaledVector(b.vel, dtb);
+      // Aufsetzen (Mesh-Ursprung = Stufen-Unterkante)
+      if(b.pos.distanceTo(lp) <= LEIBNIZ.R){
+        const vrel = b.vel.clone().sub(lv).length();
+        if(vrel <= 12){
+          b.state = "landed"; b.throttle = 0;
+          b.local = b.pos.clone().sub(lp).normalize().multiplyScalar(LEIBNIZ.R);
+          b.pos.copy(lp).add(b.local);
+          b.vel.copy(lv);
+          b.q.setFromUnitVectors(V3(0,1,0), b.local.clone().normalize());
+          this.statBoosterLanded = true;
+          if(!Game.sandbox){
+            Game.funds += b.value;
+            this.statBoosterRefund = (this.statBoosterRefund||0) + b.value;
+            autoSave();
+            this.showMsg("🏆 BOOSTER GELANDET! ("+vrel.toFixed(1)+" m/s) Stufe geborgen: +🪙 "+b.value,6);
+          } else this.showMsg("🏆 BOOSTER GELANDET! ("+vrel.toFixed(1)+" m/s) Wie eine echte Falcon 9! 🚀",5);
+        } else {
+          b.state = "crashed";
+          for(let k=0;k<10;k++) this.spawnParticle(b.pos.clone(),
+            V3((Math.random()-0.5)*40, Math.random()*30, (Math.random()-0.5)*40),
+            1+Math.random(), 5+Math.random()*6, 0xff8a30);
+          this.world.remove(b.mesh); b.mesh = null;
+          this.showMsg("💥 Booster beim Aufschlag zerstört ("+vrel.toFixed(0)+" m/s) – mehr Restsprit lassen!",5);
+        }
+        b.doneT = performance.now();
+        break;
+      }
+    }
+    // Flossen-Animation & Flamme am Booster-Mesh
+    if(b.mesh){
+      b.mesh.traverse(o=>{
+        if(o.name==="gfin") o.rotation.z = b.finDeploy*Math.PI/2;
+      });
+      setFlames(b.mesh, b.state==="burn" && b.fuel>0 && b.throttle>0, Math.max(0.3,b.throttle));
+    }
   },
   /* steckt mindestens ein Solarpanel in einer Servicebucht? */
   solarInBay(){
@@ -3892,6 +4140,12 @@ const Flight = {
       this.showMsg("⏩ Atmosphäre erreicht – Zeitraffer auf 50× begrenzt!",3);
     }
     this.updateTemps(dt);
+    // Während der Booster-Landung bleibt der Zeitraffer moderat (Autopilot-Sim)
+    if(this.booster && this.booster.state!=="landed" && this.booster.state!=="crashed" &&
+       WARPS[this.warpI] > 50){
+      this.warpI = WARPS.indexOf(50);
+      this.showMsg("⏩ Booster-Landung läuft – Zeitraffer auf 50× begrenzt!",3);
+    }
     if(alt < LEIBNIZ.atmoH){
       const rho = LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH);
       // Luftgeschwindigkeit = relativ zum Planeten (Leibniz bewegt sich um die Sonne!)
@@ -4028,6 +4282,7 @@ const Flight = {
         return true;
       });
     }
+    this.updateBooster(dt);
     this.checkContact();
     this.checkMissions();
     this.checkRescue();
@@ -4147,6 +4402,7 @@ const Flight = {
       relays:commRelays(), mods:Game.stationMods||[],
       anomalies:(Game.anomaliesFound||[]).length,
       rescueLanded:!!this.rescueLanded,
+      boosterLanded:!!this.statBoosterLanded,
       labAny:Game.labDone.length>0};
     // Nur AKTIVE (angenommene) Missionen können erfüllt werden – wie KSP-Verträge.
     // Mit »Missionsplanung« laufen bis zu 3 Verträge parallel.
@@ -4232,6 +4488,7 @@ const Flight = {
         <span>Neue Missionen</span><b style="color:var(--green)">${missions} 🏆</b>
         <span>Startkosten</span><b style="color:var(--red)">−${this.launchCost||0} 🪙</b>
         <span>Bergung (Landung auf Leibniz)</span><b style="color:var(--green)">+${this.statRefund||0} 🪙</b>
+        ${this.statBoosterRefund?`<span>Booster gelandet 🛬</span><b style="color:var(--green)">+${this.statBoosterRefund} 🪙</b>`:""}
         <span>Kontostand</span><b>🪙 ${Game.funds}</b>`}
       </div>`;
     const lbl = document.getElementById("modalNoShowLabel");
@@ -4587,6 +4844,11 @@ const Flight = {
       d.q.multiply(dq);
       d.mesh.quaternion.copy(d.q);
     }
+    if(this.booster && this.booster.mesh){
+      this.booster.mesh.position.copy(this.booster.pos);
+      this.booster.mesh.quaternion.copy(this.booster.q);
+    }
+    this.updateBoosterCam();
     if(this.map) this.predict();
     else {
       this.apMarker.visible = this.peMarker.visible = false;
@@ -4861,6 +5123,9 @@ const Flight = {
         (!Game.sandbox && !Tut.active ? '<br><small style="color:var(--muted)">Keine Mission angenommen</small>' : "")}`;
     document.getElementById("throttleFill").style.height=(this.throttle*100)+"%";
     document.getElementById("fuelFill").style.height=((s&&(s.fuel+s.srbFuel))?fuelPct:0)+"%";
+    // Gitterflossen an Bord? Orange Marke = Restsprit für den Landing Burn
+    document.getElementById("fuelMark").style.display =
+      (s && s.thrust && s.parts.some(id=>PARTS[id].type==="gridfin")) ? "" : "none";
     // Seitenbooster: eigene Tankanzeige (eigener Treibstoff-Pool!)
     const boG = this.v.boost, boEl = document.getElementById("boostGauge");
     if(boG && boG.attached){

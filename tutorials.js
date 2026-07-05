@@ -258,5 +258,36 @@ const TUTORIALS = [
      check:(o,F)=>F.expCount>1},
    ],
    done:`So funktioniert Forschung! 🧪 Im Karrieremodus schaltest du mit den Punkten unter
-     <b>Forschung</b> neue Bauteile frei. Tipp: Nimm das Labor auf JEDE Mission mit.`}
+     <b>Forschung</b> neue Bauteile frei. Tipp: Nimm das Labor auf JEDE Mission mit.`},
+
+  {id:"booster", icon:"🛬", title:"Booster-Landung (Falcon-Stil)", sub:"Erste Stufe mit Gitterflossen – abtrennen, zuschauen, sparen.",
+   scenario:{stack:["chute","pod","rcs","tankM","engVac","decoupler","gridfin","fin","tankL","engMain"]},
+   steps:[
+    {text:`Diese Rakete hat <b>Gitterflossen</b> an der ersten Stufe (die angelegten
+      Gitter oben am großen Tank – wie bei der Falcon 9!). Damit kann der
+      <b>Landeautopilot</b> die Stufe nach der Trennung sicher zurückbringen.<br><br>
+      Wichtig: Schau auf die <b>TANK-Anzeige</b> unten links – die <b>orange Marke</b>
+      zeigt den Restsprit, den der Autopilot für den Landing Burn braucht!<br><br>
+      Zünde mit der <b>[Leertaste]</b> und steig senkrecht.`,
+     check:(o,F)=>!F.landed && F.flew},
+    {text:`Neige die Rakete mit <b>[D]</b> leicht nach Osten (Gravity Turn) und steig
+      weiter. Behalte dabei die <b>Tank-Anzeige</b> im Auge – sie sinkt Richtung
+      orange Marke!<br><br>Steig über <b>12 km</b>.`,
+     check:o=>o.alt>12000},
+    {text:`Jetzt kommt der Falcon-Moment! 🚀<br><br>
+      Trenne die erste Stufe mit der <b>[Leertaste]</b>, <b>SOLANGE der Tankbalken
+      noch ÜBER der orangen Marke ist</b>. Zu spät = kein Sprit für die Landung,
+      der Booster zerschellt!`,
+     check:(o,F)=>!!F.booster},
+    {text:`Der <b>Autopilot</b> hat übernommen – rechts öffnet sich das
+      <b>Beobachtungsfenster</b>: Wende-Manöver, Gitterflossen ausklappen,
+      Abstieg, Landing Burn. 🍿<br><br>
+      Du fliegst währenddessen mit <b>Stufe 2</b> weiter (z. B. prograde Richtung
+      Orbit – oder einfach zuschauen). Warte, bis der Booster <b>gelandet</b> ist!`,
+     check:(o,F)=>F.booster && F.booster.state==="landed"},
+   ],
+   done:`🏆 BOOSTER GELANDET – wie bei SpaceX! Merke: <b>Gitterflossen dran, über der
+     orangen Marke abtrennen, der Autopilot macht den Rest.</b> Im Karrieremodus
+     bekommst du den vollen Wert der Stufe zurückerstattet – Wiederverwendung
+     spart richtig Geld! (Mission "Sie landet doch!" wartet.)`}
 ];
