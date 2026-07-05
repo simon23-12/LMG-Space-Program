@@ -226,6 +226,7 @@ input[type=file]{display:none;}
     <button class="btn" onclick="Flight.deploySat()">Satellit [N]</button>
     <button class="btn" onclick="Flight.togglePanels()">☀️ Panele [G]</button>
     <button class="btn" onclick="Flight.toggleEVA()">🧑‍🚀 EVA [V]</button>
+    <button class="btn" onclick="Flight.toggleBellyflop()">🤸 Bellyflop [C]</button>
     <button class="btn" onclick="Flight.toggleDock()">🔗 Docken [L]</button>
     <button class="btn" onclick="Flight.installModule()">🏗 Modul [I]</button>
     <button class="btn" onclick="Flight.toggleBays()">📦 Bucht [O]</button>
@@ -549,12 +550,33 @@ const PARTS = {
   tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"fine", info:"0,7 t für Satelliten-Manöver."},
   engT:   {name:"Triebwerk »Floh«",          type:"engine", cat:"sat", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"fine", info:"Winziges Manövriertriebwerk (8 kN)."},
   dock:   {name:"Docking-Port »Klette«",     type:"dock",   cat:"cmd", mass:80, w:10,h:3, tech:"payload",
-           info:"Koppelstutzen an die Spitze bauen! Langsam (< 3 m/s) und nah (< 30 m) an die Raumstation »Große Pause« heranfliegen – [L] dockt an und ab."}
+           info:"Koppelstutzen an die Spitze bauen! Langsam (< 3 m/s) und nah (< 30 m) an die Raumstation »Große Pause« heranfliegen – [L] dockt an und ab."},
+  engRapSL:{name:"Raptor »Meereshöhe«",      type:"engine", cat:"lower", mass:1600, thrust:750000, isp:330, w:12,h:10, tech:"raptorSL",
+           info:"Vollstrom-Methantriebwerk: 750 kN bei Isp 330 s – Effizienz-Weltmeister für die erste Stufe."},
+  engRapVac:{name:"Raptor »Vakuum«",         type:"engine", cat:"upper", mass:1700, thrust:700000, isp:380, w:12,h:12, tech:"raptorVac",
+           info:"Riesige Glocke, Isp 380 s im Vakuum – das effizienteste Oberstufen-Triebwerk überhaupt."},
+  superheavy:{name:"Superheavy-Booster",     type:"superheavy", cat:"lower", mass:3600, fuel:26000, thrust:4600000, isp:330, w:14,h:68, tech:"raptorSL",
+           info:"Riesentank + 33 Raptoren in EINEM Teil (26 t Treibstoff, 4600 kN). Mit Gitterflossen ausrüsten – dann landet ihn der Autopilot!"},
+  starship:{name:"Starship",                 type:"starship", cat:"cmd", mass:5200, fuel:9500, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:900, flaps:true,
+           info:"Das ultimative Schiff: 6 Crew ODER große Nutzlast, Hitzeschutz-Kacheln, Bellyflop-Landung mit [C] (mindestens 200 m Höhe!)."},
+  starshipTank:{name:"Tanker-Starship",      type:"starship", cat:"cmd", mass:4400, fuel:16000, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:400, tanker:true,
+           info:"Starship ohne Flaps, dafür voller Tanks: Im Orbit parken (Flug dort beenden) – das nächste Schiff tankt bei ihm auf (< 60 m, < 4 m/s). Unbemannt, keine Bellyflop-Landung!"}
 };
 /* Radialteile (Flossen, Seitenbooster): hängen seitlich am Nachbartank
    und belegen KEINE eigene Höhe im Stack – wie in echt. */
 function isRadial(id){ const t = PARTS[id] && PARTS[id].type; return t==="fin" || t==="sideboost" || t==="gridfin"; }
 function stackHeight(stack){ return stack.reduce((a,id)=>a+(isRadial(id)?0:PARTS[id].h),0); }
+/* Bemannt? Kapsel ODER (Nicht-Tanker-)Starship. Kapazität: Pod 1(+Labor 1), Starship 6 */
+function crewCapacity(stack){
+  let cap = 0;
+  for(const id of stack){
+    const p = PARTS[id];
+    if(p.type==="pod") cap += stack.includes("lab") ? 2 : 1;
+    if(p.type==="starship" && !p.tanker) cap += 6;
+  }
+  return Math.min(cap, 6);
+}
+function isCrewedStack(stack){ return crewCapacity(stack) > 0; }
 /* ---------- Preise (Karriere): jedes Bauteil kostet 🪙 ----------
    Balancing: Startbudget 2500 · erste Rakete ~700 · Missionen zahlen 150+10×🧪.
    Gelandete Raketen werden voll erstattet – nur Verbrauchtes/Verlorenes kostet. */
@@ -563,7 +585,8 @@ const PART_COSTS = {
   tankS:100, engS:220, tankM:180, engVac:420, engNuc:1400, engIon:900, tankXL:700,
   decoupler:40, legs:90, rcs:130, srb:150, fin:25, gridfin:240, tankL:350, engMain:650, srbL:300,
   sb2:260, sb4:500, probe:180, solar:70, battery:50, bay:80, bayS:50, antenna:60,
-  satW:320, satR:420, satS:550, fairing:80, tankXS:70, engT:120, dock:100
+  satW:320, satR:420, satS:550, fairing:80, tankXS:70, engT:120, dock:100,
+  engRapSL:900, engRapVac:1100, superheavy:2600, starship:4200, starshipTank:3200
 };
 for(const [id,c] of Object.entries(PART_COSTS)) if(PARTS[id]) PARTS[id].cost = c;
 function stackCost(stack){ return stack.reduce((a,id)=>a+(PARTS[id].cost||0),0); }
@@ -629,7 +652,7 @@ function newRoster(){
    weiter draußen braucht es eine Antenne an Bord UND Relais-Satelliten. */
 function commRelays(){ return (Game.relays||0) + (stationHasMod("modFunk")?2:0); }
 function commCheck(stack, pos, t){
-  if(stack.some(id=>PARTS[id].type==="pod")) return {ok:true, why:"bemannt"};
+  if(isCrewedStack(stack)) return {ok:true, why:"bemannt"};
   const dL = pos.distanceTo(bodyPos(LEIBNIZ,t));
   if(dL < LEIBNIZ.soi) return {ok:true, why:"Bodenstation Leibniz"};
   if(!stack.some(id=>PARTS[id].type==="antenna"))
@@ -678,6 +701,9 @@ const TECH = [
   {id:"explore",   name:"Erkundung",              cost:90,  req:["surv","advProp"],     desc:"Landebeine für fremde Welten."},
   {id:"future",    name:"Zukunftstechnik",        cost:140, req:["heavy","payload"],    desc:"Atomantrieb – interplanetare Reisen werden komfortabel."},
   {id:"reuse",     name:"Wiederverwendbarkeit",   cost:50,  req:["heavy"],              desc:"Gitterflossen + Landeautopilot: Die erste Stufe landet wie eine Falcon 9 – und bringt ihr Geld zurück!"},
+  {id:"raptorSL",  name:"Raptor (Meereshöhe)",    cost:120, req:["reuse"],              desc:"Vollstrom-Methantriebwerk – das effizienteste Triebwerk seiner Klasse. Schaltet den SUPERHEAVY-Booster frei!"},
+  {id:"raptorVac", name:"Raptor (Vakuum)",        cost:150, req:["raptorSL"],           desc:"Die Vakuum-Version mit riesiger Glocke: Isp 380 s bei gewaltigem Schub."},
+  {id:"starshipT", name:"Starship",               cost:250, req:["raptorVac"],          desc:"Das beste Vehikel im Spiel: Edelstahl, Bellyflop-Landung [C], Platz für 6 Crew oder mehrere Satelliten. Dazu: Tanker-Variante fürs Auftanken im Orbit."},
   {id:"mission2",  name:"Missionsplanung",        cost:20,  req:["struct"],             desc:"Das Bodenteam wächst: Nimm ZWEI Missionen gleichzeitig an."},
   {id:"mission3",  name:"Missionszentrale",       cost:75,  req:["mission2","payload"], desc:"Profi-Planung mit großem Kontrollraum: DREI Missionen gleichzeitig."}
 ];
@@ -1494,11 +1520,11 @@ function universeFrame(){
 /* ---------- Admin-Cam: Vollbild-3D-Planetenbetrachter ----------
    Echte Ephemeriden (bodyPos), echte Radien & Texturen, freier Orbit-Blick. */
 const AdminCam = {
-  ready:false, runningId:null, t:0, speedI:3, focus:null,
+  ready:false, runningId:null, t:0, speedI:1, focus:null,   // Default: 1 h/s
   az:0.7, el:0.3, dist:0, minDist:1,
   SPEEDS:[[60,"1 min/s"],[3600,"1 h/s"],[21600,"6 h/s"],[86400,"1 Tag/s"],[864000,"10 Tage/s"]],
   init(){
-    if(this.ready) return; this.ready = true;
+    if(this.ready) return;   // ready erst am ENDE setzen – wirft init, wird neu versucht
     const host = document.getElementById("adminCam3d");
     this.renderer = new THREE.WebGLRenderer({antialias:true, logarithmicDepthBuffer:true});
     this.renderer.domElement.style.cssText = "width:100%;height:100%;";
@@ -1565,6 +1591,7 @@ const AdminCam = {
     addEventListener("keydown", e=>{
       if(e.key==="Escape" && this.runningId!==null) this.close();
     });
+    this.ready = true;
   },
   setFocus(b){
     this.focus = b;
@@ -1778,6 +1805,71 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
     case "decoupler":
       add(cylinder(r,r,h,MAT.orange), h/2);
       break;
+    case "superheavy":{
+      // Edelstahl-Riese: ein Teil = Tank + 33 Raptoren
+      const steel = new THREE.MeshStandardMaterial({color:0xc9ced8, roughness:.32, metalness:.75});
+      add(cylinder(r, r, h*0.93, steel), h*0.5);
+      add(cylinder(r*1.01, r*1.01, h*0.045, MAT.dark), h*0.965);   // Interstage-Gitter
+      add(cylinder(r*0.8, r*0.95, h*0.05, MAT.dark), h*0.028);     // Triebwerksschürze
+      for(let k=0;k<8;k++){
+        const a = k*Math.PI/4;
+        const bell = cylinder(0.5, 0.95, 2.4, MAT.gray, 10);
+        bell.position.set(Math.cos(a)*r*0.55, 0.4, Math.sin(a)*r*0.55);
+        g.add(bell);
+      }
+      add(cylinder(0.6, 1.1, 2.6, MAT.gray, 10), 0.5);
+      const fl = new THREE.Mesh(new THREE.ConeGeometry(r*0.85, h*0.85, 16), MAT.flame);
+      fl.rotation.x = Math.PI; fl.position.y = -h*0.36; fl.visible = false; fl.name = "flame";
+      const fc = new THREE.Mesh(new THREE.ConeGeometry(r*0.5, h*0.6, 12), MAT.flameCore);
+      fc.rotation.x = Math.PI; fc.position.y = -h*0.24; fc.visible = false; fc.name = "flame";
+      g.add(fl); g.add(fc);
+      break;}
+    case "starship":{
+      // Edelstahl + Ogiven-Nase, Flaps (nur Nicht-Tanker), Hitzeschutz-Streifen
+      const steel = new THREE.MeshStandardMaterial({color:0xd2d7e0, roughness:.3, metalness:.72});
+      add(cylinder(r, r, h*0.7, steel), h*0.35);
+      // gerundete Nase
+      const nosePts = [new THREE.Vector2(r, 0)];
+      for(let k=1;k<=8;k++){
+        const t2 = k/8;
+        nosePts.push(new THREE.Vector2(
+          Math.max(r*Math.pow(Math.cos(t2*Math.PI/2), 0.75), 0.3), h*0.3*t2));
+      }
+      const nose = new THREE.Mesh(new THREE.LatheGeometry(nosePts, 20), steel);
+      nose.position.y = h*0.7; g.add(nose);
+      // schwarze Hitzeschutz-Kacheln (Bauchseite)
+      const tiles = new THREE.Mesh(new THREE.CylinderGeometry(r*1.01, r*1.01, h*0.68, 20, 1, true, -Math.PI*0.42, Math.PI*0.84),
+        new THREE.MeshStandardMaterial({color:0x23272f, roughness:.75, side:THREE.DoubleSide}));
+      tiles.position.y = h*0.35; g.add(tiles);
+      if(p.flaps){
+        // 2 Heck- und 2 Bug-Flaps
+        const flapMat = new THREE.MeshStandardMaterial({color:0xb9c0cf, roughness:.4, metalness:.6});
+        for(const side of [-1,1]){
+          const rear = new THREE.Mesh(new THREE.BoxGeometry(r*0.75, h*0.2, 0.7), flapMat);
+          rear.position.set(side*r*1.15, h*0.11, 0); g.add(rear);
+          const front = new THREE.Mesh(new THREE.BoxGeometry(r*0.5, h*0.13, 0.55), flapMat);
+          front.position.set(side*r*0.85, h*0.78, 0); g.add(front);
+        }
+        // Bullaugen
+        for(let k=0;k<3;k++){
+          const win = new THREE.Mesh(new THREE.SphereGeometry(r*0.09,8,8),
+            new THREE.MeshBasicMaterial({color:0x9fd8ff}));
+          win.position.set(0, h*(0.52+k*0.07), -r*0.95); g.add(win);
+        }
+      } else {
+        add(cylinder(r*1.02, r*1.02, h*0.06, MAT.orange), h*0.5);   // Tanker-Kennband
+      }
+      add(cylinder(r*0.75, r*0.9, h*0.035, MAT.dark), h*0.02);
+      for(let k=0;k<3;k++){
+        const a = k*2*Math.PI/3;
+        const bell = cylinder(0.55, 1.05, 2.6, MAT.gray, 10);
+        bell.position.set(Math.cos(a)*r*0.35, 0.5, Math.sin(a)*r*0.35);
+        g.add(bell);
+      }
+      const sfl = new THREE.Mesh(new THREE.ConeGeometry(r*0.6, h*0.7, 14), MAT.flame);
+      sfl.rotation.x = Math.PI; sfl.position.y = -h*0.3; sfl.visible = false; sfl.name = "flame";
+      g.add(sfl);
+      break;}
     case "fin":{
       // sitzt AN der Außenwand des Nachbartanks (wie echte Stabilisierungsflossen)
       const ar = attach ? attach.r : r*0.6;
@@ -1971,18 +2063,22 @@ function nebulaTextures(){
   return NEBULA_TEXTURES;
 }
 function addNebulae(scene, radius, sizeScale, opacityScale){
-  const texs = nebulaTextures();
-  if(!texs) return [];
-  return NEBULA_DEFS.map(d=>{
-    const spr = new THREE.Sprite(new THREE.SpriteMaterial({
-      map:texs[d.i], transparent:true, depthWrite:false,
-      blending:THREE.AdditiveBlending, opacity:d.base*opacityScale}));
-    spr.position.set(d.dir[0], d.dir[1], d.dir[2]).normalize().multiplyScalar(radius);
-    spr.scale.set(d.size*sizeScale, d.size*sizeScale*NEBULAE[d.i].aspect, 1);
-    spr.userData.base = d.base*opacityScale;
-    scene.add(spr);
-    return spr;
-  });
+  // Robust gegen veraltete/fehlende nebulae.js: fehlende Bilder überspringen,
+  // Fehler dürfen NIE die Szenen-Initialisierung abschießen!
+  try{
+    const texs = nebulaTextures();
+    if(!texs) return [];
+    return NEBULA_DEFS.filter(d=>texs[d.i] && NEBULAE[d.i]).map(d=>{
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+        map:texs[d.i], transparent:true, depthWrite:false,
+        blending:THREE.AdditiveBlending, opacity:d.base*opacityScale}));
+      spr.position.set(d.dir[0], d.dir[1], d.dir[2]).normalize().multiplyScalar(radius);
+      spr.scale.set(d.size*sizeScale, d.size*sizeScale*NEBULAE[d.i].aspect, 1);
+      spr.userData.base = d.base*opacityScale;
+      scene.add(spr);
+      return spr;
+    });
+  }catch(e){ console.warn("Nebel-Kulisse übersprungen:", e); return []; }
 }
 /* Solarflügel eines fertig gebauten Meshes ausklappen (Sats im Orbit etc.) */
 function deployWings(g){
@@ -2043,7 +2139,7 @@ function buildRocketGroup(stack, fairingIntact){
     mesh.position.y = y;
     // Triebwerke in Oberstufen (Stufentrenner darunter) zünden noch nicht –
     // ihre Flammen bleiben aus, bis sie nach der Trennung unterste Stufe sind
-    if((p.type==="engine" || p.type==="srb") &&
+    if(["engine","srb","superheavy","starship"].includes(p.type) &&
        stack.slice(i+1).some(x=>PARTS[x].type==="decoupler"))
       mesh.traverse(o=>{ if(o.name==="flame") o.userData.idle = true; });
     grp.add(mesh);
@@ -2100,7 +2196,7 @@ function buildStrapOnMesh(H, withFlame){
 /* Wirt eines Radialteils: benachbarter Tank/Booster (erst darunter, dann darüber) */
 function radialHostIdx(stack, i){
   const tanky = j => j>=0 && j<stack.length && !isRadial(stack[j]) &&
-    ["tank","srb"].includes(PARTS[stack[j]].type);
+    ["tank","srb","superheavy"].includes(PARTS[stack[j]].type);
   if(tanky(i+1)) return i+1;
   if(tanky(i-1)) return i-1;
   for(let j=i+1;j<stack.length;j++) if(!isRadial(stack[j])) return j;
@@ -2575,9 +2671,9 @@ const VAB = {
     this.refresh();
   },
   validate(){
-    if(!this.stack.some(x=>["pod","probe"].includes(PARTS[x].type)))
+    if(!this.stack.some(x=>["pod","probe","starship"].includes(PARTS[x].type)))
       return "Deine Rakete braucht eine Kommandokapsel oder einen Sondenkern!";
-    if(!this.stack.some(x=>["engine","srb"].includes(PARTS[x].type)))
+    if(!this.stack.some(x=>["engine","srb","superheavy","starship"].includes(PARTS[x].type)))
       return "Deine Rakete braucht ein Triebwerk!";
     return null;
   },
@@ -2596,8 +2692,9 @@ const VAB = {
       const p=PARTS[id];
       if(p.type==="sideboost") continue;   // eigener Pool (parallel staging)
       dry+=p.mass;
-      if(p.type==="tank") fuel+=p.fuel;
-      if(p.type==="engine"){ thrust+=p.thrust; ispSum+=p.isp; n++; }
+      // Superheavy & Starship = Tank UND Triebwerk in einem Teil
+      if(p.type==="tank"||p.type==="superheavy"||p.type==="starship") fuel+=p.fuel;
+      if(p.type==="engine"||p.type==="superheavy"||p.type==="starship"){ thrust+=p.thrust; ispSum+=p.isp; n++; }
       if(p.type==="srb"){ srbFuel+=p.fuel; srbThrust+=p.thrust; ispSum+=p.isp; n++; }
     }
     return {dry,fuel,srbFuel,thrust,srbThrust,isp:n?ispSum/n:0,
@@ -2943,7 +3040,7 @@ const Flight = {
       if(!document.getElementById("flight").classList.contains("active")) return;
       this.keys[e.key.toLowerCase()]=true;
       // Jede Steuereingabe beendet den Zeitraffer (sonst "Triebwerk reagiert nicht")
-      const ctrlKeys = [" ","w","a","s","d","q","e","z","x","r","arrowup","arrowdown"];
+      const ctrlKeys = [" ","w","a","s","d","q","e","z","x","r","c","arrowup","arrowdown"];
       if(WARPS[this.warpI]>2 && ctrlKeys.includes(e.key.toLowerCase())){
         this.warpI = 0;
         this.showMsg("⏩ Zeitraffer beendet – Steuerung & Triebwerk wieder aktiv!",2);
@@ -2965,6 +3062,7 @@ const Flight = {
       if(e.key===".") this.warpUp();
       if(e.key===",") this.warpDown();
       if(e.key==="v"||e.key==="V") this.toggleEVA();
+      if(e.key==="c"||e.key==="C") this.toggleBellyflop();
       if(e.key==="l"||e.key==="L") this.toggleDock();
       if(e.key==="i"||e.key==="I") this.installModule();
       if((e.key==="x"||e.key==="X") && !this.eva && !this.commDead) this.throttle=0;
@@ -3062,9 +3160,9 @@ const Flight = {
     this.sats = []; this.satL=false; this.satM=false; this.visitedMonti=false;
     this.satWeather=false; this.satRad=false; this.satSpy=false;
     this.shipTemp = 15;   // startet bei Bodentemperatur
-    // Booster-Autopilot aufräumen (Mesh, Fenster, Statistik)
+    // Booster-Autopilot & Bellyflop aufräumen (Mesh, Fenster, Statistik)
     if(this.booster && this.booster.mesh) this.world.remove(this.booster.mesh);
-    this.booster = null;
+    this.booster = null; this.belly = null;
     this.statBoosterLanded = false; this.statBoosterRefund = 0;
     document.getElementById("boosterCam").style.display = "none";
     this.docked = false; this.dockOffset = null;
@@ -3085,7 +3183,8 @@ const Flight = {
     // Karriere: aus dem Astronaut*innen-Kader (mit XP & Rollen-Boni),
     // Sandbox/Tutorial: Gast-Crew mit Zufallsnamen.
     this.crew = []; this.crewObjs = [];
-    if(vessel.stack.some(id=>PARTS[id].type==="pod")){
+    const crewCap = crewCapacity(vessel.stack);
+    if(crewCap > 0){
       if(!Game.sandbox && Game.roster){
         const free = Game.roster.filter(a=>a.status==="bereit");
         const pickRole = role=>{
@@ -3093,11 +3192,11 @@ const Flight = {
           if(c) free.splice(free.indexOf(c),1);
           return c;
         };
-        const p1 = pickRole("pilot");
-        if(p1) this.crewObjs.push(p1);
-        if(vessel.stack.includes("lab")){
-          const p2 = pickRole("sci");
-          if(p2) this.crewObjs.push(p2);
+        // Rollen im Wechsel besetzen, bis die Kapazität (Pod 1–2, Starship 6) voll ist
+        const order = ["pilot","sci","ing"];
+        for(let k=0; k<crewCap && free.length; k++){
+          const a = pickRole(order[k%3]);
+          if(a) this.crewObjs.push(a);
         }
         this.crew = this.crewObjs.map(a=>
           ROLES[a.role].icon+" "+a.name+(crewLevel(a)?" "+"⭐".repeat(crewLevel(a)):""));
@@ -3105,8 +3204,8 @@ const Flight = {
       } else {
         const NAMES = ["Bo","Charlie","Deniz","Eli","Hanna","Juno","Kim","Luca","Mika","Ola"];
         const pick = ()=>NAMES.splice(Math.floor(Math.random()*NAMES.length),1)[0];
-        this.crew.push("🧑‍🚀 "+pick());
-        if(vessel.stack.includes("lab")) this.crew.push("🥼 Dr. "+pick());
+        for(let k=0; k<crewCap && NAMES.length; k++)
+          this.crew.push((k===1?"🥼 Dr. ":"🧑‍🚀 ")+pick());
       }
     }
     // Langzeit-Systeme: Flags, Kader-Boni, Stationsausbau, Orbit-Inventar
@@ -3355,6 +3454,70 @@ const Flight = {
     this.shipTemp = this.shipTemp ?? 15;
     this.shipTemp += (target - this.shipTemp)*Math.min(1, k*dt);
   },
+  /* ---------- Bellyflop (Starship, [C]): Bauchlage → Flip → Landing Burn ----------
+     Aktivierung unter ~200 m Höhe reicht für den Flip nicht mehr → Crash. */
+  toggleBellyflop(){
+    if(!this.v || this.crashed || this.ended || this.landed) return;
+    if(!this.v.stack.some(id=>PARTS[id].type==="starship" && PARTS[id].flaps)){
+      this.showMsg("Bellyflop braucht ein Starship mit Flaps! 🤸 (Tanker können das nicht)",3); return;
+    }
+    if(this.belly){
+      this.belly = null;
+      this.showMsg("Bellyflop abgebrochen – du hast wieder das Steuer.",2); return;
+    }
+    this.belly = {state:"flop", stateT:0};
+    this.sas = "off";
+    const alt = leibnizAlt(this.pos, this.t);
+    this.showMsg(alt < 200
+      ? "🤸 BELLYFLOP – ⚠️ unter 200 m!? Dafür reicht die Zeit nicht mehr…"
+      : "🤸 BELLYFLOP! Autopilot: Bauchlage → Flip → Landing Burn. ([C] bricht ab)", 4);
+  },
+  updateBelly(dt){
+    const b = this.belly;
+    const lp = bodyPos(LEIBNIZ, this.t);
+    const rel = this.pos.clone().sub(lp);
+    const alt = rel.length() - LEIBNIZ.R - this.height()/2;   // Unterkante über Grund
+    const up = rel.clone().normalize();
+    const airVel = this.vel.clone().sub(bodyVel(LEIBNIZ, this.t));
+    const v = airVel.length(), vDown = -airVel.dot(up);
+    const m = this.mass(), s = this.activeSeg();
+    const g = LEIBNIZ.mu/rel.lengthSq();
+    let target;
+    if(b.state==="flop"){
+      // Bauchlage: Nase horizontal, der Bauch bremst (Drag-Bonus in step)
+      let hor = airVel.clone().addScaledVector(up, -airVel.dot(up));
+      if(hor.lengthSq() < 1) hor = this.frameAt(this.pos).east.clone();
+      target = hor.normalize();
+      this.throttle = 0;
+      const aEng = s && s.thrust ? s.thrust/m : 0;
+      // Flip erst, wenn es WIRKLICH runtergeht und der Schub zum Bremsen reicht
+      if(vDown > 5 && aEng > g){
+        const burnDist = v*v/(2*(aEng-g));
+        if(alt <= vDown*2.6 + burnDist*1.4 + 40){
+          b.state = "flip"; b.stateT = 0;
+          if(s) s.ignited = true;
+          this.showMsg("🤸→🚀 FLIP!",2);
+        }
+      }
+    } else if(b.state==="flip"){
+      target = up.clone();
+      b.stateT += dt;
+      this.throttle = 0;
+      const nose = V3(0,1,0).applyQuaternion(this.q);
+      if(nose.dot(up) > 0.88 || b.stateT > 3){ b.state = "burn"; if(s) s.ignited = true; }
+    } else {   // burn: Hoverslam wie beim Falcon-Booster
+      target = v>10 ? airVel.clone().normalize().negate() : up.clone();
+      if(!s || !s.thrust || s.fuelLeft<=0) this.throttle = 0;
+      else if(vDown > 3){
+        const aDes = 1.35*Math.max(0, v*v - 4)/(2*Math.max(alt - 4, 1)) + g;
+        this.throttle = Math.min(1, Math.max(0.02, aDes*m/s.thrust));
+      } else this.throttle = Math.min(1, g*m/s.thrust*0.9);
+    }
+    // Flaps steuern kräftig – deutlich agiler als Reaktionsräder
+    const nose = V3(0,1,0).applyQuaternion(this.q);
+    const full = new THREE.Quaternion().setFromUnitVectors(nose, target);
+    this.q.premultiply(new THREE.Quaternion().slerp(full, Math.min(1, 1.1*dt)));
+  },
   /* Beobachtungsfenster: eigene Kamera folgt dem Booster (gleiche Szene).
      Öffnet sich beim Abtrennen, schließt ~4 s nach Landung/Crash automatisch. */
   updateBoosterCam(){
@@ -3401,15 +3564,19 @@ const Flight = {
   updateBooster(dt){
     const b = this.booster;
     if(!b || b.state==="crashed") return;
-    const lp = bodyPos(LEIBNIZ, this.t), lv = bodyVel(LEIBNIZ, this.t);
     if(b.state==="landed"){
-      b.pos.copy(lp).add(b.local);   // folgt dem wandernden Planeten
-      b.vel.copy(lv);
+      b.pos.copy(bodyPos(LEIBNIZ, this.t)).add(b.local);   // folgt dem Planeten
+      b.vel.copy(bodyVel(LEIBNIZ, this.t));
       return;
     }
     const n = Math.min(40, Math.max(1, Math.ceil(dt/0.05)));
     const dtb = dt/n;
+    // ⚠️ this.t ist beim Aufruf schon fortgeschritten, b.pos aber noch alt.
+    // Leibniz rast mit 9,3 km/s – Planet & Booster MÜSSEN zeitsynchron sein,
+    // sonst ist die Höhenmessung um Dutzende Meter verschoben (Crash-Bug!).
+    let tt = this.t - dt;
     for(let i=0;i<n;i++){
+      const lp = bodyPos(LEIBNIZ, tt), lv = bodyVel(LEIBNIZ, tt);
       const rel = b.pos.clone().sub(lp);
       const r = rel.length(), alt = r - LEIBNIZ.R;
       const up = rel.clone().normalize();
@@ -3424,29 +3591,37 @@ const Flight = {
       } else if(b.state==="coast"){
         b.finDeploy = Math.min(1, b.finDeploy + dtb/1.8);   // Flossen ausklappen
         const aNet = Math.max(0.5, b.thrust/m - g);
-        const burnDist = vDown>0 ? vDown*vDown/(2*aNet) : 0;
-        // großzügige Marge: lieber früher, sanfter Burn als Falcon-Hoverslam
+        // Auslegung auf die GESAMT-Geschwindigkeit (Retro-Burn bremst ja auch
+        // die Horizontalfahrt mit) + großzügige Marge statt Falcon-Hoverslam
+        const burnDist = vDown>0 ? v*v/(2*aNet) : 0;
         if(vDown>0 && alt <= burnDist*1.6 + 150){ b.state = "burn"; b.stateT = 0; }
       } else if(b.state==="burn"){
         if(b.fuel<=0){ b.throttle = 0; }
         else if(vDown > 3){
-          // kontrolliert bremsen: genau so, dass v am Boden ~0 ist
-          const aDes = vDown*vDown/(2*Math.max(alt*0.82, 3)) + g;
+          // Zielprofil: ~2 m/s bei 4 m Höhe; Gain 1.35 gleicht Regelverzug aus
+          const aDes = 1.35*Math.max(0, v*v - 4)/(2*Math.max(alt - 4, 1)) + g;
           b.throttle = Math.min(1, Math.max(0.04, aDes*m/b.thrust));
         } else {
           // Endanflug/überbremst: knapp unter Schwebeschub -> sanft absetzen
           b.throttle = Math.min(1, g*m/b.thrust*0.92);
         }
       }
-      // Ausrichtung: retrograde (Flossen steuern = schnellere Drehung),
-      // im Endanflug senkrecht aufrichten
-      let target = v>12 ? airVel.clone().normalize().negate() : up.clone();
+      // Ausrichtung: im Abstieg retrograde; beim Burn fast senkrecht, nur leicht
+      // GEGEN die Horizontalfahrt geneigt (stabil auch bei Monster-TWR)
+      let target;
+      if(b.state==="burn"){
+        const hor = airVel.clone().addScaledVector(up, -airVel.dot(up));
+        const hv = hor.length();
+        target = up.clone();
+        if(hv > 2) target.addScaledVector(hor.normalize(), -Math.min(0.45, hv/70));
+        target.normalize();
+      } else target = v>12 ? airVel.clone().normalize().negate() : up.clone();
       const nose = V3(0,1,0).applyQuaternion(b.q);
       const full = new THREE.Quaternion().setFromUnitVectors(nose, target);
       b.q.premultiply(new THREE.Quaternion().slerp(full,
         Math.min(1, (0.35 + 0.8*b.finDeploy)*dtb)));
       // Kräfte: Gravitation + Schub + Luftwiderstand
-      const a = this.accel(b.pos, this.t);
+      const a = this.accel(b.pos, tt);
       if(b.state==="burn" && b.fuel>0 && b.throttle>0){
         const thrustDir = V3(0,1,0).applyQuaternion(b.q);
         a.addScaledVector(thrustDir, b.thrust*b.throttle/m);
@@ -3460,14 +3635,16 @@ const Flight = {
       }
       b.vel.addScaledVector(a, dtb);
       b.pos.addScaledVector(b.vel, dtb);
-      // Aufsetzen (Mesh-Ursprung = Stufen-Unterkante)
-      if(b.pos.distanceTo(lp) <= LEIBNIZ.R){
-        const vrel = b.vel.clone().sub(lv).length();
+      tt += dtb;
+      // Aufsetzen (Mesh-Ursprung = Stufen-Unterkante) – Planet ZUR NEUEN Zeit!
+      const lp2 = bodyPos(LEIBNIZ, tt), lv2 = bodyVel(LEIBNIZ, tt);
+      if(b.pos.distanceTo(lp2) <= LEIBNIZ.R){
+        const vrel = b.vel.clone().sub(lv2).length();
         if(vrel <= 12){
           b.state = "landed"; b.throttle = 0;
-          b.local = b.pos.clone().sub(lp).normalize().multiplyScalar(LEIBNIZ.R);
-          b.pos.copy(lp).add(b.local);
-          b.vel.copy(lv);
+          b.local = b.pos.clone().sub(lp2).normalize().multiplyScalar(LEIBNIZ.R);
+          b.pos.copy(lp2).add(b.local);
+          b.vel.copy(lv2);
           b.q.setFromUnitVectors(V3(0,1,0), b.local.clone().normalize());
           this.statBoosterLanded = true;
           if(!Game.sandbox){
@@ -3611,6 +3788,24 @@ const Flight = {
     const a = d.phase + w*t, v = w*r;
     return bodyVel(b,t).add(V3(-Math.sin(a)*v, 0, -Math.cos(a)*v));
   },
+  /* Orbital-Tankstelle: nah ran an ein geparktes Tanker-Starship (< 60 m, < 4 m/s)
+     → Tanks voll, Tanker verbraucht. */
+  checkTanker(){
+    if(Game.sandbox || !this.v || this.landed || this.crashed || this.ended || this.docked) return;
+    for(const d of (Game.assets||[])){
+      if(d.kind!=="tanker") continue;
+      if(this.pos.distanceTo(this.assetPos(d, this.t)) > 60) continue;
+      if(this.vel.distanceTo(this.assetVel(d, this.t)) > 4) continue;
+      let filled = false;
+      for(const s of this.v.segs) if(s.fuelLeft < s.fuel){ s.fuelLeft = s.fuel; filled = true; }
+      if(filled){
+        Game.assets.splice(Game.assets.indexOf(d), 1);
+        this.spawnAssets(); autoSave();
+        this.showMsg("⛽ AUFGETANKT! Alle Tanks voll – der leere Tanker verglüht kontrolliert. 🔥",5);
+      }
+      break;
+    }
+  },
   spawnAssets(){
     if(this.assetObjs) this.assetObjs.forEach(o=>this.world.remove(o.mesh));
     this.assetObjs = [];
@@ -3621,6 +3816,9 @@ const Flight = {
         mesh = new THREE.Group();
         const capsule = buildPartMesh("pod"); capsule.position.y = -7; mesh.add(capsule);
         const tank = buildPartMesh("tankS"); tank.position.y = -23; mesh.add(tank);
+      } else if(d.kind==="tanker"){
+        mesh = new THREE.Group();
+        const ship = buildPartMesh("starshipTank"); ship.position.y = -26; mesh.add(ship);
       } else {
         mesh = new THREE.Group();
         mesh.add(buildPartMesh("probe"));
@@ -4039,7 +4237,10 @@ const Flight = {
     const nRcs = this.v.stack.filter(id=>PARTS[id].type==="rcs").length;
     // Ohne RCS DEUTLICH träger (nur schwache Reaktionsräder), jeder Ring hilft kräftig
     const agility = Math.min(1.8, 0.12 + 0.78*nRcs) * (1 + 0.08*this.crewLvl("pilot"));
-    if(warp<=2 && !this.powerDead && !this.commDead && !this.eva){
+    // Bellyflop-Autopilot (Starship, [C]): übernimmt Lage & Schub komplett
+    if(this.belly && (this.landed || this.crashed)) this.belly = null;
+    if(this.belly) this.updateBelly(dt);
+    if(warp<=2 && !this.powerDead && !this.commDead && !this.eva && !this.belly){
       const rot = agility*dt, k=this.keys;
       const dq = new THREE.Quaternion();
       const apply=(axis,ang)=>{ dq.setFromAxisAngle(axis,ang); this.q.multiply(dq); };
@@ -4079,7 +4280,7 @@ const Flight = {
       this.charge = this.maxCharge;
       this.powerDead = false;
     } else {
-      const hasPod = this.v.stack.some(id=>PARTS[id].type==="pod");
+      const hasPod = isCrewedStack(this.v.stack);
       const nSolar = this.v.stack.filter(id=>PARTS[id].type==="solar").length;
       const gen = (this.panelsOut && !this.panelsBroken) ? 3*nSolar : 0;
       let use = 0;
@@ -4160,6 +4361,8 @@ const Flight = {
         // Bremskraft je nach Schirm: Mk1 reicht bis ~2 t, Mk2 (Dreifach) bis ~8 t
         if(this.chuteOpen && alt<30000)
           cdA += this.v.stack.reduce((a,id)=>a+(PARTS[id].chuteA||0),0);
+        // Bellyflop: der Starship-Bauch bremst wie ein Fallschirm (Terminal ~85 m/s)
+        if(this.belly) cdA += this.belly.state==="flop" ? 56 : 14;
         const fd = 0.5*rho*v*v*cdA;
         // numerisch stabil: Bremsimpuls pro Schritt darf die Geschwindigkeit
         // höchstens halbieren (sonst explodiert die Integration bei großem dt)
@@ -4179,7 +4382,8 @@ const Flight = {
       const descending = airVel.dot(relPos) < 0;
       const heat = rho*v*v*v;
       if(!this.landed && descending && v>1700 && heat>5e7){
-        const shielded = this.v.stack.some(id=>PARTS[id].type==="shield");
+        const shielded = this.v.stack.some(id=>
+          PARTS[id].type==="shield" || PARTS[id].type==="starship");   // Starship: Hitzeschutz-Kacheln
         if(this._heatMsgT===undefined || this.t-this._heatMsgT>4){
           this._heatMsgT = this.t;
           this.showMsg(shielded
@@ -4286,6 +4490,7 @@ const Flight = {
     this.checkContact();
     this.checkMissions();
     this.checkRescue();
+    this.checkTanker();
     // Warnung beim Überschreiten der Fluchtgeschwindigkeit (relativ zu Leibniz)
     const relL = this.pos.clone().sub(bodyPos(LEIBNIZ,this.t));
     const rL = relL.length();
@@ -4455,6 +4660,16 @@ const Flight = {
       // Status: gelandet/angedockt = sicher zu Hause; im All = GESTRANDET!
       if(inSpace && !this.docked) a.status = "gestrandet";
       else a.status = "bereit";   // Crash = Schleudersitz, alle kommen heim
+    }
+    // Tanker-Starship im stabilen Orbit geparkt → wartet als Tankstelle im All
+    if(inSpace && !this.docked && this.v.stack.includes("starshipTank")){
+      const o = this.orbit();
+      const bodyKey = Object.keys(BODY_BY_NAME()).find(k=>BODY_BY_NAME()[k]===o.body);
+      if(bodyKey && o.pe > (o.body.atmoH||0) && o.ap > 0){
+        Game.assets = Game.assets||[];
+        Game.assets.push({kind:"tanker", body:bodyKey, alt:Math.round(o.alt),
+          phase:Math.random()*Math.PI*2, name:"Tanker-Starship ⛽"});
+      }
     }
     // Schiff mit Crew im Orbit zurückgelassen → Wrack als Rettungsziel speichern
     if(inSpace && !this.docked && this.crewObjs && this.crewObjs.length){
@@ -5117,6 +5332,7 @@ const Flight = {
         return '<br><b style="color:var(--red)">🆘 '+best.d.crew.join(", ")+': '+
           (bd>=10000?(bd/1000).toFixed(1)+" km":bd.toFixed(0)+" m")+'</b>'; })()}
       ${this.eva?'<br><b style="color:var(--green)">🧑‍🚀 EVA · Abstand: '+this.eva.pos.distanceTo(this.pos).toFixed(0)+' m</b>':""}
+      ${this.belly?'<br><b style="color:var(--orange)">🤸 Bellyflop: '+({flop:"Bauchlage (bremst)",flip:"FLIP!",burn:"🔥 Landing Burn"})[this.belly.state]+'</b>':""}
       ${Game.sandbox?"":"<br>🧪 "+Game.science+" · 🪙 "+Game.funds}
       ${!Game.sandbox && (Game.activeMissions||[]).length ? '<br><b style="color:var(--orange)">🎯 '+
         Game.activeMissions.map(id=>(MISSIONS.find(m=>m.id===id)||{}).name).join("<br>🎯 ")+"</b>" :

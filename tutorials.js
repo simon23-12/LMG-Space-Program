@@ -289,5 +289,31 @@ const TUTORIALS = [
    done:`🏆 BOOSTER GELANDET – wie bei SpaceX! Merke: <b>Gitterflossen dran, über der
      orangen Marke abtrennen, der Autopilot macht den Rest.</b> Im Karrieremodus
      bekommst du den vollen Wert der Stufe zurückerstattet – Wiederverwendung
-     spart richtig Geld! (Mission "Sie landet doch!" wartet.)`}
+     spart richtig Geld! (Mission "Sie landet doch!" wartet.)`},
+
+  {id:"starship", icon:"🤸", title:"Starship: Wiedereintritt & Bellyflop", sub:"Bauchlage, Flip, Landing Burn – wie in Boca Chica.",
+   scenario:{stack:["starship"], orbit:{body:"LEIBNIZ", alt:75000, pe:22000}},
+   steps:[
+    {text:`Du sitzt im <b>Starship</b> auf Wiedereintritts-Kurs (Periapsis 22 km).
+      Keine Fallschirme, kein Hitzeschild-Teil – das Starship hat <b>Hitzeschutz-Kacheln</b>
+      am Bauch und landet mit dem <b>Bellyflop-Manöver</b>!<br><br>
+      Aktiviere den Bellyflop-Autopiloten mit <b>[C]</b>: Das Schiff legt sich flach
+      auf den Bauch.`,
+     check:(o,F)=>!!F.belly},
+    {text:`🤸 Bauchlage! Der riesige Bauch bremst wie ein Fallschirm.<br><br>
+      Jetzt Geduld (Zeitraffer <b>[.]</b> hilft): Überstehe den glühenden Wiedereintritt –
+      die Kacheln halten das aus – und fall, bis du <b>unter 10 km</b> und
+      <b>langsamer als 300 m/s</b> bist.`,
+     check:o=>o.alt<10000 && o.speed<300},
+    {text:`Schau auf die Geschwindigkeit: Sie pendelt sich bei der
+      <b>Terminal-Geschwindigkeit (~70–90 m/s)</b> ein – schneller wird ein fallendes
+      Starship nicht, egal wie lange es fällt. Genau wie in echt!<br><br>
+      Jetzt NICHTS tun: Der Autopilot zündet den <b>Flip + Landing Burn</b> automatisch
+      kurz über dem Boden. (Merke: [C] muss über <b>200 m Höhe</b> gedrückt sein –
+      darunter reicht die Zeit für den Flip nicht!)<br><br>Warte auf die Landung …`,
+     check:(o,F)=>F.landed},
+   ],
+   done:`🏆 STARSHIP GELANDET! Bauchlage → Flip → Landing Burn: die spektakulärste
+     Landung der Raumfahrt. Tipp für eigene Flüge: Das Tanker-Starship (ohne Flaps)
+     parkst du im Orbit und tankst dort wieder auf – so reicht es bis Monti und weiter!`}
 ];
