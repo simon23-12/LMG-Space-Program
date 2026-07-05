@@ -228,16 +228,60 @@ const TUTORIALS = [
       1. Nase aufs türkise ◆ drehen, Mini-Schubstoß (3–5 m/s).<br>
       2. Treiben lassen, Abstand beobachten.<br>
       3. <b>[T]</b> ZIEL-BREMSE + kurz brennen zum Stoppen.<br><br>
-      Wiederhole das, bis du <b>unter 30 m</b> an der Station bist.`,
-     check:(o,F)=>F.docked || F.pos.distanceTo(stationPos(F.t))<30},
-    {text:`Beinahe berührbar! ✨ Relativgeschwindigkeit unter 3 m/s? Dann:<br><br>
-      <b>[L] – ANDOCKEN!</b>`,
+      Wiederhole das, bis du <b>unter 200 m</b> an der Station bist –
+      ab da hilft dir der Autopilot!`,
+     check:(o,F)=>F.docked || F.pos.distanceTo(stationPos(F.t))<200},
+    {text:`Unter 200 m! ✨ Jetzt drücke:<br><br>
+      <b>[L] – der DOCKING-AUTOPILOT übernimmt!</b><br><br>
+      Er regelt den Feinanflug mit den RCS-Düsen und dockt sanft an –
+      genau wie bei Crew Dragon in echt. Zurücklehnen und zuschauen! 🤖`,
      check:(o,F)=>F.docked},
    ],
    done:`🔗 ANGEDOCKT AN DER »GROSSEN PAUSE«! 🎉 Du beherrschst jetzt die schwierigste
      Übung der Raumfahrt: das Rendezvous. Genau so entstand die echte ISS – Modul für Modul.
      In der Karriere wartet dafür die Mission "Rendezvous: »Große Pause«" (+55 🧪).
      Abdocken geht übrigens jederzeit mit [L].`},
+
+  {id:"launchwindow", icon:"⏰", title:"Raumstation: Von Start bis Docking", sub:"Startfenster abpassen, Phase angleichen, andocken – die Königsdisziplin.",
+   scenario:{stack:["dock","pod","rcs","tankS","tankS","engVac","decoupler","fin","tankL","engMain"]},
+   steps:[
+    {text:`Diesmal machst du ALLES selbst: von der Rampe bis zur Stationsluke!<br><br>
+      Die Station rast mit 2,2 km/s um Leibniz – wer einfach "irgendwann" startet,
+      kommt Tausende Kilometer daneben raus. Profis warten aufs <b>Startfenster</b>.<br><br>
+      Wähle zuerst das Ziel: Drücke <b>[Z]</b> → 🎯 Raumstation »Große Pause«.`,
+     check:(o,F)=>!!F.target},
+    {text:`Rechts im HUD steht jetzt die <b>Startfenster-Uhrzeit</b> ⏰ – der Moment,
+      in dem die Station ~30° <b>hinter</b> der Rampe steht. Während dein Aufstieg
+      läuft, holt sie genau diese 30° auf: Ihr trefft euch oben!<br><br>
+      Spule mit <b>[.]</b> vor (mit <b>[,]</b> zurückschalten), bis dort
+      <b style="color:#5fc46a">STARTFENSTER OFFEN</b> aufleuchtet.`,
+     check:(o,F)=>{ if(!F.target || !F.landed) return false;
+       const tw = F.nextLaunchWindow(F.target)-F.t, per = 2*Math.PI/F.target.w;
+       return tw<30 || tw>per-15; }},
+    {text:`<b style="color:#5fc46a">FENSTER OFFEN – STARTE JETZT!</b> 🚀 [Leertaste]!<br><br>
+      Dann wie gewohnt: Bei ~2 km langsam nach <b>OSTEN</b> neigen (das <b>O</b> auf dem
+      Navball), Gravity Turn fliegen und die <b>Apoapsis auf ~100 km</b> bringen
+      (Karte [M] hilft). Oben angekommen: prograde brennen, bis die
+      <b>Periapsis über 70 km</b> steigt.`,
+     check:(o,F)=>F.flew && o.alt>69000 && o.pe>68000},
+    {text:`Im Orbit! 🛰 Schau rechts auf die <b>💡 Phasen-Tipps</b>: Sie sagen dir, ob die
+      Station voraus oder hinter dir fliegt.<br><br>
+      Merksatz: <b>NIEDRIGER = schneller, HÖHER = langsamer.</b> Wer hinterherhängt,
+      fliegt etwas tiefer und holt auf. Passe deine Bahn an und nähere dich, bis der
+      Abstand <b>unter 50 km</b> liegt. (Zeitraffer [.] nutzen!)`,
+     check:(o,F)=>F.pos.distanceTo(stationPos(F.t))<50000},
+    {text:`Unter 50 km – jetzt zeigt das türkise <b>◆</b> auf dem Navball zur Station!<br><br>
+      Feinanflug wie im Rendezvous-Tutorial: Nase aufs ◆, kleine Schubstöße,
+      dazwischen <b>[T]</b> ZIEL-BREMSE zum Abbremsen. Ran bis <b>unter 200 m</b>!`,
+     check:(o,F)=>F.docked || F.pos.distanceTo(stationPos(F.t))<200},
+    {text:`Geschafft – Autopilot-Reichweite! Drücke <b>[L]</b>: Der
+      <b>Docking-Autopilot</b> übernimmt den letzten Anflug. 🤖`,
+     check:(o,F)=>F.docked},
+   ],
+   done:`🏆 VON DER RAMPE BIS ZUR LUKE – die komplette Königsdisziplin! Genau so plant
+     SpaceX jeden Crew-Dragon-Flug: Startfenster abwarten, Phase angleichen, andocken.
+     Übrigens: Auch geparkte Tanker-Starships kannst du auf der Rampe mit [Z] als Ziel
+     wählen – so klappt das Auftanken im Orbit beim ersten Anlauf.`},
 
   {id:"science", icon:"🔬", title:"Wissenschaft sammeln", sub:"Du startest im Orbit mit Labor an Bord.",
    scenario:{stack:["chute","pod","lab","rcs","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:100000}},

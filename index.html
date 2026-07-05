@@ -377,9 +377,12 @@ const KEPLER  = {name:"Kepler",  R:250000, mu:1.686e11,  atmoH:0,   // heißer F
 const NEWTON  = {name:"Newton",  R:900000, mu:8.9e12,    atmoH:0,   // Eisriese weit draußen
   parent:SUN, orbitR:6.9e10, incl:1.5*Math.PI/180, phase:0.8,
   shade2D:["#9fd8e8","#4a7fd8","#22397e"]};
-const MOONS = [MONTI, MINZI, KEPLER, NEWTON];      // kleine Körper (Meshes, Ringe, Kontakt)
-const GRAV_BODIES = [SUN, LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON];  // alles, was zieht
-for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON]){
+const HUYGENS = {name:"Huygens", R:480000, mu:2.1e12,    atmoH:0,   // Ringplanet (benannt nach dem Entdecker der Saturnringe!)
+  parent:SUN, orbitR:4.1e10, incl:2*Math.PI/180, phase:2.6,
+  shade2D:["#f2dcae","#d8b370","#9a7b45"], ring:true};
+const MOONS = [MONTI, MINZI, KEPLER, HUYGENS, NEWTON];      // kleine Körper (Meshes, Ringe, Kontakt)
+const GRAV_BODIES = [SUN, LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON];  // alles, was zieht
+for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON]){
   b.period = 2*Math.PI*Math.sqrt(Math.pow(b.orbitR,3)/b.parent.mu);
   b.soi = b.orbitR*Math.pow(b.mu/b.parent.mu, 2/5);
 }
@@ -522,7 +525,7 @@ const PARTS = {
   rcs:    {name:"RCS-Steuerdüsen",           type:"rcs",    cat:"struct", mass:70,   w:11,h:2.5, tech:"advProp",
            info:"Düsenring fürs schnelle Wenden im All – ohne RCS dreht das Schiff SEHR träge!"},
   srb:    {name:"Feststoffbooster »Böller«", type:"srb",    cat:"lower", mass:450,  fuel:1700, thrust:230000, isp:220, w:10,h:24, tech:"basic", info:"Viel Schub, nicht drosselbar!"},
-  fin:    {name:"Stabilisierungsflosse",     type:"fin",    cat:"lower", mass:40,   w:14,h:6, tech:"basic", info:"Verringert den Luftwiderstand."},
+  fin:    {name:"Stabilisierungsflosse",     type:"fin",    cat:"lower", mass:40,   w:14,h:6, tech:"basic", info:"Verringert den Luftwiderstand UND hält die Rakete ruhig – ohne Flossen taumelt sie im Fahrtwind!"},
   gridfin:{name:"Gitterflossen »Falke«",     type:"gridfin",cat:"lower", mass:150,  w:12,h:3, tech:"reuse",
            info:"Macht die ERSTE STUFE wiederverwendbar: Mit Restsprit abtrennen (orange Marke an der Tank-Anzeige!) – der Autopilot landet sie im Falcon-Stil und du bekommst ihr Geld zurück."},
   tankL:  {name:"Treibstofftank L",          type:"tank",   cat:"lower", mass:800,  fuel:5600, w:12,h:42, tech:"heavy", info:"5,6 t Treibstoff – schwer, gehört nach unten."},
@@ -684,7 +687,7 @@ const ANOMALIES = [
   {id:"newtonWrack",body:"NEWTON", name:"Uraltes Raumschiffwrack", icon:"🚀", sci:75,
    dir:[0.10, -0.35, 0.93], hint:"Newton – Südhalbkugel"}
 ];
-const BODY_BY_NAME = ()=>({LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON});
+const BODY_BY_NAME = ()=>({LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON});
 function anomalyFound(id){ return (Game.anomaliesFound||[]).includes(id); }
 /* Tech-Tree mit Abhängigkeiten (req): Antriebe schalten bessere Antriebe frei usw. */
 const TECH = [
@@ -772,6 +775,8 @@ const MISSIONS = [
    req:["minziSoi"], check:s=>s.body===KEPLER},
   {id:"keplerLand",name:"Kepler-Landung",    desc:"Lande auf dem Glutplaneten (2,7 m/s² – aber ohne Atmosphäre zum Bremsen).", sci:110,
    req:["keplerSoi","montiLand"], check:s=>s.landed && s.body===KEPLER},
+  {id:"huygensSoi",name:"Ringplanet Huygens", desc:"Erreiche den Ringplaneten Huygens – benannt nach Christiaan Huygens, der die Saturnringe entdeckte. Flieg NAH ran und bestaune den Ring!", sci:75,
+   req:["minziSoi"], check:s=>s.body===HUYGENS},
   {id:"newtonSoi",name:"Expedition Newton",  desc:"Erreiche den Eisriesen Newton am Rand des Systems – die weiteste Reise (Atomantrieb empfohlen!).", sci:85,
    req:["minziSoi"], check:s=>s.body===NEWTON},
   {id:"newtonLand",name:"Newton-Landung",    desc:"Lande auf dem Eisriesen – 11 m/s² Schwerkraft verlangen ALLES von deinem Lander!", sci:130,
@@ -1433,8 +1438,8 @@ function bodyStats(b){
 }
 function renderUniverse(){
   const cards = document.getElementById("universeCards"); cards.innerHTML = "";
-  const icons = {Leibniz:"🌍", Monti:"🌗", Minzi:"🍬", Kepler:"🔥", Newton:"🔵"};
-  for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON]){
+  const icons = {Leibniz:"🌍", Monti:"🌗", Minzi:"🍬", Kepler:"🔥", Huygens:"🪐", Newton:"🔵"};
+  for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON]){
     const s = bodyStats(b);
     const div = document.createElement("div");
     div.className = "tech-node unlocked"; div.style.width = "300px";
@@ -1474,9 +1479,9 @@ function universeFrame(){
   }
   // Heliozentrisch: Sonne im Zentrum, Leibniz (mit Mond Monti) und Minzi außen
   const cx=W/2, cy=H/2, orbPx=Math.min(W,H)*0.46;
-  const r0=orbPx*0.3, r1=orbPx*0.55, r2=orbPx*0.78, r3=orbPx*1.0;
+  const r0=orbPx*0.3, r1=orbPx*0.55, r2=orbPx*0.74, r2b=orbPx*0.88, r3=orbPx*1.0;
   ctx.strokeStyle="rgba(150,160,190,.35)";
-  for(const rr of [r0,r1,r2,r3]){ ctx.beginPath(); ctx.arc(cx,cy,rr,0,7); ctx.stroke(); }
+  for(const rr of [r0,r1,r2,r2b,r3]){ ctx.beginPath(); ctx.arc(cx,cy,rr,0,7); ctx.stroke(); }
   const t = performance.now()/1000;
   // Kepler (innen, schnell) & Newton (außen, träge)
   const aK = t*2*Math.PI/26 + 1.1;
@@ -1485,9 +1490,17 @@ function universeFrame(){
   const aN = t*2*Math.PI/260 + 3.6;
   const nwx=cx+Math.cos(aN)*r3, nwy=cy+Math.sin(aN)*r3;
   drawPlanetSurface(ctx,NEWTON,nwx,nwy,orbPx*0.085,t);
+  // Huygens: der Ringplanet zwischen Minzi und Newton
+  const aH = t*2*Math.PI/170 + 0.8;
+  const hx=cx+Math.cos(aH)*r2b, hy=cy+Math.sin(aH)*r2b;
+  ctx.strokeStyle="rgba(226,200,150,.75)"; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.ellipse(hx,hy,orbPx*0.125,orbPx*0.042,-0.35,0,7); ctx.stroke();
+  ctx.lineWidth=1;
+  drawPlanetSurface(ctx,HUYGENS,hx,hy,orbPx*0.06,t);
   ctx.fillStyle="#e8ecf5"; ctx.font="12px sans-serif"; ctx.textAlign="center";
   ctx.fillText("Kepler",kx,ky+orbPx*0.045+13);
   ctx.fillText("Newton",nwx,nwy+orbPx*0.085+14);
+  ctx.fillText("Huygens",hx,hy+orbPx*0.13+12);
   // Sonne mit Glow
   const sg = ctx.createRadialGradient(cx,cy,4,cx,cy,orbPx*0.22);
   sg.addColorStop(0,"rgba(255,244,200,1)"); sg.addColorStop(0.4,"rgba(255,220,130,.5)");
@@ -1537,14 +1550,15 @@ const AdminCam = {
       new THREE.MeshBasicMaterial({color:0xfff0b0}));
     this.scene.add(sun);
     this.meshes = new Map([[SUN, sun]]);
-    for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON]){
+    for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON]){
       const m = new THREE.Mesh(new THREE.SphereGeometry(b.R, 96, 48),
         new THREE.MeshStandardMaterial({map:makeBodyTexture(b), roughness:.9}));
+      if(b.ring) m.add(buildRingMesh(b));
       this.scene.add(m); this.meshes.set(b, m);
     }
     // Bahnlinien (bei Kindkörpern pro Frame um den wandernden Parent zentriert)
     this.rings = [];
-    for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON]){
+    for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON]){
       const pts = [];
       for(let i=0;i<256;i++) pts.push(bodyLocalPos(b, i/256*b.period));
       const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
@@ -1565,9 +1579,9 @@ const AdminCam = {
     // (Radius jenseits von Newton & Max-Zoom, innerhalb der Far-Plane 4e11)
     addNebulae(this.scene, 1.8e11, 2.6, 0.85);
     // Fokus-Buttons
-    const icons = {Sonne:"☀️", Leibniz:"🌍", Monti:"🌗", Minzi:"🍬", Kepler:"🔥", Newton:"🔵"};
+    const icons = {Sonne:"☀️", Leibniz:"🌍", Monti:"🌗", Minzi:"🍬", Kepler:"🔥", Huygens:"🪐", Newton:"🔵"};
     const span = document.getElementById("admFocusBtns");
-    for(const b of [SUN, KEPLER, LEIBNIZ, MONTI, MINZI, NEWTON]){
+    for(const b of [SUN, KEPLER, LEIBNIZ, MONTI, MINZI, HUYGENS, NEWTON]){
       const btn = document.createElement("button");
       btn.className = "btn"; btn.style.cssText = "padding:5px 10px;font-size:12px;";
       btn.textContent = icons[b.name]+" "+b.name;
@@ -2348,6 +2362,22 @@ function makeBodyTexture(b){
       x.fillStyle="rgba(255,255,255,.18)";
       x.beginPath(); x.ellipse(rnd()*1024, rnd()*512, 40+rnd()*80, 8+rnd()*10, 0, 0, 7); x.fill();
     }
+  } else if(b===HUYGENS){
+    // Ringplanet: warme, sandfarbene Wolkenbänder wie Saturn
+    const bands=["#e8cf9d","#f2dcae","#d8b370","#c9a05c","#f0e2bd","#b98f4e","#e2c48a","#d8b370"];
+    const rnd = seededRand(55);
+    let yy=0;
+    for(let k=0;k<bands.length;k++){
+      const bh = 40+rnd()*55;
+      x.fillStyle = bands[k];
+      x.fillRect(0, yy, 1024, bh+8);
+      yy += bh;
+    }
+    x.fillStyle = bands[1]; x.fillRect(0, yy, 1024, 512-yy);
+    for(let k=0;k<10;k++){
+      x.fillStyle="rgba(255,250,235,.2)";
+      x.beginPath(); x.ellipse(rnd()*1024, rnd()*512, 50+rnd()*90, 7+rnd()*9, 0, 0, 7); x.fill();
+    }
   } else if(b===MINZI){
     // Minzgrüner Eismond: glatte, helle Flächen
     x.fillStyle="#bfe8d5"; x.fillRect(0,0,1024,512);
@@ -2377,6 +2407,20 @@ function makeBodyTexture(b){
   }
   const tex = new THREE.CanvasTexture(c);
   return tex;
+}
+/* Saturn-Ring für Huygens: konzentrische Bänder in der Äquatorebene.
+   Äquatorial (xz-Ebene) montiert, damit die Planeten-Rotation um Y ihn nicht taumeln lässt. */
+function buildRingMesh(b){
+  const g = new THREE.Group();
+  const bands = [[1.45,1.85,0xd9c49a,0.5],[1.9,2.45,0xf0e0b8,0.75],[2.55,2.9,0xbfa87e,0.4]];
+  for(const [ri,ro,col,op] of bands){
+    const m = new THREE.Mesh(new THREE.RingGeometry(b.R*ri, b.R*ro, 96),
+      new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:op,
+        side:THREE.DoubleSide, depthWrite:false}));
+    m.rotation.x = -Math.PI/2;
+    g.add(m);
+  }
+  return g;
 }
 function makeCloudTexture(){
   const c = document.createElement("canvas"); c.width=1024; c.height=512;
@@ -2909,10 +2953,11 @@ const Flight = {
       const mesh = new THREE.Mesh(
         new THREE.SphereGeometry(m.R, 96, 48),
         new THREE.MeshStandardMaterial({map:makeBodyTexture(m), roughness:.95}));
+      if(m.ring) mesh.add(buildRingMesh(m));   // Huygens: Saturn-Ring wandert mit
       this.world.add(mesh);
       this.moonMeshes.set(m, mesh);
     }
-    for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, NEWTON]){
+    for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON]){
       const ringPts = [];
       for(let i=0;i<128;i++) ringPts.push(bodyLocalPos(b, i/128*b.period - b.phase*b.period/(2*Math.PI)));
       const ring = new THREE.LineLoop(
@@ -3066,7 +3111,11 @@ const Flight = {
       if(e.key==="l"||e.key==="L") this.toggleDock();
       if(e.key==="i"||e.key==="I") this.installModule();
       if((e.key==="x"||e.key==="X") && !this.eva && !this.commDead) this.throttle=0;
-      if((e.key==="z"||e.key==="Z") && !this.eva && !this.commDead) this.throttle=1;
+      if((e.key==="z"||e.key==="Z") && !this.eva && !this.commDead){
+        // Auf der Startrampe: [Z] wählt Orbit-Ziele (Station, Tanker …) fürs Startfenster
+        if(this.landed && !this.flew) this.cycleTarget();
+        else this.throttle=1;
+      }
       if(e.key==="Escape"){
         this.paused = !this.paused;
         this.showMsg(this.paused ? "⏸ PAUSE – weiter mit [Esc]" : "▶ Weiter geht's!", this.paused?999:1.5);
@@ -3166,6 +3215,8 @@ const Flight = {
     this.statBoosterLanded = false; this.statBoosterRefund = 0;
     document.getElementById("boosterCam").style.display = "none";
     this.docked = false; this.dockOffset = null;
+    this.autoDock = null; this.target = null; this.launchWindowMiss = undefined;
+    this.chuteTorn = false;
     if(this.eva){ this.world.remove(this.eva.mesh); this.eva = null; }
     this.sas = "off"; this._cd = 0; this.expCount = 0; this._wasSpace = undefined;
     this.heatDmg = 0; this._heatMsgT = undefined;
@@ -3266,6 +3317,12 @@ const Flight = {
     if(this.crashed||this.ended) return;
     const s = this.activeSeg(); if(!s) return;
     if(!s.ignited && (s.thrust||s.srbThrust)){
+      // Fürs Startfenster-Tutorial: Wie genau wurde das Fenster getroffen?
+      if(this.landed && this.target && this.launchWindowMiss===undefined){
+        const per = 2*Math.PI/this.target.w;
+        const tw = this.nextLaunchWindow(this.target) - this.t;
+        this.launchWindowMiss = Math.min(tw, per - tw);
+      }
       s.ignited = true; this.landed=false; this.flew=true;
       this.ensureRumble();
       const bo = this.v.boost;
@@ -3682,8 +3739,10 @@ const Flight = {
   toggleSAS(){
     const order = ["off","pro","retro"];
     if(this.node) order.push("node");
-    // Nahe der Raumstation: Extra-Modus zum Abbauen der Relativgeschwindigkeit
-    if(!this.docked && !this.landed && this.pos.distanceTo(stationPos(this.t)) < 50000)
+    // Nahe der Raumstation (oder dem gewählten Ziel): Extra-Modus zum
+    // Abbauen der Relativgeschwindigkeit
+    const tgtP = this.target ? this.target.pos(this.t) : stationPos(this.t);
+    if(!this.docked && !this.landed && this.pos.distanceTo(tgtP) < 50000)
       order.push("tgt");
     if(!order.includes(this.sas)) this.sas = "off";
     this.sas = order[(order.indexOf(this.sas)+1) % order.length];
@@ -3704,12 +3763,30 @@ const Flight = {
     if(!this.v.stack.some(id=>PARTS[id].type==="dock")){
       this.showMsg("Kein Docking-Port an Bord! 🔗 (Bauteil »Klette«, Kategorie Kommando)",3); return;
     }
+    // Läuft der Autopilot schon? [L] bricht ihn ab.
+    if(this.autoDock){
+      this.autoDock = null;
+      this.showMsg("🤖 Docking-Autopilot abgebrochen – du hast wieder das Steuer.",2);
+      return;
+    }
     const d  = this.pos.distanceTo(stationPos(this.t));
     const rv = this.vel.distanceTo(stationVel(this.t));
-    if(d > 30){
-      this.showMsg("Zu weit weg zum Andocken: "+(d>=10000?(d/1000).toFixed(1)+" km":d.toFixed(0)+" m")+" (unter 30 m ranfliegen!)",3); return;
+    if(d > 200){
+      this.showMsg("Zu weit weg zum Andocken: "+(d>=10000?(d/1000).toFixed(1)+" km":d.toFixed(0)+" m")+" – unter 200 m ranfliegen, dann übernimmt der Docking-Autopilot!",3); return;
     }
-    if(rv > 3){ this.showMsg("Zu schnell zum Andocken: "+rv.toFixed(1)+" m/s relativ – erst auf unter 3 m/s abbremsen (SAS: ZIEL-BREMSE)!",3); return; }
+    if(d > 30 || rv > 3){
+      // Unter 200 m: der Autopilot übernimmt den Feinanflug (RCS-Regelung)
+      if(rv > 25){ this.showMsg("Zu schnell für den Autopiloten: "+rv.toFixed(0)+" m/s relativ – erst grob abbremsen (SAS: ZIEL-BREMSE)!",3); return; }
+      this.autoDock = true;
+      this.sas = "off"; this.throttle = 0;
+      this.warpI = Math.min(this.warpI, 1);
+      this.showMsg("🤖 DOCKING-AUTOPILOT übernimmt den Feinanflug – zurücklehnen! ([L] bricht ab)",4);
+      return;
+    }
+    this.dockNow();
+  },
+  dockNow(){
+    this.autoDock = null;
     this.docked = true;
     this.dockOffset = this.pos.clone().sub(stationPos(this.t));
     if(this.dockOffset.length() < 12) this.dockOffset.setLength(12);
@@ -3724,6 +3801,68 @@ const Flight = {
     } else this.showMsg("🔗 ANGEDOCKT an der Raumstation »Große Pause«! 🎉 ([L] = wieder abdocken)",5);
     const mod = this.deliverableMod();
     if(mod) setTimeout(()=>this.showMsg("🏗 "+mod.icon+" Modul an Bord erkannt: "+mod.name+" – mit [I] einbauen!",6), 5200);
+  },
+  /* Docking-Autopilot: regelt unter 200 m per "RCS-Magie" sanft an die Station
+     (didaktische Vereinfachung – das echte Rendezvous davor bleibt Handarbeit!) */
+  updateAutoDock(dt){
+    if(this.crashed || this.ended || this.docked || this.landed){ this.autoDock = null; return; }
+    const sp = stationPos(this.t), sv = stationVel(this.t);
+    const rel = this.pos.clone().sub(sp);           // Station → Schiff
+    const d = rel.length();
+    if(d > 500){ this.autoDock = null; this.showMsg("🤖 Autopilot abgebrochen – zu weit abgetrieben!",3); return; }
+    const rv = this.vel.clone().sub(sv);
+    // Sollgeschwindigkeit: auf die Station zu, je näher desto langsamer
+    const vWant = rel.clone().normalize().multiplyScalar(-Math.min(3, Math.max(0.4, d/25)));
+    const dv = vWant.sub(rv);
+    const dvl = dv.length();
+    if(dvl > 1e-4) this.vel.addScaledVector(dv.normalize(), Math.min(1.5, dvl/dt)*dt);
+    // Nase zeigt zur Station (nur Optik)
+    const nose = V3(0,1,0).applyQuaternion(this.q);
+    const full = new THREE.Quaternion().setFromUnitVectors(nose, rel.clone().normalize().negate());
+    this.q.premultiply(new THREE.Quaternion().slerp(full, Math.min(1, 1.2*dt)));
+    if(d < 26 && this.vel.distanceTo(sv) < 3){
+      this.dockNow();
+      this.showMsg("🤖→🔗 AUTOPILOT-DOCKING GESCHAFFT! Angedockt an der »Großen Pause«! 🎉",5);
+    }
+  },
+  /* ---------- Orbit-Ziele: [Z] auf der Startrampe wählt sie aus ---------- */
+  targetList(){
+    const list = [{kind:"station", name:"Raumstation »Große Pause«", alt:STATION.alt,
+      phase0:STATION.phase, w:STATION.w,
+      pos:t=>stationPos(t), vel:t=>stationVel(t)}];
+    for(const d of (Game.assets||[])){
+      if(d.kind!=="tanker" || d.body!=="LEIBNIZ") continue;
+      const r = LEIBNIZ.R + d.alt, w = Math.sqrt(LEIBNIZ.mu/Math.pow(r,3));
+      list.push({kind:"tanker", name:d.name||"Tanker-Starship ⛽", alt:d.alt,
+        phase0:d.phase, w,
+        pos:t=>this.assetPos(d,t), vel:t=>this.assetVel(d,t)});
+    }
+    return list;
+  },
+  cycleTarget(){
+    const list = this.targetList();
+    const i = this.target ? list.findIndex(x=>x.name===this.target.name) : -1;
+    this.target = (i+1 < list.length) ? list[i+1] : null;
+    if(this.target){
+      const tw = this.nextLaunchWindow(this.target);
+      this.showMsg("🎯 Ziel: "+this.target.name+" ("+Math.round(this.target.alt/1000)+" km) – Startfenster um "+
+        this.clockStr(tw)+" Uhr. Mit [.] vorspulen!",5);
+    } else this.showMsg("🎯 Ziel abgewählt – freier Flug.",2);
+  },
+  /* Nächstes Startfenster: Ziel ~30° HINTER der Rampe. Während des Aufstiegs
+     (~3–4 min) holt es genau so weit auf, dass ihr euch oben trefft. */
+  nextLaunchWindow(tg){
+    const per = 2*Math.PI/tg.w;
+    const want = 2*Math.PI - 0.52;                       // Zielwinkel bei Start (Rampe = 0)
+    let dtw = ((want - tg.phase0 - tg.w*this.t) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI) / tg.w;
+    if(dtw < 5) dtw += per;                              // gerade verpasst → nächster Umlauf
+    return this.t + dtw;
+  },
+  /* Spieluhr: Start um 08:00 Uhr, läuft mit der Missionszeit (24-h-Format) */
+  clockStr(t){
+    const c = ((8*3600 + t) % 86400 + 86400) % 86400;
+    const p = n=>Math.floor(n).toString().padStart(2,"0");
+    return p(c/3600)+":"+p(c%3600/60)+":"+p(c%60);
   },
   rebuildStation(){
     if(this.stationMesh) this.world.remove(this.stationMesh);
@@ -3800,6 +3939,7 @@ const Flight = {
       for(const s of this.v.segs) if(s.fuelLeft < s.fuel){ s.fuelLeft = s.fuel; filled = true; }
       if(filled){
         Game.assets.splice(Game.assets.indexOf(d), 1);
+        if(this.target && this.target.kind==="tanker") this.target = null;   // Ziel ist verbraucht
         this.spawnAssets(); autoSave();
         this.showMsg("⛽ AUFGETANKT! Alle Tanks voll – der leere Tanker verglüht kontrolliert. 🔥",5);
       }
@@ -4103,13 +4243,28 @@ const Flight = {
     this.showMsg(msg,5);
   },
   toggleChute(){
+    if(this.chuteTorn){ this.showMsg("Der Fallschirm ist abgerissen! 🪂💥",2); return; }
     const top = this.v.segs[this.v.segs.length-1];
     if(top && top.hasChute && !this.chuteOpen){
+      // Zu schnell? Über ~200 m/s reißt der Stoff sofort (wie in echt!)
+      const alt = leibnizAlt(this.pos, this.t);
+      const vAir = this.vel.clone().sub(bodyVel(LEIBNIZ, this.t)).length();
+      if(alt < LEIBNIZ.atmoH && vAir > 200){
+        this.chuteOpen = true; this.attachChute();   // kurz aufblitzen, dann fetzt es
+        this.ripChute();
+        return;
+      }
       this.chuteOpen = true;
       this.chuteOpenT = this.t;
       this.attachChute();
       this.showMsg("Fallschirm ausgelöst! 🪂",2);
     }
+  },
+  ripChute(){
+    this.chuteOpen = false; this.chuteTorn = true;
+    const vis = this.rocketGroup && this.rocketGroup.getObjectByName("chuteVis");
+    if(vis) vis.parent.remove(vis);
+    this.showMsg("💥 FALLSCHIRM ABGERISSEN – zu schnell! Erst unter 200 m/s abbremsen, dann [P]!",4);
   },
   attachChute(){
     if(!this.chuteOpen || !this.rocketGroup) return;
@@ -4137,8 +4292,8 @@ const Flight = {
   /* ---------- Wissenschafts-Experimente ---------- */
   situation(){
     const o = this.orbit(), b = o.body;
-    const sciBoden = {Leibniz:4, Monti:30, Minzi:40, Kepler:45, Newton:55};
-    const sciRaum  = {Monti:20, Minzi:25, Kepler:30, Newton:35, Sonne:28};
+    const sciBoden = {Leibniz:4, Monti:30, Minzi:40, Kepler:45, Huygens:50, Newton:55};
+    const sciRaum  = {Monti:20, Minzi:25, Kepler:30, Huygens:32, Newton:35, Sonne:28};
     if(this.landed) return {id:"boden-"+b.name, name:"auf der Oberfläche von "+b.name,
       sci: sciBoden[b.name] ?? 40};
     if(b===LEIBNIZ){
@@ -4181,7 +4336,9 @@ const Flight = {
   warpDown(){ this.warpI=Math.max(0,this.warpI-1); },
   canWarp(i){
     if(i<=1) return true;
-    // In der Atmosphäre (und auf der Rampe) maximal 50× – im Vakuum unbegrenzt
+    // In der Atmosphäre maximal 50× – im Vakuum unbegrenzt.
+    // AUF DER RAMPE frei: da steht die Rakete sicher (Startfenster abwarten!)
+    if(this.landed) return true;
     if(leibnizAlt(this.pos, this.t) < LEIBNIZ.atmoH && WARPS[i] > 50){
       this.showMsg("In der Atmosphäre maximal 50× Zeitraffer!",2); return false;
     }
@@ -4197,6 +4354,7 @@ const Flight = {
     if(p.distanceTo(bodyPos(LEIBNIZ,t)) < LEIBNIZ.soi) return LEIBNIZ;
     if(p.distanceTo(bodyPos(MINZI,t)) < MINZI.soi) return MINZI;
     if(p.distanceTo(bodyPos(KEPLER,t)) < KEPLER.soi) return KEPLER;
+    if(p.distanceTo(bodyPos(HUYGENS,t)) < HUYGENS.soi) return HUYGENS;
     if(p.distanceTo(bodyPos(NEWTON,t)) < NEWTON.soi) return NEWTON;
     return SUN;
   },
@@ -4240,7 +4398,9 @@ const Flight = {
     // Bellyflop-Autopilot (Starship, [C]): übernimmt Lage & Schub komplett
     if(this.belly && (this.landed || this.crashed)) this.belly = null;
     if(this.belly) this.updateBelly(dt);
-    if(warp<=2 && !this.powerDead && !this.commDead && !this.eva && !this.belly){
+    // Docking-Autopilot (<200 m an der Station, [L])
+    if(this.autoDock){ this.warpI = Math.min(this.warpI, 1); this.updateAutoDock(dt); }
+    if(warp<=2 && !this.powerDead && !this.commDead && !this.eva && !this.belly && !this.autoDock){
       const rot = agility*dt, k=this.keys;
       const dq = new THREE.Quaternion();
       const apply=(axis,ang)=>{ dq.setFromAxisAngle(axis,ang); this.q.multiply(dq); };
@@ -4259,8 +4419,9 @@ const Flight = {
         let target = null;
         if(this.sas==="node" && this.nodeDir) target = this.nodeDir.clone();
         else if(this.sas==="tgt"){
-          // Ziel-Bremse: Nase GEGEN die Relativgeschwindigkeit zur Station
-          const rel = this.vel.clone().sub(stationVel(this.t));
+          // Ziel-Bremse: Nase GEGEN die Relativgeschwindigkeit zum Ziel/zur Station
+          const tv = this.target ? this.target.vel(this.t) : stationVel(this.t);
+          const rel = this.vel.clone().sub(tv);
           if(rel.length() > 0.2) target = rel.normalize().negate();
         }
         else { target = sasRelVel.clone().normalize(); if(this.sas==="retro") target.negate(); }
@@ -4336,7 +4497,8 @@ const Flight = {
     this.gLoad = thrust/(m*G0);
     const alt = leibnizAlt(this.pos, this.t);
     // Beim (Wieder-)Eintritt in die Atmosphäre den Zeitraffer auf 50× drosseln
-    if(alt < LEIBNIZ.atmoH && WARPS[this.warpI] > 50){
+    // (nicht auf der Rampe – dort darf man aufs Startfenster vorspulen)
+    if(!this.landed && alt < LEIBNIZ.atmoH && WARPS[this.warpI] > 50){
       this.warpI = WARPS.indexOf(50);
       this.showMsg("⏩ Atmosphäre erreicht – Zeitraffer auf 50× begrenzt!",3);
     }
@@ -4375,6 +4537,24 @@ const Flight = {
            !(!this.bayOpen && this.solarInBay())){
           this.panelsBroken = true; this.panelsOut = false;
           this.showMsg("💥 Solarpanele im Fahrtwind abgerissen! (Erst im Vakuum ausfahren!)",4);
+        }
+        // Offener Fallschirm reißt ab, wenn es doch wieder zu schnell wird
+        if(this.chuteOpen && alt<30000 && v>240) this.ripChute();
+        // Aerodynamische Instabilität: OHNE Stabilisierungsflossen taumelt die
+        // Rakete im Fahrtwind spürbar – Flossen dämpfen das fast komplett weg.
+        if(warp<=2 && !this.landed && !this.chuteOpen && !this.belly &&
+           !this.eva && !this.autoDock){
+          const qDyn = rho*v*v;
+          if(qDyn > 600){
+            const instab = (s && s.hasFins) ? 0.1 : 1;
+            const amp = 0.26*instab*Math.min(1, qDyn/25000);
+            // sanft wanderndes "Pseudo-Rauschen" um Nick- und Gierachse
+            const n1 = Math.sin(this.t*1.1) + 0.6*Math.sin(this.t*2.7+1.6);
+            const n2 = Math.cos(this.t*0.9+0.5) + 0.6*Math.sin(this.t*2.1+3.1);
+            const wq = new THREE.Quaternion().setFromAxisAngle(V3(1,0,0), amp*n1*dt);
+            wq.multiply(new THREE.Quaternion().setFromAxisAngle(V3(0,0,1), amp*n2*dt));
+            this.q.multiply(wq);
+          }
         }
       }
       // --- Wiedereintrittshitze: beim schnellen Sinkflug ohne Hitzeschild tödlich ---
@@ -5213,8 +5393,8 @@ const Flight = {
       x.moveTo(px-11,py); x.lineTo(px-5,py);
       x.moveTo(px+5,py); x.lineTo(px+11,py); x.stroke();
     }
-    // Ziel-Marker: türkises ◆ zeigt Richtung Raumstation (nur wenn sie nah ist)
-    const stDir = stationPos(this.t).sub(this.pos);
+    // Ziel-Marker: türkises ◆ zeigt Richtung Ziel/Raumstation (nur wenn nah)
+    const stDir = (this.target ? this.target.pos(this.t) : stationPos(this.t)).sub(this.pos);
     if(!this.docked && stDir.length()>1 && stDir.length()<50000){
       const tv = stDir.normalize();
       const tPitch = 90 - THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(tv.dot(fr.up),-1,1)));
@@ -5295,6 +5475,7 @@ const Flight = {
         this.shipTemp>600?'color:var(--red);font-weight:700':(this.shipTemp>150?'color:#ffb347':'')
       }">${(this.shipTemp??15).toFixed(0)} °C${this.shipTemp>600?" 🔥":""}</span></div>
       <div class="row"><span>Missionszeit</span><span>${this.t.toFixed(0)} s</span></div>
+      <div class="row"><span>Uhrzeit 🕗</span><span>${this.clockStr(this.t)}</span></div>
       <div class="row" style="margin-top:4px;border-top:1px solid var(--blue-dark);padding-top:4px;">
         <span>${this.crew.length ? this.crew.join("<br>") : "🤖 unbemannte Sonde"}</span></div>`;
     document.getElementById("hudRight").innerHTML = `
@@ -5305,13 +5486,46 @@ const Flight = {
       <br>⚡ ${this.charge.toFixed(0)}/${this.maxCharge}${this.panelsOut?" ☀️":""}${this.powerDead?' <b style="color:var(--red)">STROM LEER</b>':""}
       ${this.infinite?'<br><b style="color:var(--green)">∞ Endlos-Treibstoff</b>':""}
       ${this.sats.length?'<br>📡 Satelliten: '+this.sats.length:""}
+      ${(()=>{ // 🎯 Orbit-Ziel: Startfenster (Rampe) bzw. Anflug-Tipps (Flug)
+        let out = "";
+        if(this.landed && !this.flew){
+          if(this.target){
+            const tw = this.nextLaunchWindow(this.target), wait = tw - this.t;
+            const per = 2*Math.PI/this.target.w;
+            const hot = wait < 30 || wait > per - 15;
+            out += '<br>🎯 Ziel: <b>'+this.target.name+'</b> <small>[Z] wechseln</small><br>'+
+              (hot ? '<b style="color:var(--green)">🚀 STARTFENSTER OFFEN – JETZT STARTEN!</b>'
+                   : '⏰ Startfenster um <b>'+this.clockStr(tw)+'</b> Uhr <small>(in '+Math.round(wait)+' s · [.] vorspulen)</small>');
+          } else out += '<br><small style="color:var(--muted)">[Z] = Orbit-Ziel wählen → Startfenster-Ansage</small>';
+        } else if(this.target && !this.docked){
+          const tp = this.target.pos(this.t), tv = this.target.vel(this.t);
+          const d = this.pos.distanceTo(tp), rv = this.vel.distanceTo(tv);
+          out += '<br>🎯 '+this.target.name+': <b>'+(d>=10000?(d/1000).toFixed(1)+" km":d.toFixed(0)+" m")+
+            '</b> · rel. <b>'+rv.toFixed(1)+' m/s</b>';
+          let tip = "";
+          if(d < 200) tip = '<b style="color:var(--green)">[L] – der Docking-Autopilot übernimmt!</b>';
+          else if(d < 20000) tip = "Nase aufs türkise ◆, kleine Schubstöße · [T] = ZIEL-BREMSE";
+          else if(this.body()===LEIBNIZ){
+            // Phasenwinkel ums Zentrum: voraus = niedriger fliegen, hinten = höher
+            const lp = bodyPos(LEIBNIZ, this.t);
+            const rs = this.pos.clone().sub(lp), rt = tp.clone().sub(lp);
+            let dA = Math.atan2(-rt.z, rt.x) - Math.atan2(-rs.z, rs.x);
+            while(dA>Math.PI) dA-=2*Math.PI; while(dA<-Math.PI) dA+=2*Math.PI;
+            if(dA > 0.03) tip = "Ziel "+(dA*180/Math.PI).toFixed(0)+"° VORAUS → NIEDRIGER fliegen (schnellere Bahn) und aufholen";
+            else if(dA < -0.03) tip = "Ziel "+(-dA*180/Math.PI).toFixed(0)+"° HINTER dir → HÖHER fliegen (langsamere Bahn), es holt auf";
+            else tip = "Gleiche Phase! Jetzt Bahnhöhe auf "+Math.round(this.target.alt/1000)+" km angleichen";
+          } else tip = "Erst in einen Leibniz-Orbit fliegen!";
+          out += '<br><small style="color:var(--muted)">💡 '+tip+'</small>';
+        }
+        return out; })()}
+      ${this.autoDock?'<br><b style="color:var(--green)">🤖 Docking-Autopilot aktiv <small>[L] Abbruch</small></b>':""}
       ${(()=>{ const sd=this.pos.distanceTo(stationPos(this.t));
         let out = "";
         if(this.docked){
           out = '<br><b style="color:var(--green)">🔗 ANGEDOCKT: »Große Pause«</b> <small>[L] abdocken</small>';
           const mod = this.deliverableMod();
           if(mod) out += '<br><b style="color:var(--orange)">🏗 [I] einbauen: '+mod.icon+' '+mod.name+'</b>';
-        } else if(sd<=400000){
+        } else if(sd<=400000 && !this.target){
           const sv=this.vel.distanceTo(stationVel(this.t));
           out = '<br>🛰 »Große Pause«: <b>'+(sd>=10000?(sd/1000).toFixed(1)+" km":sd.toFixed(0)+" m")+
             '</b> · rel. <b>'+sv.toFixed(1)+' m/s</b>';
