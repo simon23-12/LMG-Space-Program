@@ -9,7 +9,7 @@
    ================================================================= */
 const TUTORIALS = [
   {id:"first", icon:"🚀", title:"Dein erster Start", sub:"Vorgebaute Rakete – zünden, steigen, landen.",
-   scenario:{stack:["chute","pod","tankS","engS"]},
+   scenario:{stack:["chute","pod","fin","tankS","engS"]},
    steps:[
     {text:`Deine erste Rakete steht startklar auf der Rampe: Fallschirm, Kapsel, Tank, Triebwerk.<br><br>
       Zünde die erste Stufe mit der <b>[Leertaste]</b>!`,
@@ -29,7 +29,7 @@ const TUTORIALS = [
      Nächster Schritt: das Tutorial <b>In den Orbit</b>!`},
 
   {id:"orbit", icon:"🛰️", title:"In den Orbit", sub:"Zweistufige Rakete steht bereit – flieg den Gravity Turn.",
-   scenario:{stack:["chute","pod","shield","rcs","tankM","engVac","decoupler","tankL","tankL","engMain"]},
+   scenario:{stack:["chute","pod","shield","rcs","tankM","engVac","decoupler","fin","tankL","tankL","engMain"]},
    steps:[
     {text:`Diese zweistufige Rakete hat genug Δv für einen Orbit (~3400 m/s) – und einen
       <b>Hitzeschild</b> unter der Kapsel für die Rückkehr!<br><br>
@@ -56,7 +56,7 @@ const TUTORIALS = [
      das Feuer des Wiedereintritts (ohne ihn: 💥!), dann Fallschirm [P].`},
 
   {id:"node", icon:"◆", title:"Manöverknoten: Reise nach Monti", sub:"Du startest direkt im Orbit – plane den Transfer.",
-   scenario:{stack:["chute","pod","rcs","tankM","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:80000}},
+   scenario:{stack:["chute","pod","rcs","fin","tankM","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:80000}},
    steps:[
     {text:`Du bist bereits in einem 80-km-Orbit – mit vollen Tanks (~2600 m/s Δv).
       Ziel: der Mond <b>Monti</b>!<br><br>Öffne zuerst die Karte mit <b>[M]</b>.`,
@@ -83,7 +83,7 @@ const TUTORIALS = [
      RETROGRADE, bis Ap unter Montis SOI fällt – dann bist du eingefangen (Monti-Orbit)!`},
 
   {id:"sat", icon:"📡", title:"Satellit aussetzen", sub:"Du startest im Orbit – mit Satellit unter dem Fairing.",
-   scenario:{stack:["antenna","solar","battery","probe","fairing","pod","rcs","solar","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:90000}},
+   scenario:{stack:["antenna","solar","battery","probe","fairing","pod","rcs","solar","fin","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:90000}},
    steps:[
     {text:`Du bist im 90-km-Orbit. An der Spitze deiner Rakete sitzt ein kompletter Satellit
       (Antenne + Solar + Sondenkern) unter einem weißen <b>Nutzlast-Fairing</b>.<br><br>
@@ -104,7 +104,7 @@ const TUTORIALS = [
      Profi-Ziel: ein Satellit im Orbit um Monti oder Minzi!`},
 
   {id:"land", icon:"🛬", title:"Mondlandung auf Monti", sub:"Du startest im tiefen Monti-Orbit – setz den Lander auf.",
-   scenario:{stack:["pod","rcs","tankM","engVac","legs"], orbit:{body:"MONTI", alt:15000}},
+   scenario:{stack:["pod","rcs","fin","tankM","engVac","legs"], orbit:{body:"MONTI", alt:15000}},
    steps:[
     {text:`Du umkreist Monti in 15 km Höhe. Dein Lander hat Landebeine (verzeihen bis 12 m/s)
       – aber Monti hat <b>keine Atmosphäre</b>: kein Fallschirm, nur Triebwerksbremsen!<br><br>
@@ -124,7 +124,7 @@ const TUTORIALS = [
      (Crash gehabt? <b>↩ Neustart</b> setzt das Szenario zurück.)`},
 
   {id:"reentry", icon:"🔥", title:"Wiedereintritt überleben", sub:"Stufe abtrennen, Schild ausrichten, Schirm ziehen.",
-   scenario:{stack:["chute","pod","shield","rcs","decoupler","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:75000, pe:28000}},
+   scenario:{stack:["chute","pod","shield","rcs","decoupler","fin","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:75000, pe:28000}},
    steps:[
     {text:`Rückkehr vom Orbit! Deine Bahn taucht bereits in die Atmosphäre
       (Periapsis 28 km – sieh in der Karte <b>[M]</b> nach).<br><br>
@@ -151,7 +151,7 @@ const TUTORIALS = [
      Hitzeschild voraus → unter 5 km Fallschirm</b>. Ohne Schild = 💥, ohne
      Retrograde-Ausrichtung riskierst du die Crew. Jetzt bist du bereit für echte Orbit-Missionen!`},
   {id:"burns", icon:"🧭", title:"Burn-Manöver & SAS verstehen", sub:"Prograde, Retrograde & Co. – die Sprache der Raumfahrt.",
-   scenario:{stack:["chute","pod","shield","rcs","tankM","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:100000}},
+   scenario:{stack:["chute","pod","shield","rcs","fin","tankM","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:100000}},
    steps:[
     {text:`Du bist im 100-km-Orbit. Auf dem <b>Navball</b> siehst du das grüne Symbol:
       das ist <b>PROGRADE</b> – die Richtung, in die du gerade fliegst.<br><br>
@@ -185,7 +185,7 @@ const TUTORIALS = [
      und am Manöverknoten brennt das Triebwerk exakt das geplante Δv.`},
 
   {id:"evatut", icon:"🧑‍🚀", title:"Außeneinsatz (EVA)", sub:"Aussteigen, schweben, sicher zurückkommen.",
-   scenario:{stack:["chute","pod","shield","rcs","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:120000}},
+   scenario:{stack:["chute","pod","shield","rcs","fin","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:120000}},
    steps:[
     {text:`Du bist im 120-km-Orbit – Zeit für den berühmtesten Moment der Raumfahrt:
       den <b>Weltraumspaziergang</b>!<br><br>
@@ -206,30 +206,28 @@ const TUTORIALS = [
      EVA geht nur mit Crew (Kommandokapsel) und nur im Weltraum.`},
 
   {id:"rendezvous", icon:"🔗", title:"Rendezvous & Docking", sub:"Triff die Raumstation »Große Pause« – und docke an!",
-   scenario:{stack:["dock","pod","rcs","tankS","engT"], nearStation:3000},
+   scenario:{stack:["dock","pod","rcs","fin","tankS","engT"], nearStation:3000},
    steps:[
     {text:`Vor dir fliegt die Raumstation <b>»Große Pause«</b> – nur 3 km entfernt, im selben
       100-km-Orbit! Rechts im HUD siehst du <b>Abstand</b> und <b>Relativgeschwindigkeit</b>.<br><br>
       Wirf zuerst einen Blick auf die Lage: Öffne die Karte mit <b>[M]</b> –
       die Station ist der hellblaue <b>ISS</b>-Marker direkt neben dir.`,
      check:(o,F)=>F.map},
-    {text:`Schließe die Karte wieder <b>[M]</b>. Auf dem Navball zeigt das <b>türkise ◆</b>
-      zur Station.<br><br>
-      Richte die Nase mit <b>W/A/S/D</b> genau auf das ◆ und gib einen <b>kurzen</b>
-      Schubstoß (<b>[↑]</b> antippen, dann <b>[X]</b>) – Ziel: dich mit ~10–20 m/s nähern.
-      Dann treiben lassen, bis der Abstand <b>unter 1 km</b> fällt.`,
+    {text:`Schließe die Karte wieder <b>[M]</b>. Auf dem Navball siehst du zwei Marker:
+      das <b>türkise ◆</b> (da IST die Station) und das <b style="color:#ff6ad5">rosa ✛</b>
+      – deinen <b>Anflug-Assistenten</b>!<br><br>
+      Das ✛ zeigt immer die <b>perfekte Brennrichtung</b>: Es lenkt dich zur Station
+      UND bremst dich automatisch ab, je näher du kommst.<br><br>
+      Also ganz einfach: Nase mit <b>W/A/S/D</b> aufs <b style="color:#ff6ad5">rosa ✛</b>
+      drehen und <b>Schub geben</b> (<b>[↑]</b>). Wandert das ✛, folge ihm!
+      Ran bis <b>unter 1 km</b>.`,
      check:(o,F)=>!F.map && F.pos.distanceTo(stationPos(F.t))<1000},
-    {text:`Unter 1000 m! 🛰 Jetzt wird GEBREMST – wie beim Einparken:<br><br>
-      Drücke <b>[T]</b>, bis <b>SAS: ZIEL-BREMSE</b> erscheint. Das Schiff dreht sich
-      automatisch <b>gegen</b> die Annäherung. Dann kurz brennen, bis die
-      <b>Relativgeschwindigkeit unter 3 m/s</b> liegt.`,
-     check:(o,F)=>F.vel.distanceTo(stationVel(F.t))<3 && F.pos.distanceTo(stationPos(F.t))<1500},
-    {text:`Sauber abgebremst! Jetzt der Feinanflug – immer im Wechsel:<br><br>
-      1. Nase aufs türkise ◆ drehen, Mini-Schubstoß (3–5 m/s).<br>
-      2. Treiben lassen, Abstand beobachten.<br>
-      3. <b>[T]</b> ZIEL-BREMSE + kurz brennen zum Stoppen.<br><br>
-      Wiederhole das, bis du <b>unter 200 m</b> an der Station bist –
-      ab da hilft dir der Autopilot!`,
+    {text:`Unter 1000 m! 🛰 Einfach weiter so:<br><br>
+      Nase aufs <b style="color:#ff6ad5">rosa ✛</b> halten und in <b>kurzen Stößen</b>
+      schubgeben – das ✛ bremst dich von selbst immer weiter ab
+      (schau auf die <b>Relativgeschwindigkeit</b> rechts: sie sinkt mit dem Abstand).<br><br>
+      Driftet das ✛ zur Seite, Nase nachführen und wieder kurz brennen.
+      Ran bis <b>unter 200 m</b> – ab da hilft dir der Autopilot!`,
      check:(o,F)=>F.docked || F.pos.distanceTo(stationPos(F.t))<200},
     {text:`Unter 200 m! ✨ Jetzt drücke:<br><br>
       <b>[L] – der DOCKING-AUTOPILOT übernimmt!</b><br><br>
@@ -270,9 +268,11 @@ const TUTORIALS = [
       fliegt etwas tiefer und holt auf. Passe deine Bahn an und nähere dich, bis der
       Abstand <b>unter 50 km</b> liegt. (Zeitraffer [.] nutzen!)`,
      check:(o,F)=>F.pos.distanceTo(stationPos(F.t))<50000},
-    {text:`Unter 50 km – jetzt zeigt das türkise <b>◆</b> auf dem Navball zur Station!<br><br>
-      Feinanflug wie im Rendezvous-Tutorial: Nase aufs ◆, kleine Schubstöße,
-      dazwischen <b>[T]</b> ZIEL-BREMSE zum Abbremsen. Ran bis <b>unter 200 m</b>!`,
+    {text:`Unter 50 km – jetzt erscheinen die Navball-Marker: türkises <b>◆</b> = Station,
+      <b style="color:#ff6ad5">rosa ✛</b> = dein Anflug-Assistent!<br><br>
+      Feinanflug wie im Rendezvous-Tutorial: Nase aufs <b style="color:#ff6ad5">rosa ✛</b>
+      halten und in kurzen Stößen schubgeben – es lenkt UND bremst dich automatisch.
+      Ran bis <b>unter 200 m</b>!`,
      check:(o,F)=>F.docked || F.pos.distanceTo(stationPos(F.t))<200},
     {text:`Geschafft – Autopilot-Reichweite! Drücke <b>[L]</b>: Der
       <b>Docking-Autopilot</b> übernimmt den letzten Anflug. 🤖`,
@@ -284,7 +284,7 @@ const TUTORIALS = [
      wählen – so klappt das Auftanken im Orbit beim ersten Anlauf.`},
 
   {id:"science", icon:"🔬", title:"Wissenschaft sammeln", sub:"Du startest im Orbit mit Labor an Bord.",
-   scenario:{stack:["chute","pod","lab","rcs","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:100000}},
+   scenario:{stack:["chute","pod","lab","rcs","fin","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:100000}},
    steps:[
     {text:`Dein Schiff hat ein <b>Materiallabor »Curie«</b> an Bord (das Modul mit den
       leuchtenden Fenstern). Du bist im nahen Weltraum über Leibniz.<br><br>
