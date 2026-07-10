@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>LMG Space Program 3D</title>
+<title>LMG Space Program</title>
+<link rel="icon" type="image/png" href="LMGTECHlogo.png">
 <script src="three.min.js"></script>
 <script src="nebulae.js"></script>
 <style>
@@ -521,6 +522,12 @@ const PARTS = {
   engIon: {name:"Ionentriebwerk »Planck«",   type:"engine", cat:"sat", mass:250, thrust:6000, isp:1300, w:8,h:6, tech:"future", info:"Isp 1300 s!! Winziger Schub, gigantische Reichweite – für Sonden zu Kepler und Newton."},
   tankXL: {name:"Treibstofftank XL",         type:"tank",   cat:"lower", mass:1600, fuel:11200, w:14,h:60, tech:"heavyPlus", info:"11,2 t Treibstoff – das Rückgrat interplanetarer Expeditionen."},
   decoupler:{name:"Stufentrenner",           type:"decoupler", cat:"struct", mass:50, w:10,h:4, tech:"struct", info:"Trennt Stufen voneinander. [Leertaste]"},
+  interXS:{name:"Stufenadapter XS",          type:"inter", cat:"struct", mass:35,  w:8,  h:2.5, shroudH:10, tech:"fine",
+           info:"Offene Triebwerks-Verkleidung Ø 8 (»Floh«, Ionenantrieb): direkt UNTER den Stufentrenner bauen – sie umhüllt das Oberstufen-Triebwerk von unten und bleibt nach der Trennung auf der unteren Stufe (wie der Interstage der Falcon 9)."},
+  inter:  {name:"Stufenadapter S",           type:"inter", cat:"struct", mass:60,  w:10, h:3,   shroudH:16, tech:"struct",
+           info:"Offene Triebwerks-Verkleidung Ø 10 (»Funke«, »Terrier«, Atomantrieb): direkt UNTER den Stufentrenner bauen – verkleidet das Oberstufen-Triebwerk und bleibt nach der Trennung als Interstage auf der unteren Stufe. Sieht stabil aus UND ist es!"},
+  interL: {name:"Stufenadapter L",           type:"inter", cat:"struct", mass:110, w:12, h:3,   shroudH:18, tech:"heavy",
+           info:"Offene Triebwerks-Verkleidung Ø 12 (»Hauptstufe«, Raptoren): direkt UNTER den Stufentrenner bauen – der Falcon-9-Look für schwere Raketen."},
   legs:   {name:"Landebeine",                type:"legs",   cat:"struct", mass:120,  w:14,h:6, tech:"explore", info:"Erlauben Landungen bis 12 m/s (sonst 8 m/s)."},
   rcs:    {name:"RCS-Steuerdüsen",           type:"rcs",    cat:"struct", mass:70,   w:11,h:2.5, tech:"advProp",
            info:"Düsenring fürs schnelle Wenden im All – ohne RCS dreht das Schiff SEHR träge!"},
@@ -586,7 +593,7 @@ function isCrewedStack(stack){ return crewCapacity(stack) > 0; }
 const PART_COSTS = {
   probePod:350, probeS:250, pod:700, chute:60, chute3:220, lab:380, shield:140,
   tankS:100, engS:220, tankM:180, engVac:420, engNuc:1400, engIon:900, tankXL:700,
-  decoupler:40, legs:90, rcs:130, srb:150, fin:25, gridfin:240, tankL:350, engMain:650, srbL:300,
+  decoupler:40, interXS:30, inter:50, interL:90, legs:90, rcs:130, srb:150, fin:25, gridfin:240, tankL:350, engMain:650, srbL:300,
   sb2:260, sb4:500, probe:180, solar:70, battery:50, bay:80, bayS:50, antenna:60,
   satW:320, satR:420, satS:550, fairing:80, tankXS:70, engT:120, dock:100,
   engRapSL:900, engRapVac:1100, superheavy:2600, starship:4200, starshipTank:3200
@@ -2081,6 +2088,19 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
     case "decoupler":
       add(cylinder(r,r,h,MAT.orange), h/2);
       break;
+    case "inter":{
+      // Stufenadapter (Falcon-9-Interstage): offene Röhre, die von der eigenen
+      // Unterkante nach OBEN über Stufentrenner + Oberstufen-Triebwerk ragt.
+      // Belegt selbst nur h Stack-Höhe – die Hülle (shroudH) ist reine Optik.
+      const shroudMat = new THREE.MeshStandardMaterial({color:0xdfe3ec, roughness:.45,
+        metalness:.25, side:THREE.DoubleSide});
+      const tube = new THREE.Mesh(
+        new THREE.CylinderGeometry(r*1.06, r*1.06, p.shroudH, 20, 1, true), shroudMat);
+      add(tube, p.shroudH/2);
+      add(cylinder(r*1.09, r*1.09, h, MAT.dark), h/2);            // Basisring
+      const rim = cylinder(r*1.07, r*1.07, 1.1, MAT.orange);      // oberer Abschluss
+      rim.position.y = p.shroudH - 0.55; g.add(rim);
+      break;}
     case "superheavy":{
       // Edelstahl-Riese: ein Teil = Tank + 33 Raptoren
       const steel = new THREE.MeshStandardMaterial({color:0xc9ced8, roughness:.32, metalness:.75});
@@ -3929,6 +3949,11 @@ const Flight = {
       this.showMsg("Bellyflop braucht ein Starship mit Flaps! 🤸 (Tanker können das nicht)",3); return;
     }
     if(this.belly){
+      // In den ersten Sekunden bricht [C] NICHT ab (die Drehung braucht einen Moment –
+      // sonst schaltet ein ungeduldiger Doppel-Tipper den Autopiloten wieder aus!)
+      if(this.belly.state==="flop" && (this.belly.stateT||0) < 3){
+        this.showMsg("🤸 Bauchlage läuft – das Schiff dreht sich… ([C] später = Abbruch)",2); return;
+      }
       this.belly = null;
       this.showMsg("Bellyflop abgebrochen – du hast wieder das Steuer.",2); return;
     }
@@ -3951,6 +3976,7 @@ const Flight = {
     const g = LEIBNIZ.mu/rel.lengthSq();
     let target;
     if(b.state==="flop"){
+      b.stateT += dt;
       // Bauchlage: Nase horizontal, der Bauch bremst (Drag-Bonus in step)
       let hor = airVel.clone().addScaledVector(up, -airVel.dot(up));
       if(hor.lengthSq() < 1) hor = this.frameAt(this.pos).east.clone();
@@ -3980,10 +4006,11 @@ const Flight = {
         this.throttle = Math.min(1, Math.max(0.02, aDes*m/s.thrust));
       } else this.throttle = Math.min(1, g*m/s.thrust*0.9);
     }
-    // Flaps steuern kräftig – deutlich agiler als Reaktionsräder
+    // Flaps steuern kräftig – deutlich agiler als Reaktionsräder (und unabhängig
+    // von RCS/agility: der Autopilot fliegt mit den Flaps, nicht mit Reaktionsrädern)
     const nose = V3(0,1,0).applyQuaternion(this.q);
     const full = new THREE.Quaternion().setFromUnitVectors(nose, target);
-    this.q.premultiply(new THREE.Quaternion().slerp(full, Math.min(1, 1.1*dt)));
+    this.q.premultiply(new THREE.Quaternion().slerp(full, Math.min(1, 1.6*dt)));
   },
   /* Beobachtungsfenster: eigene Kamera folgt dem Booster (gleiche Szene).
      Öffnet sich beim Abtrennen, schließt ~4 s nach Landung/Crash automatisch. */
@@ -5096,7 +5123,8 @@ const Flight = {
         if(!manual){
           let tDir = null, rate = 0;
           if(this.chuteOpen){ tDir = relPos.clone().normalize(); rate = 1.6; }
-          else if(this.sas==="off" && descending && v>250){
+          // WICHTIG: nicht gegen den Bellyflop-Autopiloten drehen (der setzt sas="off"!)
+          else if(this.sas==="off" && !this.belly && descending && v>250){
             tDir = airVel.clone().normalize().negate(); rate = 0.35;
           }
           if(tDir){
@@ -5426,8 +5454,11 @@ const Flight = {
     let count = 0;
     // Im mitbewegten Bezugssystem des dominanten Körpers plotten – sonst
     // verschmiert die Planetenbewegung die Ellipse zu einer "Fluchtwelle".
-    const frameBody = o.body;
-    const fbNow = bodyPos(frameBody, this.t);
+    // WICHTIG: Das Bezugssystem WECHSELT unterwegs (SOI-Übergang wie bei KSP):
+    // Punkte in Montis Gravitationssphäre werden relativ zu Monti geplottet –
+    // nur so stimmt die Vorbeiflug-/Einfang-Geometrie am Mond!
+    let frameBody = o.body;
+    let fbNow = bodyPos(frameBody, this.t);
     let rMin=Infinity, rMax=-Infinity, pMin=null, pMax=null;
     for(let i=0;i<n;i++){
       for(let sub=0;sub<3;sub++){
@@ -5439,15 +5470,20 @@ const Flight = {
         v.addScaledVector(a2, d);
         t += d;
       }
+      const bHere = this.bodyAt(p, t);
+      if(bHere !== frameBody){ frameBody = bHere; fbNow = bodyPos(frameBody, this.t); }
       const rel = p.clone().sub(bodyPos(frameBody, t));
       const plot = rel.clone().add(fbNow);
       // Vertices RELATIV zum Schiff speichern: bei ~1e10 m absoluten Koordinaten
       // hat Float32 nur ~1 km Auflösung → die Linie "zittert" beim Ranzoomen.
       // Der große Anteil steckt in line.position (Float64-Matrixverkettung).
       posAttr.setXYZ(count++, plot.x-this.pos.x, plot.y-this.pos.y, plot.z-this.pos.z);
-      const rr = rel.length();
-      if(rr<rMin){ rMin=rr; pMin=plot.clone(); }
-      if(rr>rMax){ rMax=rr; pMax=plot.clone(); }
+      // Ap/Pe-Marker nur auf dem Stück im URSPRUNGS-Bezugssystem suchen
+      if(frameBody === o.body){
+        const rr = rel.length();
+        if(rr<rMin){ rMin=rr; pMin=plot.clone(); }
+        if(rr>rMax){ rMax=rr; pMax=plot.clone(); }
+      }
       if(p.distanceTo(bodyPos(LEIBNIZ,t))<LEIBNIZ.R) break;
       if(p.length()<SUN.R) break;
       if(MOONS.some(m=>p.distanceTo(bodyPos(m,t))<m.R)) break;
@@ -5532,6 +5568,9 @@ const Flight = {
       if(!isFinite(per2)||!per2||per2<=0) per2 = b2===SUN ? 9.5e6 : 120000;
       const tot2 = Math.min(per2*1.08, b2===SUN ? 1.2e7 : 600000), n2 = 600, dt2 = tot2/n2;
       let c2 = 0;
+      // Auch die GEPLANTE Bahn wechselt das Bezugssystem am SOI-Übergang:
+      // der Abschnitt in Montis Sphäre wird relativ zu Monti (JETZT) gezeichnet.
+      let pFrame = nBody, pFrameNow = nbNow;
       for(let i=0;i<n2;i++){
         for(let sub=0;sub<3;sub++){
           const d2 = dt2/3;
@@ -5542,7 +5581,9 @@ const Flight = {
           pv.addScaledVector(a2, d2);
           pt += d2;
         }
-        const plot2 = pp.clone().sub(bodyPos(nBody, pt)).add(nbNow);
+        const bH2 = this.bodyAt(pp, pt);
+        if(bH2 !== pFrame){ pFrame = bH2; pFrameNow = bodyPos(pFrame, this.t); }
+        const plot2 = pp.clone().sub(bodyPos(pFrame, pt)).add(pFrameNow);
         nAttr.setXYZ(c2++, plot2.x-this.pos.x, plot2.y-this.pos.y, plot2.z-this.pos.z);
         if(pp.distanceTo(bodyPos(LEIBNIZ,pt))<LEIBNIZ.R) break;
         if(pp.length()<SUN.R) break;

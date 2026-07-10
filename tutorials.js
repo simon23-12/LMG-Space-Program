@@ -29,7 +29,7 @@ const TUTORIALS = [
      Nächster Schritt: das Tutorial <b>In den Orbit</b>!`},
 
   {id:"orbit", icon:"🛰️", title:"In den Orbit", sub:"Zweistufige Rakete steht bereit – flieg den Gravity Turn.",
-   scenario:{stack:["chute","pod","shield","rcs","tankM","engVac","decoupler","fin","tankL","tankL","engMain"]},
+   scenario:{stack:["chute","pod","shield","rcs","tankM","engVac","decoupler","inter","fin","tankL","tankL","engMain"]},
    steps:[
     {text:`Diese zweistufige Rakete hat genug Δv für einen Orbit (~3400 m/s) – und einen
       <b>Hitzeschild</b> unter der Kapsel für die Rückkehr!<br><br>
@@ -78,9 +78,17 @@ const TUTORIALS = [
       Jetzt Geduld im Schnelldurchlauf: Zeitraffer <b>[.]</b> bis 1000× und zuschauen,
       wie du zu Monti fliegst (dauert ein paar Sekunden Echtzeit).`,
      check:o=>o.body && o.body.name==="Monti"},
+    {text:`Willkommen in Montis Gravitationssphäre! 🌗 Aber Achtung: Ohne Bremsung ist das
+      nur ein <b>Vorbeiflug</b> – Monti lässt dich wieder ziehen!<br><br>
+      Zum <b>EINFANGEN</b> bremst du am tiefsten Punkt (Oberth-Trick – dort wirkt jeder
+      m/s am stärksten): Raffe die Zeit bis kurz vor die <b>Periapsis</b> (oranger
+      Pe-Marker in der Karte), dann <b>[T]</b> auf SAS RETROGRADE und Vollgas <b>[Z]</b>,
+      bis die <b>Apoapsis unter 2000 km</b> fällt – deine Bahn wird zur Ellipse um Monti!`,
+     check:o=>o.body && o.body.name==="Monti" && o.ap>0 && o.ap<2e6},
    ],
-   done:`Willkommen in Montis Gravitationssphäre! 🌗 Bonus-Aufgabe: Brenne am tiefsten Punkt
-     RETROGRADE, bis Ap unter Montis SOI fällt – dann bist du eingefangen (Monti-Orbit)!`},
+   done:`EINGEFANGEN – du bist im MONTI-ORBIT! 🌗🎉 Genau so fliegt man zu jedem Mond:
+     Transferknoten → Vorbeiflug-Feintuning → Capture-Burn an der Periapsis.
+     Nächster Schritt: das Tutorial <b>Mondlandung auf Monti</b>!`},
 
   {id:"sat", icon:"📡", title:"Satellit aussetzen", sub:"Du startest im Orbit – mit Satellit unter dem Fairing.",
    scenario:{stack:["antenna","solar","battery","probe","fairing","pod","rcs","solar","fin","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:90000}},
@@ -284,7 +292,7 @@ const TUTORIALS = [
      Abdocken geht übrigens jederzeit mit [L].`},
 
   {id:"launchwindow", icon:"⏰", title:"Raumstation: Von Start bis Docking", sub:"Startfenster abpassen, Phase angleichen, andocken – die Königsdisziplin.",
-   scenario:{stack:["dock","pod","rcs","tankS","tankS","engVac","decoupler","fin","tankL","engMain"]},
+   scenario:{stack:["dock","pod","rcs","tankS","tankS","engVac","decoupler","inter","fin","tankL","engMain"]},
    steps:[
     {text:`Diesmal machst du ALLES selbst: von der Rampe bis zur Stationsluke!<br><br>
       Die Station rast mit 2,2 km/s um Leibniz – wer einfach "irgendwann" startet,
@@ -348,7 +356,7 @@ const TUTORIALS = [
      <b>Forschung</b> neue Bauteile frei. Tipp: Nimm das Labor auf JEDE Mission mit.`},
 
   {id:"booster", icon:"🛬", title:"Booster-Landung (Falcon-Stil)", sub:"Erste Stufe mit Gitterflossen – abtrennen, zuschauen, sparen.",
-   scenario:{stack:["chute","pod","rcs","tankM","engVac","decoupler","gridfin","fin","tankL","engMain"]},
+   scenario:{stack:["chute","pod","rcs","tankM","engVac","decoupler","inter","gridfin","fin","tankL","engMain"]},
    steps:[
     {text:`Diese Rakete hat <b>Gitterflossen</b> an der ersten Stufe (die angelegten
       Gitter oben am großen Tank – wie bei der Falcon 9!). Damit kann der
