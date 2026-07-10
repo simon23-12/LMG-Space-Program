@@ -2138,13 +2138,23 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
         new THREE.MeshStandardMaterial({color:0x23272f, roughness:.75, side:THREE.DoubleSide}));
       tiles.position.y = h*0.35; g.add(tiles);
       if(p.flaps){
-        // 2 Heck- und 2 Bug-Flaps
+        // 2 Heck- und 2 Bug-Flaps – auf PIVOTS an der Rumpfkante (Scharnier!),
+        // damit sie im Flug animiert "wedeln" können wie beim echten Starship.
+        // rotation.y = side*fold klappt die Flap zur Leeseite (−Z, weg vom Kachel-Bauch).
         const flapMat = new THREE.MeshStandardMaterial({color:0xb9c0cf, roughness:.4, metalness:.6});
         for(const side of [-1,1]){
-          const rear = new THREE.Mesh(new THREE.BoxGeometry(r*0.75, h*0.2, 0.7), flapMat);
-          rear.position.set(side*r*1.15, h*0.11, 0); g.add(rear);
-          const front = new THREE.Mesh(new THREE.BoxGeometry(r*0.5, h*0.13, 0.55), flapMat);
-          front.position.set(side*r*0.85, h*0.78, 0); g.add(front);
+          const mkFlap = (len, hh, thick, y, front)=>{
+            const pivot = new THREE.Group();
+            pivot.position.set(side*r*0.98, y, 0);
+            pivot.name = "flapPivot";
+            pivot.userData = {side, front, fold:0};
+            const fl = new THREE.Mesh(new THREE.BoxGeometry(len, hh, thick), flapMat);
+            fl.position.x = side*len/2;
+            pivot.add(fl);
+            g.add(pivot);
+          };
+          mkFlap(r*0.92, h*0.2,  0.7,  h*0.11, false);   // Heck-Flap
+          mkFlap(r*0.67, h*0.13, 0.55, h*0.78, true);    // Bug-Flap
         }
         // Bullaugen
         for(let k=0;k<3;k++){
@@ -4008,9 +4018,25 @@ const Flight = {
     }
     // Flaps steuern kräftig – deutlich agiler als Reaktionsräder (und unabhängig
     // von RCS/agility: der Autopilot fliegt mit den Flaps, nicht mit Reaktionsrädern)
-    const nose = V3(0,1,0).applyQuaternion(this.q);
-    const full = new THREE.Quaternion().setFromUnitVectors(nose, target);
-    this.q.premultiply(new THREE.Quaternion().slerp(full, Math.min(1, 1.6*dt)));
+    if(b.state==="flop"){
+      // Bauchlage = VOLLE Ziel-Lage inkl. ROLLWINKEL: Nase horizontal (Y),
+      // Kachel-Bauch (+Z) in den Fahrtwind – sonst liegt das Schiff zwar quer,
+      // rollt aber beliebig und die Flaps stehen senkrecht statt waagerecht!
+      const yA = target.clone();
+      let zA = vDown > 2 ? airVel.clone().normalize() : up.clone().negate();
+      zA.addScaledVector(yA, -zA.dot(yA));
+      if(zA.lengthSq() < 1e-6) zA = up.clone().negate();
+      zA.normalize();
+      const xA = new THREE.Vector3().crossVectors(yA, zA).normalize();
+      const targetQ = new THREE.Quaternion().setFromRotationMatrix(
+        new THREE.Matrix4().makeBasis(xA, yA, zA));
+      if(this.q.dot(targetQ) < 0) targetQ.set(-targetQ.x,-targetQ.y,-targetQ.z,-targetQ.w);
+      this.q.slerp(targetQ, Math.min(1, 1.6*dt));
+    } else {
+      const nose = V3(0,1,0).applyQuaternion(this.q);
+      const full = new THREE.Quaternion().setFromUnitVectors(nose, target);
+      this.q.premultiply(new THREE.Quaternion().slerp(full, Math.min(1, 1.6*dt)));
+    }
   },
   /* Beobachtungsfenster: eigene Kamera folgt dem Booster (gleiche Szene).
      Öffnet sich beim Abtrennen, schließt ~4 s nach Landung/Crash automatisch. */
@@ -5703,6 +5729,19 @@ const Flight = {
       const wingTarget = this.panelsOut ? 1 : 0.1;
       this.rocketGroup.traverse(o=>{
         if(o.name==="wing") o.scale.x += (wingTarget-o.scale.x)*0.08;
+      });
+      // Starship-Flaps: im Bellyflop ausgestellt + langsames "Wedeln" (Bug- und
+      // Heck-Paar gegenphasig = Balance-Steuerbewegungen wie in Boca Chica),
+      // beim Flip/Landing Burn nach hinten angelegt, sonst neutral ausgefahren.
+      this.rocketGroup.traverse(o=>{
+        if(o.name!=="flapPivot") return;
+        let want = 0;
+        if(this.belly)
+          want = this.belly.state==="flop"
+            ? 0.28 + 0.22*Math.sin(this.t*2.4 + (o.userData.front ? Math.PI : 0))
+            : 0.95;
+        o.userData.fold += (want - o.userData.fold)*0.08;
+        o.rotation.y = o.userData.side * o.userData.fold;
       });
       // Fallschirm entfaltet sich in ~1 Sekunde
       if(this.chuteOpen){
