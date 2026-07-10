@@ -184,6 +184,49 @@ const TUTORIALS = [
      Normal = Neigung, Radial = Drehung. Mit [T] hält das SAS jede Richtung automatisch –
      und am Manöverknoten brennt das Triebwerk exakt das geplante Δv.`},
 
+  {id:"inclination", icon:"📐", title:"Inklination ändern", sub:"Satellit im schiefen Orbit – kippe die Bahnebene mit einem Normal-Burn.",
+   scenario:{stack:["probe","solar","antenna","rcs","tankM","engVac"],
+     orbit:{body:"LEIBNIZ", alt:150000, inc:20},
+     goalOrbit:{body:"LEIBNIZ", alt:150000, incMax:5, label:"Äquator-Orbit (Inklination < 5°)"}},
+   steps:[
+    {text:`Dein Satellit ist im 150-km-Orbit – aber die Bahn ist um <b>20° geneigt</b>
+      (HUD links: "Inklination"). Der Auftraggeber will einen <b>Äquator-Orbit</b>!
+      Zum Glück ist die Oberstufe noch dran: volle Tanks für das Manöver.<br><br>
+      Öffne die Karte mit <b>[M]</b>: Der <b>blaue Ring</b> ist der Ziel-Orbit –
+      deine orange Bahn liegt schief dazu und kreuzt ihn an genau <b>zwei Punkten</b>.`,
+     check:(o,F)=>F.map},
+    {text:`Die Bahnebene kippen kann man <b>nur an diesen Kreuzungspunkten</b>
+      (dort schneiden sich alte und neue Ebene).<br><br>
+      Erstelle mit <b>[K]</b> einen Manöverknoten.`,
+     check:(o,F)=>!!F.node},
+    {text:`Verschiebe jetzt den <b>Zeitpunkt</b> des Knotens (±10s/±60s-Buttons rechts),
+      bis der grüne <b>Δv-Marker</b> genau auf einem <b>Kreuzungspunkt</b> von orangener
+      Bahn und blauem Ring sitzt.<br><br>
+      💡 Von der Seite betrachtet (Kamera ziehen!) siehst du am besten, wo deine Bahn
+      die Äquatorebene durchstößt.`,
+     check:(o,F)=>F.node && F.nodeRelY!==undefined && Math.abs(F.nodeRelY)<40000},
+    {text:`Perfekt platziert! Jetzt der <b>NORMAL-Burn</b> (senkrecht zur Bahnebene):<br><br>
+      Klicke im Panel bei <b>Normal</b> auf −10/+10, bis etwa <b>±780 m/s</b> eingestellt
+      sind. Beobachte die <b>grüne geplante Bahn</b>: Sie muss sich <b>flach auf den
+      blauen Ring</b> legen!<br><br>
+      ⚠️ Kippt sie stattdessen noch STEILER, hast du die falsche Richtung erwischt –
+      nimm einfach das andere Vorzeichen.`,
+     check:(o,F)=>F.node && F.nodePlannedInc!==undefined && F.nodePlannedInc<5},
+    {text:`Die grüne Bahn liegt in der Äquatorebene – jetzt fliegen wir sie!<br><br>
+      Drücke <b>[T]</b>, bis <b>SAS: Manöverknoten</b> aktiv ist – die Nase dreht sich
+      automatisch aufs <b style="color:#ff6ad5">rosa ✛</b> auf dem Navball (dein
+      Brennrichtungs-Zeiger).<br><br>
+      Warte mit Zeitraffer <b>[.]</b> bis <b>T minus halbe Brenndauer</b> (steht im
+      Panel) und gib dann Vollgas <b>[Z]</b> – das Triebwerk stoppt automatisch,
+      wenn das Δv verbrannt ist. Bring die <b>Inklination unter 5°</b>!`,
+     check:(o,F)=>F.orbitInc()<5 && o.pe>70000 && o.ap>0},
+   ],
+   done:`📐 BAHNEBENE GEKIPPT – der Ring in der Karte leuchtet GRÜN! 🎉 Merke:
+     Inklination ändert man <b>am Kreuzungspunkt der Ebenen</b> mit einem
+     <b>Normal-Burn</b> – und das ist teuer (hier ~780 m/s!). Profis starten deshalb
+     gleich von der richtigen Rampe: Der Breitengrad des Startplatzes wird zur
+     Bahnneigung. In der Karriere warten Orbit-Missionen mit genau solchen Zielringen!`},
+
   {id:"evatut", icon:"🧑‍🚀", title:"Außeneinsatz (EVA)", sub:"Aussteigen, schweben, sicher zurückkommen.",
    scenario:{stack:["chute","pod","shield","rcs","fin","tankM","engVac"], orbit:{body:"LEIBNIZ", alt:120000}},
    steps:[

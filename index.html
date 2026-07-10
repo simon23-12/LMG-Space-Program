@@ -707,6 +707,53 @@ const ANOMALIES = [
 ];
 const BODY_BY_NAME = ()=>({LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON});
 function anomalyFound(id){ return (Game.anomaliesFound||[]).includes(id); }
+
+/* ---------- Kleinkörper: Asteroiden & Meteoroid (Vorbeiflug-Scan) ----------
+   ⚠️ KEINE echten Himmelskörper: keine Gravitation, kein SOI, NICHT in MOONS/
+   GRAV_BODIES! Nur On-Rails-Punkte mit Mesh, Kartenmarker und Scan-Radius. */
+const ASTEROIDS = [
+  {id:"astBrot", name:"»Pausenbrot«", icon:"🥪", kind:"Asteroid", sci:70, R:1400,
+   orbitR:1.72e10, incl:7*Math.PI/180, phase:0.9, color:0x9a8a66,
+   info:"C-Typ-Asteroid zwischen Leibniz und Minzi. Sieht aus wie ein angebissenes Käsebrot – die dunkle Kruste ist uralter Kohlenstoff aus der Frühzeit des Systems."},
+  {id:"astEmmy", name:"»Emmy«", icon:"🪨", kind:"Asteroid", sci:90, R:2600,
+   orbitR:2.9e10, incl:11*Math.PI/180, phase:3.8, color:0xb8b2c4,
+   info:"M-Typ-Brocken aus fast reinem Metall, benannt nach der Mathematikerin Emmy Noether. Glänzt im Teleskop wie ein Spiegel – eine fliegende Schatzkammer aus Eisen und Nickel."},
+  {id:"metSpicker", name:"»Spicker«", icon:"☄️", kind:"Meteoroid", sci:110, R:500,
+   orbitR:9.2e9, incl:14*Math.PI/180, phase:5.5, color:0xd8c8a8,
+   info:"Winziger, flinker Meteoroid INNERHALB der Leibniz-Bahn – rast mit über 11 km/s um die Sonne. Wer IHN erwischt, hat Rendezvous wirklich verstanden."}
+];
+for(const a of ASTEROIDS) a.period = 2*Math.PI*Math.sqrt(Math.pow(a.orbitR,3)/SUN.mu);
+const AST_SCAN_DIST = 1e6;   // Vorbeiflug-Scan zündet unter 1000 km Abstand
+function asteroidPos(a, t){
+  const w = 2*Math.PI*t/a.period + a.phase;
+  const ci = Math.cos(a.incl), si = Math.sin(a.incl);
+  return V3(a.orbitR*Math.cos(w), a.orbitR*Math.sin(w)*si, a.orbitR*Math.sin(w)*ci);
+}
+function asteroidScanned(id){ return (Game.asteroidsScanned||[]).includes(id); }
+
+/* ---------- Synchronbahn (»geostationär«): 1 Umlauf = 1 Leibniz-Tag ----------
+   Die Wolken von Leibniz drehen mit ~14.000 s – unser "Schultag". In ≈2000 km
+   Höhe dauert ein Umlauf genau so lange: Der Satellit steht still am Himmel. */
+LEIBNIZ.dayT = 14000;
+const GEO_R   = Math.cbrt(LEIBNIZ.mu*LEIBNIZ.dayT*LEIBNIZ.dayT/(4*Math.PI*Math.PI)); // ≈ 2598 km
+const GEO_ALT = GEO_R - LEIBNIZ.R;                    // ≈ 1998 km über Grund
+const GEO_MIN = 1.85e6, GEO_MAX = 2.15e6;             // Toleranzband der Missionen
+function isGeoOrbit(pe, ap){ return pe>GEO_MIN && ap>0 && ap<GEO_MAX; }
+
+/* Zielorbit-Check für die blauen/grünen Missions-Ringe in der Orbitkarte:
+   grün, sobald die AKTUELLE Bahn alle Bedingungen des Ziels erfüllt. */
+function orbitGoalMet(g, o, inc){
+  const b = g.body==="SUN" ? SUN : (BODY_BY_NAME()[g.body] || LEIBNIZ);
+  if(o.body!==b || o.ap<0) return false;
+  const peMin = g.peMin!==undefined ? g.peMin : (b.atmoH||0);
+  if(o.pe < peMin) return false;
+  if(g.peMax!==undefined && o.pe>g.peMax) return false;
+  if(g.apMax!==undefined && o.ap>g.apMax) return false;
+  if(g.apMin!==undefined && o.ap<g.apMin) return false;
+  if(g.incMin!==undefined && inc<g.incMin) return false;
+  if(g.incMax!==undefined && inc>g.incMax) return false;
+  return true;
+}
 /* Tech-Tree mit Abhängigkeiten (req): Antriebe schalten bessere Antriebe frei usw. */
 const TECH = [
   {id:"start",     name:"Startkapital",           cost:0,   req:[],                     desc:"Die ersten Schritte ins All."},
@@ -754,15 +801,39 @@ const MISSIONS = [
   {id:"satWetter", name:"Wetterdienst Leibniz", desc:"Setze den Wettersatelliten »Wolkengucker« in einem stabilen Orbit um Leibniz aus [N]. Ab morgen gibt's Pausenhof-Wettervorhersage! (Tipp: Sondenbus »Teller« als Steuereinheit.)", sci:35,
    req:["sat1"], check:s=>s.satWeather},
   {id:"satStrahlung", name:"Strahlungsgürtel kartieren", desc:"Bring den Forschungssatelliten »Strahlenspäher« in einen HOHEN Orbit (Periapsis > 250 km) und setze ihn dort aus [N]. Nur dort oben lässt sich die kosmische Strahlung sauber messen.", sci:50,
-   req:["satWetter","highOrbit"], check:s=>s.satRad},
+   req:["satWetter","highOrbit"], check:s=>s.satRad,
+   orbitGoal:{body:"LEIBNIZ", alt:300000, peMin:250000, label:"Hoher Orbit (Pe > 250 km)"}},
   {id:"satSpion", name:"Geheimauftrag »Adlerauge«", desc:"Die Schulleitung will wissen, was auf dem Pausenhof der Nachbarschule vor sich geht… Setze den Spähsatelliten in einem TIEFEN Orbit aus (Pe > 70 km, Ap < 130 km) [N]. Pssst!", sci:55,
-   req:["satWetter"], check:s=>s.satSpy},
+   req:["satWetter"], check:s=>s.satSpy,
+   orbitGoal:{body:"LEIBNIZ", alt:100000, apMax:130000, label:"Späh-Orbit (70–130 km)"}},
+  {id:"satLeo", name:"Liefer-Orbit »Pendeldienst«", desc:"Setze einen Satelliten in einem TIEFEN Kreis-Orbit aus (Pe > 70 km, Ap < 200 km) [N] – die Standard-Route für Kleinsatelliten. In der Karte [M] zeigt ein blauer Ring den Zielorbit; er wird GRÜN, sobald deine Bahn passt!", sci:25,
+   req:["sat1"], check:s=>s.satDeploys.some(d=>d.body==="Leibniz"&&d.pe>70000&&d.ap>0&&d.ap<200000),
+   orbitGoal:{body:"LEIBNIZ", alt:130000, apMax:200000, label:"Tiefer Orbit (70–200 km)"}},
+  {id:"satIncl", name:"Schräglage 55°", desc:"Starte vom LMG-Startplatz (55° Nord) nach Osten und setze einen Satelliten in einem Orbit mit 45–65° Inklination aus [N]. Der Breitengrad der Rampe wird automatisch zur Bahnneigung – echte Physik!", sci:40,
+   req:["satLeo"], check:s=>s.satDeploys.some(d=>d.body==="Leibniz"&&d.pe>70000&&d.ap>0&&d.inc>=45&&d.inc<=65),
+   orbitGoal:{body:"LEIBNIZ", alt:120000, incMin:45, incMax:65, label:"55°-Orbit"}},
+  {id:"satEllip", name:"Steilpass (hochelliptisch)", desc:"Bring einen Satelliten in eine ELLIPSE: Periapsis 70–250 km, Apoapsis über 1500 km – wie die russischen Molnija-Funksatelliten. Aussetzen [N].", sci:50,
+   req:["satLeo","highOrbit"], check:s=>s.satDeploys.some(d=>d.body==="Leibniz"&&d.pe>70000&&d.pe<250000&&d.ap>1.5e6),
+   orbitGoal:{body:"LEIBNIZ", alt:1.5e6, apMin:1.5e6, peMax:250000, label:"Molnija-Bahn (Ap > 1500 km)"}},
+  {id:"geo1", name:"Synchroner Orbit", desc:"Ein Leibniz-Tag dauert 14.000 s – und in ≈2000 km Höhe braucht ein Umlauf GENAU so lange: Der Satellit steht scheinbar still am Himmel! Erreiche einen Kreis-Orbit zwischen 1850 und 2150 km (blauer Ring in der Karte).", sci:40,
+   req:["highOrbit"], check:s=>s.body===LEIBNIZ && isGeoOrbit(s.pe, s.ap),
+   orbitGoal:{body:"LEIBNIZ", alt:GEO_ALT, peMin:GEO_MIN, apMax:GEO_MAX, label:"Synchronbahn ≈2000 km"}},
+  {id:"gps1", name:"Navigation I: »Schulweg«", desc:"Das Navi-Projekt beginnt! Setze einen Satelliten im SYNCHRONEN Orbit aus (kreisrund, 1850–2150 km) [N]. Von dort sieht er immer dieselbe Seite von Leibniz.", sci:50,
+   req:["geo1","sat1"], check:s=>s.geoSats>=1,
+   orbitGoal:{body:"LEIBNIZ", alt:GEO_ALT, peMin:GEO_MIN, apMax:GEO_MAX, label:"Synchronbahn ≈2000 km"}},
+  {id:"gps3", name:"Navigation II: GPS-Konstellation", desc:"DREI Navigationssatelliten im synchronen Orbit = flächendeckendes GPS für Leibniz! Baue die Konstellation auf 3 Satelliten aus – mehrere Flüge oder gleich mehrere Sonden (je Sondenkern+Solar+Antenne) auf einer Rakete.", sci:90,
+   req:["gps1"], check:s=>s.geoSats>=3,
+   orbitGoal:{body:"LEIBNIZ", alt:GEO_ALT, peMin:GEO_MIN, apMax:GEO_MAX, label:"Synchronbahn ≈2000 km"}},
+  {id:"satSonne", name:"Sonnenspäher", desc:"Verlasse Leibniz' Gravitationssphäre und setze einen Satelliten in einem Orbit um die SONNE aus [N]. Antenne + Solar nicht vergessen – so weit draußen braucht die Sonde Funkkontakt (1 Relais)!", sci:65,
+   req:["satLeo","montiOrb"], check:s=>s.satDeploys.some(d=>d.body==="Sonne")},
   {id:"padEq1",  name:"Einweihung »Schulhof Süd«", desc:"Starte vom neuen Äquator-Raumhafen (Rampe in der Montagehalle wählen!) und erreiche einen stabilen Orbit. Von hier stimmt die Bahnebene mit der Station überein – Startfenster mit [Z] peilen!", sci:25,
    req:["orbit"], check:s=>s.pad==="eq" && s.body===LEIBNIZ && s.pe>LEIBNIZ.atmoH && s.ap>0},
   {id:"polar1",  name:"Polarorbit »Weltkarte«", desc:"Bring einen Satelliten in einen POLAREN Orbit (Inklination > 75°, stabil) und setze ihn aus [N] – nur so überfliegt er nach und nach die GANZE Oberfläche von Leibniz. Tipp: von der Polarstation »Skihütte« nach Osten starten!", sci:60,
-   req:["sat1"], check:s=>s.satPolar},
+   req:["sat1"], check:s=>s.satPolar,
+   orbitGoal:{body:"LEIBNIZ", alt:120000, incMin:75, label:"Polarorbit (> 75°)"}},
   {id:"dock1",   name:"Rendezvous: »Große Pause«", desc:"Docke mit einem Docking-Port [L] an der Raumstation »Große Pause« an (100-km-Orbit). Tipp: vom Äquator-Raumhafen starten (gleiche Bahnebene!) – und erst das Tutorial »Rendezvous & Docking«!", sci:55,
-   req:["highOrbit"], check:s=>s.docked},
+   req:["highOrbit"], check:s=>s.docked,
+   orbitGoal:{body:"LEIBNIZ", alt:100000, apMax:200000, label:"Stationsorbit 100 km"}},
   {id:"relay1",  name:"Funknetz I: Erstes Relais", desc:"Setze einen Relais-Satelliten aus: Sondenkern + Antenne + Solar in stabilem Leibniz-Orbit [N]. Sonden im tiefen All brauchen Funkkontakt!", sci:35,
    req:["sat1"], check:s=>s.relays>=1},
   {id:"relay3",  name:"Funknetz II: Volle Abdeckung", desc:"Baue das Netz auf 3 Relais aus – erst dann erreichen Sonden-Signale auch Newton am Rand des Systems. (Tipp: die Relaisstation »Pausenfunk« zählt doppelt!)", sci:60,
@@ -801,6 +872,10 @@ const MISSIONS = [
    req:["keplerSoi","montiLand"], check:s=>s.landed && s.body===KEPLER},
   {id:"huygensSoi",name:"Ringplanet Huygens", desc:"Erreiche den Ringplaneten Huygens – benannt nach Christiaan Huygens, der die Saturnringe entdeckte. Flieg NAH ran und bestaune den Ring!", sci:75,
    req:["minziSoi"], check:s=>s.body===HUYGENS},
+  {id:"ast1",   name:"Kleinkörper-Jäger", desc:"Zwischen den Planeten kreisen zwei Asteroiden und ein Meteoroid… Fliege mit einer Sonde auf unter 1000 km an einen von ihnen heran (Vorbeiflug-Scan). Ihre Bahnen siehst du in der Orbitkarte [M] und im Universum-Bildschirm!", sci:60,
+   req:["minziSoi"], check:s=>s.asteroids>=1},
+  {id:"astAll", name:"Kleinkörper-Katalog komplett", desc:"Scanne ALLE drei Kleinkörper: das Käsebrot »Pausenbrot«, den Metallbrocken »Emmy« und den flinken Meteoroiden »Spicker« innen bei der Sonne. Ein Lebenswerk für Sonden-Profis!", sci:130,
+   req:["ast1"], check:s=>s.asteroids>=3},
   {id:"newtonSoi",name:"Expedition Newton",  desc:"Erreiche den Eisriesen Newton am Rand des Systems – die weiteste Reise (Atomantrieb empfohlen!).", sci:85,
    req:["minziSoi"], check:s=>s.body===NEWTON},
   {id:"newtonLand",name:"Newton-Landung",    desc:"Lande auf dem Eisriesen – 11 m/s² Schwerkraft verlangen ALLES von deinem Lander!", sci:130,
@@ -837,6 +912,7 @@ function newGame(){
     roster:newRoster(),              // Astronaut*innen-Kader mit XP
     relays:0,                        // Relais-Satelliten fürs Funknetz
     anomaliesFound:[],               // entdeckte Anomalien
+    asteroidsScanned:[],             // gescannte Kleinkörper (Asteroiden/Meteoroid)
     pad:"lmg",                       // gewählte Startrampe
     assets:[]};                      // zurückgelassene Sats/Wracks im Orbit
 }
@@ -849,6 +925,7 @@ function migrateGame(){
   // Wer schon Missionen erledigt hat, kennt die Karriere bereits
   if(Game.introSeen===undefined) Game.introSeen = Game.done.length>0;
   if(!Game.pad) Game.pad = "lmg";
+  if(!Array.isArray(Game.asteroidsScanned)) Game.asteroidsScanned = [];
   // Bestands-Saves: Wer schon an der Station gedockt hat, startete de facto vom
   // Äquator – der neue Raumhafen wird gratis freigeschaltet, sonst wären die
   // laufenden Stations-Missionen plötzlich unfair schwer.
@@ -1178,7 +1255,9 @@ const Tut = {
         const rp = b.R + t.scenario.orbit.pe, a0 = (r+rp)/2;
         vc = Math.sqrt(b.mu*(2/r - 1/a0));   // an der Apoapsis der Wiedereintritts-Ellipse
       } else vc = Math.sqrt(b.mu/r);
-      const radial = V3(1,0,0), tang = V3(0,0,-1);
+      // Optional geneigter Start-Orbit (inc in Grad): Startpunkt = aufsteigender Knoten
+      const iRad = (t.scenario.orbit.inc||0)*Math.PI/180;
+      const radial = V3(1,0,0), tang = V3(0, Math.sin(iRad), -Math.cos(iRad));
       Flight.pos = c.clone().addScaledVector(radial, r);
       Flight.vel = bv.clone().addScaledVector(tang, vc);
       Flight.landed = false; Flight.flew = true;
@@ -1492,7 +1571,33 @@ function renderUniverse(){
       <div style="display:flex;justify-content:space-between;color:var(--orange)"><span><b>Δv bis zum Orbit</b></span><b>≈ ${Math.round(s.dv/10)*10} m/s</b></div>`;
     cards.appendChild(div);
   }
+  // Kleinkörper: Asteroiden & Meteoroid (Vorbeiflug-Scan bringt Wissenschaft)
+  for(const a of ASTEROIDS){
+    const scanned = asteroidScanned(a.id);
+    const div = document.createElement("div");
+    div.className = "tech-node"+(scanned?" unlocked":""); div.style.width = "300px";
+    div.innerHTML = `<h3>${a.icon} ${a.kind} ${a.name} ${scanned?"✅":""}</h3>
+      <p style="font-size:12.5px;color:var(--muted);margin:4px 0 8px;">${a.info}</p>
+      <div style="display:flex;justify-content:space-between"><span>Durchmesser</span><b>${(a.R*2/1000).toFixed(1)} km</b></div>
+      <div style="display:flex;justify-content:space-between"><span>Sonnenabstand</span><b>${(a.orbitR/1e9).toFixed(1)} Mio. km</b></div>
+      <div style="display:flex;justify-content:space-between"><span>Bahnneigung</span><b>${Math.round(a.incl*180/Math.PI)}°</b></div>
+      <div style="display:flex;justify-content:space-between;color:var(--orange)"><span><b>Vorbeiflug-Scan (&lt; 1000 km)</b></span><b>${scanned?"erledigt":"+"+a.sci+" 🧪"}</b></div>`;
+    cards.appendChild(div);
+  }
   if(!renderUniverse.running){ renderUniverse.running = true; universeFrame(); }
+}
+/* Stilisierte Karten-Radien: reale Sonnenabstände → Pixel-Faktor (stückweise linear
+   zwischen den Anker-Planeten Kepler/Leibniz/Minzi/Huygens/Newton interpoliert) */
+function uniR(orbitR){
+  const anchors = [[5.3e9,0.3],[1.36e10,0.55],[2.05e10,0.74],[4.1e10,0.88],[6.9e10,1.0]];
+  if(orbitR<=anchors[0][0]) return anchors[0][1]*orbitR/anchors[0][0];
+  for(let i=1;i<anchors.length;i++){
+    if(orbitR<=anchors[i][0]){
+      const [r0,p0]=anchors[i-1], [r1,p1]=anchors[i];
+      return p0 + (p1-p0)*(orbitR-r0)/(r1-r0);
+    }
+  }
+  return anchors[anchors.length-1][1];
 }
 function universeFrame(){
   requestAnimationFrame(universeFrame);
@@ -1567,7 +1672,61 @@ function universeFrame(){
   ctx.fillText("Leibniz",lx,ly+orbPx*0.13+16);
   ctx.fillText("Monti",mx,my-orbPx*0.05-8);
   ctx.fillText("Minzi",nx,ny+orbPx*0.06+16);
+  // --- Kleinkörper: Asteroiden & Meteoroid auf ihren (geneigten) Bahnen ---
+  ctx.font="11px sans-serif";
+  ASTEROIDS.forEach((a,i)=>{
+    const rA = orbPx*uniR(a.orbitR);
+    ctx.strokeStyle="rgba(200,180,140,.3)"; ctx.setLineDash([4,5]);
+    ctx.beginPath(); ctx.arc(cx,cy,rA,0,7); ctx.stroke(); ctx.setLineDash([]);
+    const perDisp = 60*(a.period/LEIBNIZ.period);        // gleiche Zeitskala wie Leibniz (60 s/Jahr)
+    const aa = t*2*Math.PI/perDisp + a.phase;
+    const ax=cx+Math.cos(aa)*rA, ay=cy+Math.sin(aa)*rA;
+    ctx.fillStyle = asteroidScanned(a.id) ? "#5fc46a" : "#d8c39a";
+    ctx.beginPath(); ctx.arc(ax,ay,3,0,7); ctx.fill();
+    ctx.fillStyle="#d8c39a";
+    ctx.fillText(a.icon+" "+a.name, ax, ay-8);
+  });
+  // --- Weltraumbahnhöfe auf Leibniz (Markierungen am Planetenrand) ---
+  const rp = orbPx*0.13;
+  ctx.font="12px sans-serif";
+  for(const [pid, ang] of [["eq",0],["lmg",-55*Math.PI/180],["polar",-84*Math.PI/180]]){
+    const p = padDef(pid);
+    const px = lx+Math.cos(ang)*rp, py = ly+Math.sin(ang)*rp;
+    ctx.fillStyle = "#f7941d";
+    ctx.beginPath(); ctx.arc(px,py,2.5,0,7); ctx.fill();
+    ctx.fillText(p.icon, px+Math.cos(ang)*11, py+Math.sin(ang)*11+4);
+  }
+  // --- Objekte im Orbit: Raumstation »Große Pause« + Satelliten-Inventar ---
+  const rS = orbPx*0.165;   // Stationsbahn (innerhalb der Monti-Bahn)
+  ctx.strokeStyle="rgba(57,194,255,.45)";
+  ctx.beginPath(); ctx.arc(lx,ly,rS,0,7); ctx.stroke();
+  const aS = t*2*Math.PI/6;
+  const sx2=lx+Math.cos(aS)*rS, sy2=ly+Math.sin(aS)*rS;
+  ctx.fillStyle="#39c2ff";
+  ctx.beginPath(); ctx.arc(sx2,sy2,3.5,0,7); ctx.fill();
+  ctx.font="11px sans-serif";
+  ctx.fillText("🛰 Große Pause", sx2, sy2-8);
+  // Satelliten/Wracks/Tanker aus dem Karriere-Inventar um ihre Körper
+  const uniPos = {LEIBNIZ:[lx,ly,rp], MONTI:[mx,my,orbPx*0.05], MINZI:[nx,ny,orbPx*0.06],
+    KEPLER:[kx,ky,orbPx*0.045], HUYGENS:[hx,hy,orbPx*0.06], NEWTON:[nwx,nwy,orbPx*0.085]};
+  const counts = {};
+  for(const d of (Game.assets||[])){
+    const bp = uniPos[d.body]; if(!bp) continue;
+    counts[d.body] = (counts[d.body]||0)+1;
+    const i = counts[d.body];
+    const rd = bp[2]*1.35 + 6 + i*5;
+    const ad = t*2*Math.PI/(9+i*2.3) + i*1.7;
+    ctx.fillStyle = d.kind==="wreck" ? "#e05555" : d.kind==="tanker" ? "#e8c540" : "#5fc46a";
+    ctx.beginPath(); ctx.arc(bp[0]+Math.cos(ad)*rd, bp[1]+Math.sin(ad)*rd, 2.2, 0, 7); ctx.fill();
+  }
   ctx.textAlign="left";
+  // Legende unten links
+  ctx.fillStyle="rgba(232,236,245,.85)"; ctx.font="12px sans-serif";
+  const nSats = (Game.assets||[]).filter(a=>a.kind==="sat").length;
+  const legend = ["🏫 LMG-Startplatz (55° N) · 🏟️ »Schulhof Süd« (Äquator) · 🏔️ »Skihütte« (86° N)",
+    "🛰 Raumstation »Große Pause« (100-km-Orbit)"+(nSats?` · 🟢 ${nSats} Satellit${nSats>1?"en":""} im Orbit`:""),
+    "🥪🪨☄️ Kleinkörper: Vorbeiflug-Scan bringt Wissenschaft!"];
+  legend.forEach((l,i)=>ctx.fillText(l, 14, H-14-(legend.length-1-i)*18));
 }
 
 /* ---------- Admin-Cam: Vollbild-3D-Planetenbetrachter ----------
@@ -3116,6 +3275,27 @@ const Flight = {
     })();
     this.nodeMarker = mkMarker("Δv","#5fc46a");
     this.stationMarker = mkMarker("ISS","#39c2ff");
+    // Kleinkörper: unregelmäßige Fels-Meshes + Kartenmarker + Bahnlinien um die Sonne
+    this.astObjs = ASTEROIDS.map(a=>{
+      const geo = new THREE.IcosahedronGeometry(a.R, 1);
+      const posA = geo.attributes.position, rnd = seededRand(a.R);
+      for(let i=0;i<posA.count;i++){
+        const f = 0.75 + rnd()*0.5;
+        posA.setXYZ(i, posA.getX(i)*f, posA.getY(i)*f, posA.getZ(i)*f);
+      }
+      geo.computeVertexNormals();
+      const mesh = new THREE.Mesh(geo,
+        new THREE.MeshStandardMaterial({color:a.color, roughness:.95, flatShading:true}));
+      this.world.add(mesh);
+      const marker = mkMarker(a.icon, "#d8c39a");
+      const pts = [];
+      for(let i=0;i<256;i++) pts.push(asteroidPos(a, i/256*a.period));
+      const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({color:0xc8b088, transparent:true, opacity:.35}));
+      ring.visible = false;
+      this.world.add(ring);
+      return {a, mesh, marker, ring};
+    });
     // Raumstation »Große Pause« – wächst mit jedem gelieferten Modul
     this.stationMesh = null;
     this.rebuildStation();
@@ -3404,7 +3584,11 @@ const Flight = {
     this.commDead=false; this._commMsgT=undefined;
     this.rebuildStation();
     this.spawnAssets();
+    this.satDeploys = [];            // Orbit-Daten aller in diesem Flug ausgesetzten Sats
+    this._astDone = [];              // Sandbox: bereits gescannte Kleinkörper (nur dieser Flug)
+    this.buildGoalRings();           // blaue Zielorbit-Ringe der aktiven Missionen/Tutorials
     this.node = null; this.nodeDir = null;
+    this.nodeRelY = this.nodePlannedInc = undefined;
     this.debris.forEach(d=>this.world.remove(d.mesh));
     this.debris = [];
     this.particles.forEach(p=>{ p.life=0; p.spr.visible=false; });
@@ -4032,6 +4216,70 @@ const Flight = {
     this.stationMesh = buildStationMesh(stationModsEff());
     this.world.add(this.stationMesh);
   },
+  /* ---------- Missions-Zielorbits: blaue Ringe in der Karte, GRÜN wenn erreicht ----------
+     Quellen: orbitGoal der AKTIVEN Missionen (Karriere) bzw. scenario.goalOrbit (Tutorial) */
+  buildGoalRings(){
+    if(this.goalRings) this.goalRings.forEach(r=>this.world.remove(r.line));
+    this.goalRings = [];
+    const goals = [];
+    if(typeof Tut!=="undefined" && Tut.active && Tut.active.scenario.goalOrbit)
+      goals.push(Tut.active.scenario.goalOrbit);
+    else if(!Game.sandbox)
+      for(const id of (Game.activeMissions||[])){
+        const m = MISSIONS.find(x=>x.id===id);
+        if(m && m.orbitGoal) goals.push(m.orbitGoal);
+      }
+    for(const g of goals){
+      const b = BODY_BY_NAME()[g.body] || LEIBNIZ;
+      const r = b.R + g.alt;
+      const tilt = (g.incMin!==undefined ? g.incMin : 0)*Math.PI/180;
+      const st = Math.sin(tilt), ct = Math.cos(tilt);
+      const pts = [];
+      for(let i=0;i<128;i++){
+        const aA = i/128*2*Math.PI;
+        pts.push(V3(r*Math.cos(aA), r*Math.sin(aA)*st, -r*Math.sin(aA)*ct));
+      }
+      const line = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({color:0x39c2ff, transparent:true, opacity:.95}));
+      line.visible = false;
+      this.world.add(line);
+      this.goalRings.push({g, line, wasMet:false});
+    }
+  },
+  updateGoalRings(o){
+    if(!this.goalRings || !this.goalRings.length) return;
+    const inc = this.orbitInc();
+    for(const gr of this.goalRings){
+      const met = !this.landed && !this.crashed && orbitGoalMet(gr.g, o, inc);
+      if(met && !gr.wasMet && this.flew)
+        this.showMsg("🎯 ZIELORBIT ERREICHT: "+(gr.g.label||"Missionsorbit")+" – der Ring in der Karte [M] ist jetzt GRÜN!", 5);
+      gr.wasMet = met;
+      gr.line.material.color.set(met ? 0x5fc46a : 0x39c2ff);
+      gr.line.visible = this.map;
+      if(this.map){
+        const b = BODY_BY_NAME()[gr.g.body] || LEIBNIZ;
+        gr.line.position.copy(bodyPos(b, this.t));
+      }
+    }
+  },
+  /* Kleinkörper-Vorbeiflug: unter 1000 km Abstand = Scan (Wissenschaft, Karriere) */
+  checkAsteroids(){
+    if(!this.v || this.landed || this.crashed || this.ended) return;
+    for(const a of ASTEROIDS){
+      const done = Game.sandbox ? (this._astDone||[]).includes(a.id) : asteroidScanned(a.id);
+      if(done || this.pos.distanceTo(asteroidPos(a, this.t)) > AST_SCAN_DIST) continue;
+      if(Game.sandbox){
+        (this._astDone = this._astDone||[]).push(a.id);
+        this.showMsg(a.icon+" VORBEIFLUG! "+a.kind+" "+a.name+" gescannt – im Training ohne Wissenschaft, in der Karriere gibt's +"+a.sci+" 🧪!", 6);
+      } else {
+        Game.asteroidsScanned = Game.asteroidsScanned||[];
+        Game.asteroidsScanned.push(a.id);
+        Game.science += a.sci;
+        autoSave();
+        this.showMsg(a.icon+" VORBEIFLUG-SCAN: "+a.kind+" "+a.name+"! +"+a.sci+" 🧪 – Daten im Universum-Bildschirm!", 7);
+      }
+    }
+  },
   /* erstes noch nicht gebautes Modul, dessen Teile komplett an Bord sind */
   deliverableMod(){
     if(Game.sandbox) return null;
@@ -4164,6 +4412,7 @@ const Flight = {
   },
   removeNode(){
     this.node = null; this.nodeDir = null;
+    this.nodeRelY = this.nodePlannedInc = undefined;
     if(this.sas==="node") this.sas = "off";
     this.nodeTrajLine.visible = false;
     this.nodeMarker.visible = false;
@@ -4339,12 +4588,16 @@ const Flight = {
     const o = this.orbit();
     if(o.body===LEIBNIZ && o.pe>LEIBNIZ.atmoH && o.ap>0) this.satL = true;
     if(o.body===MONTI && o.pe>0 && o.ap>0 && o.ap<MONTI.soi) this.satM = true;
+    // Orbit-Daten des Aussetzens festhalten (für Orbit-Missionen: LEO/Inklination/GEO …)
+    (this.satDeploys = this.satDeploys||[]).push(
+      {body:o.body.name, pe:o.pe, ap:o.ap, inc:this.orbitInc(), pad:this.pad?this.pad.id:"lmg"});
     // Karriere: Satellit bleibt DAUERHAFT im Orbit (Spielstand). Mit Antenne +
     // Solar wird er zum Relais fürs Funknetz!
     let msg = "📡 Satellit ausgesetzt!";
     if(o.body===LEIBNIZ && o.pe>LEIBNIZ.atmoH && o.ap>0 && this.orbitInc()>75){
       this.satPolar = true; msg += " 🧭 Polarorbit – ganz Leibniz im Blick!";
     }
+    if(o.body===LEIBNIZ && isGeoOrbit(o.pe, o.ap)) msg += " 🕗 Synchronbahn – er steht still am Himmel!";
     const bodyKey = Object.keys(BODY_BY_NAME()).find(k=>BODY_BY_NAME()[k]===o.body);
     if(!Game.sandbox && bodyKey && o.pe > (o.body.atmoH||0) && o.ap > 0){
       Game.assets = Game.assets||[];
@@ -4380,8 +4633,11 @@ const Flight = {
     const o = this.orbit();
     const stable = o.body===LEIBNIZ && o.pe>LEIBNIZ.atmoH && o.ap>0;
     if(stable) this.satL = true;
+    (this.satDeploys = this.satDeploys||[]).push(
+      {body:o.body.name, pe:o.pe, ap:o.ap, inc:this.orbitInc(), pad:this.pad?this.pad.id:"lmg"});
     let msg = "📡 "+PARTS[satId].name+" ausgesetzt!";
     if(stable && this.orbitInc()>75){ this.satPolar = true; msg += " 🧭 Polarorbit!"; }
+    if(o.body===LEIBNIZ && isGeoOrbit(o.pe, o.ap)) msg += " 🕗 Synchronbahn!";
     if(satId==="satW"){
       if(stable){ this.satWeather = true; msg += " ☁️ Wetterdaten laufen ein!"; }
       else msg += " ⚠️ Kein stabiler Leibniz-Orbit – keine Wetterdaten!";
@@ -4786,6 +5042,7 @@ const Flight = {
     this.vel.addScaledVector(a, dt);
     this.pos.addScaledVector(this.vel, dt);
     this.t += dt;
+    this.checkAsteroids();   // pro Substep: auch bei hohem Warp keinen Vorbeiflug verpassen
     for(const sat of this.sats){
       const sa = this.accel(sat.pos, this.t);
       sat.vel.addScaledVector(sa, dt);
@@ -4955,6 +5212,10 @@ const Flight = {
       satWeather:this.satWeather, satRad:this.satRad, satSpy:this.satSpy,
       satPolar:!!this.satPolar, pad:this.pad ? this.pad.id : "lmg",
       docked:!!this.docked,
+      inc:this.orbitInc(),
+      satDeploys:this.satDeploys||[],
+      geoSats:(Game.assets||[]).filter(a=>a.kind==="sat"&&a.body==="LEIBNIZ"&&a.alt>GEO_MIN&&a.alt<GEO_MAX).length,
+      asteroids:(Game.asteroidsScanned||[]).length,
       relays:commRelays(), mods:Game.stationMods||[],
       anomalies:(Game.anomaliesFound||[]).length,
       rescueLanded:!!this.rescueLanded,
@@ -5149,6 +5410,12 @@ const Flight = {
         .addScaledVector(hv, this.node.nor)
         .addScaledVector(rad, this.node.rad);
       this.nodeDir = dvWorld.lengthSq()>1e-6 ? dvWorld.clone().normalize() : pro;
+      // Fürs Inklinations-Tutorial: Höhe des Knotens über der Äquatorebene (y=0)
+      // und Bahnneigung der GEPLANTEN Bahn direkt nach dem Burn
+      this.nodeRelY = npRel.y;
+      const hPl = npRel.clone().cross(nvRel.clone().add(dvWorld));
+      this.nodePlannedInc = hPl.lengthSq()>1e-6
+        ? Math.acos(Math.min(1, Math.abs(hPl.y)/hPl.length()))*180/Math.PI : 0;
       // Marker (im mitbewegten Bezugssystem des Knoten-Körpers)
       const nbNow = bodyPos(nBody, this.t);
       this.nodeMarker.visible = true;
@@ -5396,6 +5663,22 @@ const Flight = {
       const sms = this._cd ? this._cd*0.045 : this.camDist*0.045;
       this.stationMarker.scale.set(sms, sms/2, 1);
     }
+    // Kleinkörper: Fels-Mesh, Bahnlinie & Kartenmarker
+    for(const ao of this.astObjs){
+      const ap2 = asteroidPos(ao.a, this.t);
+      ao.mesh.position.copy(ap2);
+      ao.mesh.rotation.y = this.t*0.05; ao.mesh.rotation.x = this.t*0.02;
+      ao.mesh.visible = !this.map;
+      ao.ring.visible = this.map;
+      ao.marker.visible = this.map;
+      if(this.map){
+        ao.marker.position.copy(ap2);
+        const ams = (this._cd||this.camDist)*0.04;
+        ao.marker.scale.set(ams, ams/2, 1);
+      }
+    }
+    // Missions-Zielorbits (blau/grün) aktualisieren
+    this.updateGoalRings(this.orbit());
     if(this.eva){
       this.eva.mesh.position.copy(this.eva.pos);
       const eUp = this.frameAt(this.eva.pos).up;
@@ -5585,10 +5868,33 @@ const Flight = {
       x.closePath(); x.stroke();
       x.beginPath(); x.arc(tx,ty,2,0,7); x.stroke();
     }
+    // Manöver-Marker: rosa ✛ = Brennrichtung des gesetzten Knotens.
+    // Nase draufhalten (oder SAS [T] auf Knoten) und zum Zeitpunkt zünden!
+    if(this.node && this.nodeDir){
+      const nv2 = this.nodeDir;
+      const nPitch = 90 - THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(nv2.dot(fr.up),-1,1)));
+      const nh = nv2.clone().addScaledVector(fr.up, -nv2.dot(fr.up));
+      let nHead = heading;
+      if(nh.lengthSq()>1e-8){
+        nh.normalize();
+        nHead = THREE.MathUtils.radToDeg(Math.atan2(nh.dot(fr.east), nh.dot(fr.north)));
+        if(nHead<0) nHead+=360;
+      }
+      let dhn = nHead-heading; if(dhn>180)dhn-=360; if(dhn<-180)dhn+=360;
+      const nx2 = cx + THREE.MathUtils.clamp(dhn,-50,50)*1.1;
+      const ny2 = cy + THREE.MathUtils.clamp(pitch-nPitch,-50,50)*1.1;
+      x.strokeStyle="#ff6ad5"; x.lineWidth=2.5;
+      x.beginPath();
+      x.moveTo(nx2,ny2-9); x.lineTo(nx2,ny2-3); x.moveTo(nx2,ny2+3); x.lineTo(nx2,ny2+9);
+      x.moveTo(nx2-9,ny2); x.lineTo(nx2-3,ny2); x.moveTo(nx2+3,ny2); x.lineTo(nx2+9,ny2);
+      x.stroke();
+      x.beginPath(); x.arc(nx2,ny2,2.5,0,7); x.stroke();
+    }
     // Anflug-Marker: rosa ✛ = OPTIMALE Brennrichtung fürs Rendezvous.
     // Nase draufhalten + Schub geben → die Relativgeschwindigkeit dreht sich
     // automatisch aufs Ziel und bremst mit der Entfernung ab (kein Vorbeischießen).
-    if(!this.docked && !this.landed){
+    // (Pausiert, solange ein Manöverknoten gesetzt ist – ein ✛ zur Zeit!)
+    if(!this.docked && !this.landed && !this.node){
       const tPos = this.target ? this.target.pos(this.t) : stationPos(this.t);
       const tVel = this.target ? this.target.vel(this.t) : stationVel(this.t);
       const ap = tPos.clone().sub(this.pos);
@@ -5691,6 +5997,19 @@ const Flight = {
       <br>⚡ ${this.charge.toFixed(0)}/${this.maxCharge}${this.panelsOut?" ☀️":""}${this.powerDead?' <b style="color:var(--red)">STROM LEER</b>':""}
       ${this.infinite?'<br><b style="color:var(--green)">∞ Endlos-Treibstoff</b>':""}
       ${this.sats.length?'<br>📡 Satelliten: '+this.sats.length:""}
+      ${(()=>{ // ☄️ Anflughilfe: nächster noch ungescannter Kleinkörper
+        if(this.landed) return "";
+        let best=null, bd=Infinity;
+        for(const a of ASTEROIDS){
+          if(Game.sandbox ? (this._astDone||[]).includes(a.id) : asteroidScanned(a.id)) continue;
+          const d = this.pos.distanceTo(asteroidPos(a, this.t));
+          if(d<bd){ bd=d; best=a; }
+        }
+        if(!best || bd>5e8) return "";
+        return '<br>'+best.icon+' '+best.name+': <b>'+
+          (bd>=1e6 ? (bd/1000).toLocaleString("de-DE",{maximumFractionDigits:0})+" km" : (bd/1000).toFixed(0)+" km")+
+          '</b> <small style="color:var(--muted)">(Scan unter 1000 km)</small>';
+      })()}
       ${(()=>{ // 🎯 Orbit-Ziel: Startfenster (Rampe) bzw. Anflug-Tipps (Flug)
         let out = "";
         if(this.landed && !this.flew && this.pad && this.pad.lat!==0){
