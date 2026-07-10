@@ -609,6 +609,24 @@ function stationVel(t){
   const a = STATION.phase + STATION.w*t, v = STATION.w*STATION.r;
   return bodyVel(LEIBNIZ,t).add(V3(-Math.sin(a)*v, 0, -Math.cos(a)*v));
 }
+/* ---------- Startrampen ----------
+   Drei Startplätze auf Leibniz, alle auf Länge 0 (Bahnebene der Station = Äquator,
+   y=0). Der Breitengrad ist ECHTE Physik: Wer von 55° Nord nach Osten startet,
+   landet in einem um 55° geneigten Orbit – Rendezvous mit der äquatorialen
+   »Großen Pause« kostet dann eine brutal teure Bahnebenen-Korrektur.
+   Deshalb gibt es die Startfenster-Peilung ([Z]) nur am Äquator-Raumhafen. */
+const PADS = [
+  {id:"lmg",   icon:"🏫", name:"LMG-Startplatz", lat:55*Math.PI/180, maxMass:25000, tech:null,
+   short:"55° Nord, direkt an der Schule. Orbits sind ~55° geneigt – Station-Rendezvous wird teuer. Max. 25 t Startmasse."},
+  {id:"eq",    icon:"🏟️", name:"Raumhafen »Schulhof Süd«", lat:0, maxMass:Infinity, tech:"padEq",
+   short:"Direkt am Äquator – perfekte Lage für die »Große Pause« (Startfenster mit [Z]). Kein Gewichtslimit."},
+  {id:"polar", icon:"🏔️", name:"Polarstation »Skihütte«", lat:86*Math.PI/180, maxMass:Infinity, tech:"padPolar",
+   short:"86° Nord: Start nach Osten ergibt fast polare Orbits – ideal für Kartierung. Einfach gebaut, kein Gewichtslimit."}
+];
+function padDef(id){ return PADS.find(p=>p.id===id) || PADS[0]; }
+function padUnlocked(p){ return Game.sandbox || !p.tech || Game.unlocked.includes(p.tech); }
+function currentPad(){ const p = padDef(Game.pad); return padUnlocked(p) ? p : PADS[0]; }
+function padDir(p){ return V3(Math.cos(p.lat), Math.sin(p.lat), 0); }
 /* Stationsausbau (Jahresprojekt): Module werden per Rakete hochgebracht.
    Andocken + benötigte Bauteile an Bord → [I] baut das Modul dauerhaft ein. */
 const STATION_MODS = [
@@ -707,6 +725,8 @@ const TECH = [
   {id:"raptorSL",  name:"Raptor (Meereshöhe)",    cost:120, req:["reuse"],              desc:"Vollstrom-Methantriebwerk – das effizienteste Triebwerk seiner Klasse. Schaltet den SUPERHEAVY-Booster frei!"},
   {id:"raptorVac", name:"Raptor (Vakuum)",        cost:150, req:["raptorSL"],           desc:"Die Vakuum-Version mit riesiger Glocke: Isp 380 s bei gewaltigem Schub."},
   {id:"starshipT", name:"Starship",               cost:250, req:["raptorVac"],          desc:"Das beste Vehikel im Spiel: Edelstahl, Bellyflop-Landung [C], Platz für 6 Crew oder mehrere Satelliten. Dazu: Tanker-Variante fürs Auftanken im Orbit."},
+  {id:"padEq",     name:"Raumhafen am Äquator",   cost:35,  req:["basic","struct"],     desc:"Bodenstation-Ausbau: der Raumhafen »Schulhof Süd« liegt PERFEKT am Äquator – gleiche Bahnebene wie die »Große Pause«, Startfenster-Peilung [Z] und KEIN Gewichtslimit. Schwerlast startet nur hier!"},
+  {id:"padPolar",  name:"Polare Startrampe",      cost:70,  req:["padEq","heavy"],      desc:"Die Polarstation »Skihütte« am 86. Breitengrad: Ein Ost-Start mündet fast im Polarorbit – der Satellit sieht nach und nach die GANZE Oberfläche. Einfach gebaut, aber ohne Gewichtslimit."},
   {id:"mission2",  name:"Missionsplanung",        cost:20,  req:["struct"],             desc:"Das Bodenteam wächst: Nimm ZWEI Missionen gleichzeitig an."},
   {id:"mission3",  name:"Missionszentrale",       cost:75,  req:["mission2","payload"], desc:"Profi-Planung mit großem Kontrollraum: DREI Missionen gleichzeitig."}
 ];
@@ -737,7 +757,11 @@ const MISSIONS = [
    req:["satWetter","highOrbit"], check:s=>s.satRad},
   {id:"satSpion", name:"Geheimauftrag »Adlerauge«", desc:"Die Schulleitung will wissen, was auf dem Pausenhof der Nachbarschule vor sich geht… Setze den Spähsatelliten in einem TIEFEN Orbit aus (Pe > 70 km, Ap < 130 km) [N]. Pssst!", sci:55,
    req:["satWetter"], check:s=>s.satSpy},
-  {id:"dock1",   name:"Rendezvous: »Große Pause«", desc:"Docke mit einem Docking-Port [L] an der Raumstation »Große Pause« an (100-km-Orbit). Tipp: erst das Tutorial »Rendezvous & Docking«!", sci:55,
+  {id:"padEq1",  name:"Einweihung »Schulhof Süd«", desc:"Starte vom neuen Äquator-Raumhafen (Rampe in der Montagehalle wählen!) und erreiche einen stabilen Orbit. Von hier stimmt die Bahnebene mit der Station überein – Startfenster mit [Z] peilen!", sci:25,
+   req:["orbit"], check:s=>s.pad==="eq" && s.body===LEIBNIZ && s.pe>LEIBNIZ.atmoH && s.ap>0},
+  {id:"polar1",  name:"Polarorbit »Weltkarte«", desc:"Bring einen Satelliten in einen POLAREN Orbit (Inklination > 75°, stabil) und setze ihn aus [N] – nur so überfliegt er nach und nach die GANZE Oberfläche von Leibniz. Tipp: von der Polarstation »Skihütte« nach Osten starten!", sci:60,
+   req:["sat1"], check:s=>s.satPolar},
+  {id:"dock1",   name:"Rendezvous: »Große Pause«", desc:"Docke mit einem Docking-Port [L] an der Raumstation »Große Pause« an (100-km-Orbit). Tipp: vom Äquator-Raumhafen starten (gleiche Bahnebene!) – und erst das Tutorial »Rendezvous & Docking«!", sci:55,
    req:["highOrbit"], check:s=>s.docked},
   {id:"relay1",  name:"Funknetz I: Erstes Relais", desc:"Setze einen Relais-Satelliten aus: Sondenkern + Antenne + Solar in stabilem Leibniz-Orbit [N]. Sonden im tiefen All brauchen Funkkontakt!", sci:35,
    req:["sat1"], check:s=>s.relays>=1},
@@ -813,6 +837,7 @@ function newGame(){
     roster:newRoster(),              // Astronaut*innen-Kader mit XP
     relays:0,                        // Relais-Satelliten fürs Funknetz
     anomaliesFound:[],               // entdeckte Anomalien
+    pad:"lmg",                       // gewählte Startrampe
     assets:[]};                      // zurückgelassene Sats/Wracks im Orbit
 }
 /* Alte Spielstände auf neue Felder heben (Geld, Mehrfach-Missionen) */
@@ -823,6 +848,12 @@ function migrateGame(){
   delete Game.activeMission;
   // Wer schon Missionen erledigt hat, kennt die Karriere bereits
   if(Game.introSeen===undefined) Game.introSeen = Game.done.length>0;
+  if(!Game.pad) Game.pad = "lmg";
+  // Bestands-Saves: Wer schon an der Station gedockt hat, startete de facto vom
+  // Äquator – der neue Raumhafen wird gratis freigeschaltet, sonst wären die
+  // laufenden Stations-Missionen plötzlich unfair schwer.
+  if(Game.done.includes("dock1") && !Game.unlocked.includes("padEq"))
+    Game.unlocked.push("padEq");
 }
 /* Auto-Save: Fortschritt überlebt das Schließen des Browsers.
    (Der JSON-Download bleibt für Backups & Rechnerwechsel.) */
@@ -875,6 +906,14 @@ const UI = {
   launch(){
     const v = VAB.validate();
     if(v){ alert(v); return; }
+    // Startrampe: Massenlimit prüfen (der alte LMG-Startplatz trägt max. 25 t)
+    const pad = currentPad();
+    const totalM = VAB.totalMass();
+    if(totalM > pad.maxMass){
+      alert("🏗️ Zu schwer für den "+pad.name+"!\n\nDiese Rakete wiegt "+(totalM/1000).toFixed(1)+
+        " t, die Rampe trägt nur "+(pad.maxMass/1000)+" t.\n\nSchwere Raketen starten vom Raumhafen »Schulhof Süd« am Äquator (Forschung »Raumhafen am Äquator«).");
+      return;
+    }
     // Karriere: die Rakete muss bezahlt werden – Bergung nach Landung erstattet sie
     let cost = 0;
     if(!Game.sandbox){
@@ -1126,7 +1165,8 @@ const Tut = {
     Game.sandbox = true;          // Training zählt nicht für die Karriere
     UI.inGame = true;
     VAB.stack = [...t.scenario.stack];
-    Flight.start(VAB.buildVessel());
+    // Tutorials starten vom Äquator-Raumhafen (Startfenster & Station passen dort)
+    Flight.start(VAB.buildVessel(), t.scenario.pad || "eq");
     if(t.scenario.orbit){
       // Spieler direkt in einen Orbit setzen (Kreis – oder Ellipse, wenn pe angegeben)
       const b = t.scenario.orbit.body==="MONTI" ? MONTI :
@@ -2764,6 +2804,24 @@ const VAB = {
     }
     return {segs, stack:[...this.stack], boost};
   },
+  /* Startmasse inkl. Seitenbooster – für das Rampen-Limit */
+  totalMass(){
+    const segs = this.segments(this.stack);
+    let total = 0;
+    segs.forEach(s=>{ const st=this.segStats(s); total += st.dry+st.fuel+st.srbFuel; });
+    for(const id of this.stack)
+      if(PARTS[id].type==="sideboost") total += PARTS[id].mass+PARTS[id].fuel;
+    return total;
+  },
+  setPad(id){
+    const p = padDef(id);
+    if(!padUnlocked(p)){
+      const t = TECH.find(x=>x.id===p.tech);
+      alert("🔒 "+p.name+" ist noch nicht gebaut!\nForschung nötig: »"+(t?t.name:p.tech)+"«.");
+      return;
+    }
+    Game.pad = id; autoSave(); this.renderInfo();
+  },
   renderInfo(){
     const info = document.getElementById("vabInfo");
     const segs = this.segments(this.stack);
@@ -2778,7 +2836,20 @@ const VAB = {
     const bThrust = bParts.reduce((a,id)=>a+PARTS[id].thrust,0);
     total += bMass;
     const cost = stackCost(this.stack);
-    let html = `<h3>Rakete</h3>
+    // Startrampen-Wahl: Klick wechselt, 🔒 = Forschung fehlt, rot = zu schwer
+    const pad = currentPad();
+    let padHtml = `<h3>Startrampe</h3>`;
+    for(const p of PADS){
+      const unlocked = padUnlocked(p), sel = p.id===pad.id;
+      padHtml += `<div class="stat" onclick="VAB.setPad('${p.id}')" style="cursor:pointer;${
+        sel?"color:var(--orange);font-weight:700;":""}${unlocked?"":"opacity:.45;"}">
+        <span>${sel?"▶ ":""}${p.icon} ${p.name}</span>
+        <span>${unlocked ? (isFinite(p.maxMass)?"max "+(p.maxMass/1000)+" t":"∞") : "🔒"}</span></div>`;
+    }
+    padHtml += `<small style="color:var(--muted)">${pad.short}</small>`;
+    if(total > pad.maxMass)
+      padHtml += `<div style="color:var(--red);font-weight:700;margin-top:4px">⚠ ${(total/1000).toFixed(1)} t – zu schwer für diese Rampe!</div>`;
+    let html = padHtml + `<h3>Rakete</h3>
       <div class="stat"><span>Gesamtmasse</span><span>${(total/1000).toFixed(2)} t</span></div>
       ${Game.sandbox?"":`<div class="stat"><span>Kosten</span><span style="${cost>Game.funds?"color:var(--red);font-weight:700":""}">🪙 ${cost}${cost>Game.funds?" – zu teuer!":""}</span></div>`}
       <div class="stat"><span>Teile</span><span>${this.stack.length}</span></div>
@@ -3137,13 +3208,20 @@ const Flight = {
       this.camDist = Math.min(max, Math.max(4, this.camDist*(e.deltaY>0?1.15:1/1.15)));
     }, {passive:true});
   },
-  buildPad(){
+  /* Startrampe je nach gewähltem Startplatz: "lmg" = Schul-Startplatz,
+     "eq" = großer Weltraumbahnhof am Äquator, "polar" = karge Polarstation */
+  buildPad(kind){
+    kind = kind || "lmg";
     const g = new THREE.Group();
     const conc = new THREE.MeshStandardMaterial({color:0x8d94a6, roughness:.85});
     const metal = new THREE.MeshStandardMaterial({color:0xb8434f, roughness:.5, metalness:.4});
+    const grey  = new THREE.MeshStandardMaterial({color:0x6f7686});
+    const bldMat = new THREE.MeshStandardMaterial({color:0xd8dde8, roughness:.7});
+    const tankMat = new THREE.MeshStandardMaterial({color:0xbfc4cf, roughness:.4, metalness:.5});
+    const orangeMat = new THREE.MeshStandardMaterial({color:0xf7941d});
+    // --- Gemeinsam: Plattform, Startturm, Versorgungsarm, Blitzableiter ---
     const plat = new THREE.Mesh(new THREE.CylinderGeometry(34,40,3,24), conc);
     plat.position.y = -1.5; g.add(plat);
-    // Turm
     const tower = new THREE.Mesh(new THREE.BoxGeometry(5,46,5), metal);
     tower.position.set(15,23,0); g.add(tower);
     for(let y=4;y<44;y+=8){
@@ -3153,30 +3231,86 @@ const Flight = {
     }
     const arm = new THREE.Mesh(new THREE.BoxGeometry(9,1,2), conc);
     arm.position.set(8.5,36,0); g.add(arm);
-    // Blitzableiter
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.7,32,8),
-      new THREE.MeshStandardMaterial({color:0x6f7686}));
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.7,32,8), grey);
     mast.position.set(-24,16,0); g.add(mast);
-    // --- LMG Space Center: Montagehalle, Tanks, Funkschüssel ---
-    const bldMat = new THREE.MeshStandardMaterial({color:0xd8dde8, roughness:.7});
-    const hall = new THREE.Mesh(new THREE.BoxGeometry(70,30,50), bldMat);
-    hall.position.set(-130,15,60); g.add(hall);
-    const roofStripe = new THREE.Mesh(new THREE.BoxGeometry(70,3,50),
-      new THREE.MeshStandardMaterial({color:0xf7941d}));
-    roofStripe.position.set(-130,31.5,60); g.add(roofStripe);
-    const tankMat = new THREE.MeshStandardMaterial({color:0xbfc4cf, roughness:.4, metalness:.5});
-    for(const dz of [-70,-90]){
-      const tank = new THREE.Mesh(new THREE.CylinderGeometry(7,7,20,16), tankMat);
-      tank.position.set(70,10,dz); g.add(tank);
-      const cap = new THREE.Mesh(new THREE.SphereGeometry(7,16,8), tankMat);
-      cap.position.set(70,20,dz); g.add(cap);
+    const dishAt = (x,z,r=9)=>{
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(1,1.4,18,8), grey);
+      pole.position.set(x,9,z); g.add(pole);
+      const dish = new THREE.Mesh(new THREE.SphereGeometry(r,16,8,0,Math.PI*2,0,Math.PI/2.6),
+        new THREE.MeshStandardMaterial({color:0xe8ecf5, side:THREE.DoubleSide}));
+      dish.position.set(x,19,z); dish.rotation.x = -Math.PI/3; g.add(dish);
+    };
+    const tankAt = (x,z,r=7,h=20)=>{
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,16), tankMat);
+      tank.position.set(x,h/2,z); g.add(tank);
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(r,16,8), tankMat);
+      cap.position.set(x,h,z); g.add(cap);
+    };
+    const hallAt = (x,z,w,ht,d)=>{
+      const hall = new THREE.Mesh(new THREE.BoxGeometry(w,ht,d), bldMat);
+      hall.position.set(x,ht/2,z); g.add(hall);
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(w,ht*0.1,d), orangeMat);
+      roof.position.set(x,ht+ht*0.05,z); g.add(roof);
+    };
+    if(kind==="lmg"){
+      // Der bescheidene Schul-Startplatz: Montagehalle, 2 Tanks, 1 Schüssel
+      hallAt(-130,60, 70,30,50);
+      tankAt(70,-70); tankAt(70,-90);
+      dishAt(120,90);
+    } else if(kind==="eq"){
+      // Raumhafen »Schulhof Süd«: echter Weltraumbahnhof.
+      // Crawlerway von der großen Halle zur Rampe (wie am Kennedy Space Center)
+      const way = new THREE.Mesh(new THREE.BoxGeometry(260,0.6,26), conc);
+      way.position.set(-170,-0.4,0); g.add(way);
+      hallAt(-320,0, 110,58,80);          // riesige Integrationshalle (VAB)
+      hallAt(-180,-120, 60,22,40);        // Kontrollzentrum …
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(30,8,20),
+        new THREE.MeshStandardMaterial({color:0x9fd4ff, roughness:.15, metalness:.6}));
+      glass.position.set(-180,26,-120); g.add(glass);   // … mit Glaskanzel
+      hallAt(-90,150, 50,18,36);          // Hangar
+      hallAt(-160,150, 44,14,30);         // Werkstatt
+      // Tankfarm + Wasserturm
+      tankAt(90,-80,8,24); tankAt(90,-108,8,24); tankAt(118,-80,8,24); tankAt(118,-108,8,24);
+      const wtPole = new THREE.Mesh(new THREE.CylinderGeometry(2.4,3,26,10), grey);
+      wtPole.position.set(150,13,60); g.add(wtPole);
+      const wtBall = new THREE.Mesh(new THREE.SphereGeometry(11,16,12), tankMat);
+      wtBall.position.set(150,32,60); g.add(wtBall);
+      dishAt(190,120,11); dishAt(230,90,8);
+      // Zweiter Blitzableiter + Flutlicht-Ring um die Rampe
+      const mast2 = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.7,32,8), grey);
+      mast2.position.set(0,16,-28); g.add(mast2);
+      const lampMat = new THREE.MeshStandardMaterial({color:0xfff2c4, emissive:0xffe9a8, emissiveIntensity:.9});
+      for(let k=0;k<8;k++){
+        const a = k/8*Math.PI*2;
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.6,14,6), grey);
+        pole.position.set(Math.cos(a)*52,7,Math.sin(a)*52); g.add(pole);
+        const lamp = new THREE.Mesh(new THREE.BoxGeometry(3,1.4,1.4), lampMat);
+        lamp.position.set(Math.cos(a)*52,14.5,Math.sin(a)*52); g.add(lamp);
+      }
+      // Fahnenreihe am Eingang
+      for(const dz of [-16,0,16]){
+        const fp = new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.3,16,6), grey);
+        fp.position.set(-250,8,-60+dz); g.add(fp);
+        const flag = new THREE.Mesh(new THREE.BoxGeometry(6,3.4,0.2),
+          dz===0?orangeMat:new THREE.MeshStandardMaterial({color:0x2a6fb8}));
+        flag.position.set(-246.8,14.5,-60+dz); g.add(flag);
+      }
+    } else {
+      // Polarstation »Skihütte«: zwei Container, kleiner Tank, Radarkuppel
+      const contMat = new THREE.MeshStandardMaterial({color:0xc84f3a, roughness:.6});
+      for(const [x,z,ry] of [[-70,40,0.3],[-70,70,-0.15]]){
+        const box = new THREE.Mesh(new THREE.BoxGeometry(24,10,10), contMat);
+        box.position.set(x,5,z); box.rotation.y = ry; g.add(box);
+      }
+      tankAt(60,-60,5,12);
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(8,16,10,0,Math.PI*2,0,Math.PI/2), bldMat);
+      dome.position.set(100,4,60); g.add(dome);
+      // Schneestangen markieren den Weg
+      for(let k=0;k<6;k++){
+        const st = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,5,5), orangeMat);
+        st.position.set(-45-k*14,2.5,52+Math.sin(k*2.1)*6); g.add(st);
+      }
     }
-    const dishPole = new THREE.Mesh(new THREE.CylinderGeometry(1,1.4,18,8),
-      new THREE.MeshStandardMaterial({color:0x6f7686}));
-    dishPole.position.set(120,9,90); g.add(dishPole);
-    const dish = new THREE.Mesh(new THREE.SphereGeometry(9,16,8,0,Math.PI*2,0,Math.PI/2.6),
-      new THREE.MeshStandardMaterial({color:0xe8ecf5, side:THREE.DoubleSide}));
-    dish.position.set(120,19,90); dish.rotation.x = -Math.PI/3; g.add(dish);
     return g;
   },
   /* lokale Achsen am Punkt p (relativ zum dominanten Himmelskörper) */
@@ -3190,24 +3324,28 @@ const Flight = {
     const north = new THREE.Vector3().crossVectors(up, east).normalize();
     return {up, east, north};
   },
-  start(vessel){
+  start(vessel, padId){
     this.v = vessel;
     this.v.fairingIntact = vessel.stack.some(id=>PARTS[id].type==="fairing");
     const h = stackHeight(vessel.stack);
+    // Startrampe: gewählte (oder explizit übergebene, z. B. Tutorial) Rampe.
+    // Der Breitengrad bestimmt die Bahnneigung – echte Physik, kein Malus-Flag!
+    this.pad = padId ? padDef(padId) : currentPad();
+    const pd = padDir(this.pad);
     // Startplatz auf dem (um die Sonne wandernden) Planeten Leibniz
-    this.launchLocal = V3(LEIBNIZ.R + h/2, 0, 0);
+    this.launchLocal = pd.clone().multiplyScalar(LEIBNIZ.R + h/2);
     this.pos = bodyPos(LEIBNIZ, 0).add(this.launchLocal);
     this.vel = bodyVel(LEIBNIZ, 0);
     this.landedBody = LEIBNIZ;
     this.landedRel = this.launchLocal.clone();
-    // Rakete: lokale +Y-Achse → "up" (+X)
-    this.q = new THREE.Quaternion().setFromUnitVectors(V3(0,1,0), V3(1,0,0));
+    // Rakete: lokale +Y-Achse → "up" (radial nach außen)
+    this.q = new THREE.Quaternion().setFromUnitVectors(V3(0,1,0), pd);
     this.t = 0; this.throttle = 1; this.warpI = 0; this.map = false;
     this.landed = true; this.crashed=false; this.ended=false; this.flew=false;
     this.chuteOpen=false; this.infinite=false;
     this.sats.forEach(s=>this.world.remove(s.mesh));
     this.sats = []; this.satL=false; this.satM=false; this.visitedMonti=false;
-    this.satWeather=false; this.satRad=false; this.satSpy=false;
+    this.satWeather=false; this.satRad=false; this.satSpy=false; this.satPolar=false;
     this.shipTemp = 15;   // startet bei Bodentemperatur
     // Booster-Autopilot & Bellyflop aufräumen (Mesh, Fenster, Statistik)
     if(this.booster && this.booster.mesh) this.world.remove(this.booster.mesh);
@@ -3279,9 +3417,16 @@ const Flight = {
     this.scene.add(this.rocketGroup);
     // Startplatz-Anker: lokale Offsets relativ zum Planetenzentrum.
     // Der Planet wandert um die Sonne – alles Bodengebundene folgt ihm pro Frame.
-    const up = V3(1,0,0), east = V3(0,0,-1), north = V3(0,1,0);
-    this.padLocal = V3(LEIBNIZ.R, 0, 0);
-    this.groundLocal = V3(LEIBNIZ.R*0.999995, 0, 0);
+    const up = pd.clone();
+    const east = new THREE.Vector3().crossVectors(V3(0,1,0), up).normalize();
+    const north = new THREE.Vector3().crossVectors(up, east).normalize();
+    this.padLocal = pd.clone().multiplyScalar(LEIBNIZ.R);
+    this.groundLocal = pd.clone().multiplyScalar(LEIBNIZ.R*0.999995);
+    // Rampen-Mesh passend zur gewählten Rampe neu bauen (LMG / Raumhafen / Polar)
+    if(this.padGroup) this.world.remove(this.padGroup);
+    this.padGroup = this.buildPad(this.pad.id);
+    this.world.add(this.padGroup);
+    this.groundPlane.material.color.set(this.pad.id==="polar" ? 0xdfe9f2 : 0x3f8d4e);
     const padQ = new THREE.Quaternion().setFromUnitVectors(V3(0,1,0), up);
     this.padGroup.quaternion.copy(padQ);
     this.groundPlane.quaternion.copy(padQ);
@@ -3293,7 +3438,7 @@ const Flight = {
         .addScaledVector(east, d.east)
         .addScaledVector(north, d.north);
     }
-    this.showMsg("Bereit zum Start – [Leertaste] zündet die erste Stufe!", 5);
+    this.showMsg(this.pad.icon+" "+this.pad.name+" – bereit zum Start! [Leertaste] zündet die erste Stufe.", 5);
   },
   height(){ return stackHeight(this.v.stack); },
   /* höchstes Level einer Rolle in der aktuellen Crew (Kader-Bonus) */
@@ -3842,6 +3987,13 @@ const Flight = {
     return list;
   },
   cycleTarget(){
+    // Startfenster-Peilung nur am Äquator: von geneigten Rampen stimmt die
+    // Bahnebene nicht mit der Station überein – ein Fenster gäbe es nicht.
+    if(this.landed && this.pad && this.pad.lat!==0){
+      this.showMsg("🎯 Startfenster-Peilung gibt's nur am Äquator! Von hier wären Bahnen ~"+
+        Math.round(this.pad.lat*180/Math.PI)+"° geneigt – Rampe »Schulhof Süd« in der Montagehalle wählen.",5);
+      return;
+    }
     const list = this.targetList();
     const i = this.target ? list.findIndex(x=>x.name===this.target.name) : -1;
     this.target = (i+1 < list.length) ? list[i+1] : null;
@@ -3859,6 +4011,15 @@ const Flight = {
     let dtw = ((want - tg.phase0 - tg.w*this.t) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI) / tg.w;
     if(dtw < 5) dtw += per;                              // gerade verpasst → nächster Umlauf
     return this.t + dtw;
+  },
+  /* Bahnneigung zum Äquator (0° = äquatorial, 90° = polar; Richtung egal) */
+  orbitInc(){
+    const o = this.orbit();
+    const r = this.pos.clone().sub(bodyPos(o.body, this.t));
+    const v = this.vel.clone().sub(bodyVel(o.body, this.t));
+    const hv = new THREE.Vector3().crossVectors(r, v);
+    if(hv.lengthSq() < 1e-6) return 0;
+    return Math.acos(Math.min(1, Math.abs(hv.y)/hv.length()))*180/Math.PI;
   },
   /* Spieluhr: Start um 08:00 Uhr, läuft mit der Missionszeit (24-h-Format) */
   clockStr(t){
@@ -4181,6 +4342,9 @@ const Flight = {
     // Karriere: Satellit bleibt DAUERHAFT im Orbit (Spielstand). Mit Antenne +
     // Solar wird er zum Relais fürs Funknetz!
     let msg = "📡 Satellit ausgesetzt!";
+    if(o.body===LEIBNIZ && o.pe>LEIBNIZ.atmoH && o.ap>0 && this.orbitInc()>75){
+      this.satPolar = true; msg += " 🧭 Polarorbit – ganz Leibniz im Blick!";
+    }
     const bodyKey = Object.keys(BODY_BY_NAME()).find(k=>BODY_BY_NAME()[k]===o.body);
     if(!Game.sandbox && bodyKey && o.pe > (o.body.atmoH||0) && o.ap > 0){
       Game.assets = Game.assets||[];
@@ -4217,6 +4381,7 @@ const Flight = {
     const stable = o.body===LEIBNIZ && o.pe>LEIBNIZ.atmoH && o.ap>0;
     if(stable) this.satL = true;
     let msg = "📡 "+PARTS[satId].name+" ausgesetzt!";
+    if(stable && this.orbitInc()>75){ this.satPolar = true; msg += " 🧭 Polarorbit!"; }
     if(satId==="satW"){
       if(stable){ this.satWeather = true; msg += " ☁️ Wetterdaten laufen ein!"; }
       else msg += " ⚠️ Kein stabiler Leibniz-Orbit – keine Wetterdaten!";
@@ -4788,6 +4953,7 @@ const Flight = {
       landed:this.landed, flew:this.flew,
       satL:this.satL, satM:this.satM, visitedMonti:this.visitedMonti,
       satWeather:this.satWeather, satRad:this.satRad, satSpy:this.satSpy,
+      satPolar:!!this.satPolar, pad:this.pad ? this.pad.id : "lmg",
       docked:!!this.docked,
       relays:commRelays(), mods:Game.stationMods||[],
       anomalies:(Game.anomaliesFound||[]).length,
@@ -4899,7 +5065,7 @@ const Flight = {
   },
   revert(){
     if(Tut.active){ const id = Tut.active.id; Tut.stop(); Tut.start(id); return; }
-    this.start(VAB.buildVessel());
+    this.start(VAB.buildVessel(), this.pad && this.pad.id);
     this.showMsg("↩ Flug zurückgesetzt – bereit für einen neuen Versuch!",3);
   },
   predict(){
@@ -5497,6 +5663,7 @@ const Flight = {
       <div class="row"><span>Geschwindigkeit</span><span>${o.speed.toFixed(0)} m/s</span></div>
       <div class="row"><span>Apoapsis</span><span>${fmtAp(o.ap)}</span></div>
       <div class="row"><span>Periapsis</span><span>${o.pe<-o.body.R*0.99?"–":fmt(o.pe)}</span></div>
+      ${!this.landed ? `<div class="row"><span>Inklination</span><span>${this.orbitInc().toFixed(0)}°</span></div>` : ""}
       <div class="row"><span>Stufen übrig</span><span>${this.v.segs.length}</span></div>
       <div class="row"><span>Treibstoff (Stufe)</span><span>${(s&&(s.fuel+s.srbFuel))?fuelPct.toFixed(0)+" %":"–"}</span></div>
       ${this.v.boost && this.v.boost.attached ? `<div class="row"><span>Seitenbooster</span><span>${
@@ -5526,7 +5693,11 @@ const Flight = {
       ${this.sats.length?'<br>📡 Satelliten: '+this.sats.length:""}
       ${(()=>{ // 🎯 Orbit-Ziel: Startfenster (Rampe) bzw. Anflug-Tipps (Flug)
         let out = "";
-        if(this.landed && !this.flew){
+        if(this.landed && !this.flew && this.pad && this.pad.lat!==0){
+          out += '<br>'+this.pad.icon+' <b>'+this.pad.name+'</b> ('+Math.round(this.pad.lat*180/Math.PI)+'° Nord)'+
+            '<br><small style="color:var(--muted)">⛰ Bahnen von hier sind ~'+Math.round(this.pad.lat*180/Math.PI)+
+            '° geneigt – Station-Rendezvous besser vom Äquator-Raumhafen!</small>';
+        } else if(this.landed && !this.flew){
           if(this.target){
             const tw = this.nextLaunchWindow(this.target), wait = tw - this.t;
             const per = 2*Math.PI/this.target.w;

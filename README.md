@@ -27,6 +27,14 @@
 > versehentlich auf Fluchtbahn!) · Fluchtgeschwindigkeits-Warnung ·
 > Kerbal-Style Crew-Porträts mit Live-Mimik (neutral/glücklich/Panik).
 
+> **v4.1 – Startrampen-Update:** Drei Startplätze mit echter Orbitalmechanik!
+> Der alte **LMG-Startplatz** liegt auf 55° Nord (Bahnen sind entsprechend geneigt)
+> und trägt nur noch 25 t. Per Forschung kommen dazu: der **Raumhafen »Schulhof
+> Süd«** am Äquator (perfekte Bahnebene zur Raumstation, Startfenster-Peilung [Z],
+> kein Gewichtslimit, großer Weltraumbahnhof mit Integrationshalle & Crawlerway)
+> und die **Polarstation »Skihütte«** auf 86° Nord für Polarorbits. Rampe wird in
+> der Montagehalle gewählt; neue HUD-Anzeige "Inklination"; 2 neue Missionen.
+
 Eine 2D-Raumfahrtsimulation im Stil von Kerbal Space Program für den Browser.
 Für die Raumfahrt-AG des Leibniz-Montessori-Gymnasiums Düsseldorf.
 
