@@ -158,6 +158,9 @@ input[type=file]{display:none;}
 <!-- FLUG -->
 <div id="flight" class="screen">
   <div id="flight3d"></div>
+  <!-- Lens-Flare-Overlay: Sonnen-Spikes + Blendenreflexe ("optische Blasen"),
+       2D über der 3D-Szene, unter dem HUD (DOM-Reihenfolge) -->
+  <canvas id="lensflare" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;"></canvas>
   <div id="hudLeft" class="hud"></div>
   <div id="hudRight" class="hud"></div>
   <div id="hudMsg" class="hud"></div>
@@ -3254,7 +3257,8 @@ const Flight = {
     gx.fillStyle=gg; gx.fillRect(0,0,128,128);
     this.sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
       map:new THREE.CanvasTexture(glowC), transparent:true, depthWrite:false}));
-    this.sunGlow.scale.set(SUN.R*26, SUN.R*26, 1);
+    // dezenter Basis-Glow – den spektakulären Rest macht das Lens-Flare-Overlay
+    this.sunGlow.scale.set(SUN.R*9, SUN.R*9, 1);
     this.world.add(this.sunGlow);
     // Planeten
     this.leibnizMesh = new THREE.Mesh(
@@ -4248,11 +4252,28 @@ const Flight = {
     }
     this.dockNow();
   },
+  /* Oberkante des Docking-Ports »Klette« über der Stack-Unterkante (für
+     portgenaues Andocken); Fallback = Stack-Spitze, falls kein dock verbaut */
+  dockPortTop(){
+    let yy = 0, top = stackHeight(this.v.stack);
+    for(let i=this.v.stack.length-1; i>=0; i--){
+      const id = this.v.stack[i], hp = isRadial(id) ? 0 : PARTS[id].h;
+      if(PARTS[id].type==="dock") top = yy + hp;
+      yy += hp;
+    }
+    return top;
+  },
   dockNow(){
     this.autoDock = null;
     this.docked = true;
-    this.dockOffset = this.pos.clone().sub(stationPos(this.t));
-    if(this.dockOffset.length() < 12) this.dockOffset.setLength(12);
+    // PORTGENAU andocken: Der Schiffs-Port (Oberkante »Klette«) setzt exakt auf
+    // dem Stations-Port auf (+X-Achse, Andockring bei x ≈ 16) – Nase zur Station.
+    const px = V3(1,0,0);
+    const H = this.height();
+    this.q.setFromUnitVectors(V3(0,1,0), px.clone().negate());
+    this.dockOffset = px.clone().multiplyScalar(16.2 + (this.dockPortTop() - H/2));
+    this.pos.copy(stationPos(this.t)).add(this.dockOffset);
+    this.vel.copy(stationVel(this.t));
     this.warpI = Math.min(this.warpI, 1);
     if(this.sas==="tgt") this.sas = "off";
     this.throttle = 0;
@@ -4270,22 +4291,27 @@ const Flight = {
   updateAutoDock(dt){
     if(this.crashed || this.ended || this.docked || this.landed){ this.autoDock = null; return; }
     const sp = stationPos(this.t), sv = stationVel(this.t);
-    const rel = this.pos.clone().sub(sp);           // Station → Schiff
+    if(this.pos.distanceTo(sp) > 500){ this.autoDock = null; this.showMsg("🤖 Autopilot abgebrochen – zu weit abgetrieben!",3); return; }
+    // Ziel ist nicht das Stationszentrum, sondern der ANFLUGPUNKT vor dem
+    // Docking-Port (+X-Achse): Port-Kontakt bei x≈16.2 + halbe Schiffslänge.
+    const contact = 16.2 + (this.dockPortTop() - this.height()/2);
+    const aim = sp.clone().add(V3(1,0,0).multiplyScalar(contact + 8));   // 8 m davor
+    const rel = this.pos.clone().sub(aim);          // Anflugpunkt → Schiff
     const d = rel.length();
-    if(d > 500){ this.autoDock = null; this.showMsg("🤖 Autopilot abgebrochen – zu weit abgetrieben!",3); return; }
     const rv = this.vel.clone().sub(sv);
-    // Sollgeschwindigkeit: auf die Station zu, je näher desto langsamer
+    // Sollgeschwindigkeit: auf den Anflugpunkt zu, je näher desto langsamer
     const vWant = rel.clone().normalize().multiplyScalar(-Math.min(3, Math.max(0.4, d/25)));
     const dv = vWant.sub(rv);
     const dvl = dv.length();
     if(dvl > 1e-4) this.vel.addScaledVector(dv.normalize(), Math.min(1.5, dvl/dt)*dt);
-    // Nase zeigt zur Station (nur Optik)
+    // Nase zeigt auf den Stations-Port (nur Optik – dockNow richtet exakt aus)
     const nose = V3(0,1,0).applyQuaternion(this.q);
-    const full = new THREE.Quaternion().setFromUnitVectors(nose, rel.clone().normalize().negate());
+    const toPort = sp.clone().add(V3(contact,0,0)).sub(this.pos).normalize();
+    const full = new THREE.Quaternion().setFromUnitVectors(nose, toPort);
     this.q.premultiply(new THREE.Quaternion().slerp(full, Math.min(1, 1.2*dt)));
-    if(d < 26 && this.vel.distanceTo(sv) < 3){
+    if(d < 10 && this.vel.distanceTo(sv) < 3){
       this.dockNow();
-      this.showMsg("🤖→🔗 AUTOPILOT-DOCKING GESCHAFFT! Angedockt an der »Großen Pause«! 🎉",5);
+      this.showMsg("🤖→🔗 AUTOPILOT-DOCKING GESCHAFFT! Port an Port an der »Großen Pause«! 🎉",5);
     }
   },
   /* ---------- Orbit-Ziele: [Z] auf der Startrampe wählt sie aus ---------- */
@@ -5894,9 +5920,84 @@ const Flight = {
     this.renderer.setSize(w,h,false);
     this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
     this.renderer.render(this.scene, this.camera);
+    this.drawLensflare(w, h);
     this.drawNavball();
     this.drawHUD();
     Tut.frame();
+  },
+  /* ---------- Lens-Flare: Sonnen-Spikes + Blendenreflexe ("optische Blasen") ----------
+     2D-Overlay über der 3D-Szene: Kern + Strahlenkranz an der Sonnenposition,
+     Ghost-Ringe entlang der Achse Sonne→Bildmitte – wie eine echte Kameralinse. */
+  drawLensflare(w, h){
+    const c = document.getElementById("lensflare");
+    if(!c) return;
+    if(c.width!==w || c.height!==h){ c.width = w; c.height = h; }
+    const x = c.getContext("2d");
+    x.clearRect(0, 0, w, h);
+    if(this.map || this.crashed || !this.v) return;
+    // Sonne (Weltursprung) liegt in der Szene bei world.position (= -Flight.pos)
+    const sunRel = this.pos.clone().negate();
+    const camDir = new THREE.Vector3();
+    this.camera.getWorldDirection(camDir);
+    if(camDir.dot(sunRel) < 0) return;               // Sonne hinter der Kamera
+    const pr = new THREE.Vector3().copy(this.world.position).project(this.camera);
+    const sx = (pr.x*0.5+0.5)*w, sy = (-pr.y*0.5+0.5)*h;
+    if(sx < -w*0.3 || sx > w*1.3 || sy < -h*0.3 || sy > h*1.3) return;
+    // Verdeckung: steht ein Planet/Mond zwischen Schiff und Sonne?
+    const dSun = sunRel.length(), dir = sunRel.clone().normalize();
+    for(const b of [LEIBNIZ, ...MOONS]){
+      const cb = bodyPos(b, this.t).sub(this.pos);
+      const proj = cb.dot(dir);
+      if(proj > 0 && proj < dSun && cb.addScaledVector(dir, -proj).length() < b.R) return;
+    }
+    // In dichter Atmosphäre (heller Himmel) etwas dezenter
+    const alt = leibnizAlt(this.pos, this.t);
+    const dim = 0.45 + 0.55*Math.min(1, Math.max(0, alt/LEIBNIZ.atmoH));
+    const S = Math.min(w, h)/900;                    // skaliert mit der Fenstergröße
+    x.globalCompositeOperation = "lighter";
+    // Kern: gleißend weiß mit warmem Saum
+    const core = x.createRadialGradient(sx, sy, 0, sx, sy, 110*S);
+    core.addColorStop(0,   "rgba(255,255,255,"+(0.95*dim)+")");
+    core.addColorStop(0.18,"rgba(255,246,220,"+(0.5*dim)+")");
+    core.addColorStop(1,   "rgba(255,220,150,0)");
+    x.fillStyle = core;
+    x.beginPath(); x.arc(sx, sy, 110*S, 0, 7); x.fill();
+    // Strahlenkranz: 4 lange + 4 kurze Spikes
+    x.save(); x.translate(sx, sy);
+    for(let k=0; k<8; k++){
+      const a = k*Math.PI/4 + 0.12;
+      const L = (k%2 ? 90 : 260)*S;
+      for(const sgn of [1,-1]){
+        const g2 = x.createLinearGradient(0, 0, Math.cos(a)*L*sgn, Math.sin(a)*L*sgn);
+        g2.addColorStop(0, "rgba(255,255,255,"+(0.6*dim)+")");
+        g2.addColorStop(1, "rgba(255,255,255,0)");
+        x.strokeStyle = g2; x.lineWidth = (k%2 ? 1.1 : 2.2)*S;
+        x.beginPath(); x.moveTo(0,0); x.lineTo(Math.cos(a)*L*sgn, Math.sin(a)*L*sgn); x.stroke();
+      }
+    }
+    x.restore();
+    // Blendenreflexe: Ringe/Blasen entlang der Achse Sonne → Bildmitte
+    const ax = w/2 - sx, ay = h/2 - sy;
+    const ghosts = [   // [Position auf der Achse, Radius, Farbe, Alpha]
+      [0.22, 26, "150,195,255", .15], [0.38, 11, "255,232,175", .22],
+      [0.55, 58, "175,155,255", .09], [0.78, 19, "255,205,155", .17],
+      [1.05, 74, "155,220,255", .08], [1.30, 36, "255,175,155", .12],
+      [1.62, 100,"185,205,255", .06]
+    ];
+    for(const [t2, r0, col, a2] of ghosts){
+      const r2 = r0*S*1.4;
+      const gx2 = sx + ax*t2, gy2 = sy + ay*t2;
+      const gg = x.createRadialGradient(gx2, gy2, r2*0.15, gx2, gy2, r2);
+      gg.addColorStop(0,   "rgba("+col+","+(a2*0.55*dim)+")");
+      gg.addColorStop(0.75,"rgba("+col+","+(a2*0.85*dim)+")");
+      gg.addColorStop(1,   "rgba("+col+",0)");
+      x.fillStyle = gg;
+      x.beginPath(); x.arc(gx2, gy2, r2, 0, 7); x.fill();
+      // feiner Rand = "Seifenblasen"-Look
+      x.strokeStyle = "rgba("+col+","+(a2*1.1*dim)+")"; x.lineWidth = 1.4*S;
+      x.beginPath(); x.arc(gx2, gy2, r2*0.9, 0, 7); x.stroke();
+    }
+    x.globalCompositeOperation = "source-over";
   },
   /* ---------- Kerbal-Style Crew-Porträts ---------- */
   drawCrew(){
