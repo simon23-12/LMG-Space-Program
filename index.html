@@ -712,15 +712,15 @@ function anomalyFound(id){ return (Game.anomaliesFound||[]).includes(id); }
    ⚠️ KEINE echten Himmelskörper: keine Gravitation, kein SOI, NICHT in MOONS/
    GRAV_BODIES! Nur On-Rails-Punkte mit Mesh, Kartenmarker und Scan-Radius. */
 const ASTEROIDS = [
-  {id:"astBrot", name:"»Pausenbrot«", icon:"🥪", kind:"Asteroid", sci:70, R:1400,
+  {id:"astGauss", name:"»Gauß«", icon:"🪨", kind:"Asteroid", sci:70, R:1400,
    orbitR:1.72e10, incl:7*Math.PI/180, phase:0.9, color:0x9a8a66,
-   info:"C-Typ-Asteroid zwischen Leibniz und Minzi. Sieht aus wie ein angebissenes Käsebrot – die dunkle Kruste ist uralter Kohlenstoff aus der Frühzeit des Systems."},
-  {id:"astEmmy", name:"»Emmy«", icon:"🪨", kind:"Asteroid", sci:90, R:2600,
+   info:"C-Typ-Asteroid zwischen Leibniz und Minzi: dunkle Kruste aus uraltem Kohlenstoff, unverändert seit der Frühzeit des Systems. Benannt nach Carl Friedrich Gauß, der 1801 die Bahn des allerersten Asteroiden (Ceres) berechnete."},
+  {id:"astEmmy", name:"»Emmy«", icon:"⚙️", kind:"Asteroid", sci:90, R:2600,
    orbitR:2.9e10, incl:11*Math.PI/180, phase:3.8, color:0xb8b2c4,
    info:"M-Typ-Brocken aus fast reinem Metall, benannt nach der Mathematikerin Emmy Noether. Glänzt im Teleskop wie ein Spiegel – eine fliegende Schatzkammer aus Eisen und Nickel."},
-  {id:"metSpicker", name:"»Spicker«", icon:"☄️", kind:"Meteoroid", sci:110, R:500,
+  {id:"metHalley", name:"»Halley«", icon:"☄️", kind:"Meteoroid", sci:110, R:500,
    orbitR:9.2e9, incl:14*Math.PI/180, phase:5.5, color:0xd8c8a8,
-   info:"Winziger, flinker Meteoroid INNERHALB der Leibniz-Bahn – rast mit über 11 km/s um die Sonne. Wer IHN erwischt, hat Rendezvous wirklich verstanden."}
+   info:"Winziger, flinker Meteoroid INNERHALB der Leibniz-Bahn – rast mit über 11 km/s um die Sonne. Benannt nach Edmond Halley, der als Erster die Wiederkehr eines Kometen vorhersagte."}
 ];
 for(const a of ASTEROIDS) a.period = 2*Math.PI*Math.sqrt(Math.pow(a.orbitR,3)/SUN.mu);
 const AST_SCAN_DIST = 1e6;   // Vorbeiflug-Scan zündet unter 1000 km Abstand
@@ -874,7 +874,7 @@ const MISSIONS = [
    req:["minziSoi"], check:s=>s.body===HUYGENS},
   {id:"ast1",   name:"Kleinkörper-Jäger", desc:"Zwischen den Planeten kreisen zwei Asteroiden und ein Meteoroid… Fliege mit einer Sonde auf unter 1000 km an einen von ihnen heran (Vorbeiflug-Scan). Ihre Bahnen siehst du in der Orbitkarte [M] und im Universum-Bildschirm!", sci:60,
    req:["minziSoi"], check:s=>s.asteroids>=1},
-  {id:"astAll", name:"Kleinkörper-Katalog komplett", desc:"Scanne ALLE drei Kleinkörper: das Käsebrot »Pausenbrot«, den Metallbrocken »Emmy« und den flinken Meteoroiden »Spicker« innen bei der Sonne. Ein Lebenswerk für Sonden-Profis!", sci:130,
+  {id:"astAll", name:"Kleinkörper-Katalog komplett", desc:"Scanne ALLE drei Kleinkörper: den Kohlenstoff-Asteroiden »Gauß«, den Metallbrocken »Emmy« und den flinken Meteoroiden »Halley« innen bei der Sonne. Ein Lebenswerk für Sonden-Profis!", sci:130,
    req:["ast1"], check:s=>s.asteroids>=3},
   {id:"newtonSoi",name:"Expedition Newton",  desc:"Erreiche den Eisriesen Newton am Rand des Systems – die weiteste Reise (Atomantrieb empfohlen!).", sci:85,
    req:["minziSoi"], check:s=>s.body===NEWTON},
@@ -1686,47 +1686,8 @@ function universeFrame(){
     ctx.fillStyle="#d8c39a";
     ctx.fillText(a.icon+" "+a.name, ax, ay-8);
   });
-  // --- Weltraumbahnhöfe auf Leibniz (Markierungen am Planetenrand) ---
-  const rp = orbPx*0.13;
-  ctx.font="12px sans-serif";
-  for(const [pid, ang] of [["eq",0],["lmg",-55*Math.PI/180],["polar",-84*Math.PI/180]]){
-    const p = padDef(pid);
-    const px = lx+Math.cos(ang)*rp, py = ly+Math.sin(ang)*rp;
-    ctx.fillStyle = "#f7941d";
-    ctx.beginPath(); ctx.arc(px,py,2.5,0,7); ctx.fill();
-    ctx.fillText(p.icon, px+Math.cos(ang)*11, py+Math.sin(ang)*11+4);
-  }
-  // --- Objekte im Orbit: Raumstation »Große Pause« + Satelliten-Inventar ---
-  const rS = orbPx*0.165;   // Stationsbahn (innerhalb der Monti-Bahn)
-  ctx.strokeStyle="rgba(57,194,255,.45)";
-  ctx.beginPath(); ctx.arc(lx,ly,rS,0,7); ctx.stroke();
-  const aS = t*2*Math.PI/6;
-  const sx2=lx+Math.cos(aS)*rS, sy2=ly+Math.sin(aS)*rS;
-  ctx.fillStyle="#39c2ff";
-  ctx.beginPath(); ctx.arc(sx2,sy2,3.5,0,7); ctx.fill();
-  ctx.font="11px sans-serif";
-  ctx.fillText("🛰 Große Pause", sx2, sy2-8);
-  // Satelliten/Wracks/Tanker aus dem Karriere-Inventar um ihre Körper
-  const uniPos = {LEIBNIZ:[lx,ly,rp], MONTI:[mx,my,orbPx*0.05], MINZI:[nx,ny,orbPx*0.06],
-    KEPLER:[kx,ky,orbPx*0.045], HUYGENS:[hx,hy,orbPx*0.06], NEWTON:[nwx,nwy,orbPx*0.085]};
-  const counts = {};
-  for(const d of (Game.assets||[])){
-    const bp = uniPos[d.body]; if(!bp) continue;
-    counts[d.body] = (counts[d.body]||0)+1;
-    const i = counts[d.body];
-    const rd = bp[2]*1.35 + 6 + i*5;
-    const ad = t*2*Math.PI/(9+i*2.3) + i*1.7;
-    ctx.fillStyle = d.kind==="wreck" ? "#e05555" : d.kind==="tanker" ? "#e8c540" : "#5fc46a";
-    ctx.beginPath(); ctx.arc(bp[0]+Math.cos(ad)*rd, bp[1]+Math.sin(ad)*rd, 2.2, 0, 7); ctx.fill();
-  }
   ctx.textAlign="left";
-  // Legende unten links
-  ctx.fillStyle="rgba(232,236,245,.85)"; ctx.font="12px sans-serif";
-  const nSats = (Game.assets||[]).filter(a=>a.kind==="sat").length;
-  const legend = ["🏫 LMG-Startplatz (55° N) · 🏟️ »Schulhof Süd« (Äquator) · 🏔️ »Skihütte« (86° N)",
-    "🛰 Raumstation »Große Pause« (100-km-Orbit)"+(nSats?` · 🟢 ${nSats} Satellit${nSats>1?"en":""} im Orbit`:""),
-    "🥪🪨☄️ Kleinkörper: Vorbeiflug-Scan bringt Wissenschaft!"];
-  legend.forEach((l,i)=>ctx.fillText(l, 14, H-14-(legend.length-1-i)*18));
+  // (Bahnhöfe, Station & Satelliten-Inventar gibt's in der Vollbild-Admin-Cam!)
 }
 
 /* ---------- Admin-Cam: Vollbild-3D-Planetenbetrachter ----------
@@ -1764,6 +1725,65 @@ const AdminCam = {
         new THREE.LineBasicMaterial({color:0x40507a, transparent:true, opacity:.75}));
       this.scene.add(ring); this.rings.push([b, ring]);
     }
+    // Kleinkörper: Fels-Meshes + Bahnlinien – fokussierbar wie Planeten (Follow-Cam)
+    this.astMeshes = [];
+    for(const a of ASTEROIDS){
+      const geo = new THREE.IcosahedronGeometry(a.R, 1);
+      // Noise MUSS aus der Position kommen (Hash), nicht aus einem Lauf-Index:
+      // Icosahedron-Vertices sind pro Face dupliziert – sonst reißt die Fläche auf!
+      const posA = geo.attributes.position;
+      for(let i=0;i<posA.count;i++){
+        const px=posA.getX(i), py=posA.getY(i), pz=posA.getZ(i);
+        const f = 0.82 + 0.36*Math.abs(Math.sin(px*12.9898 + py*78.233 + pz*37.719 + a.R));
+        posA.setXYZ(i, px*f, py*f, pz*f);
+      }
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo,
+        new THREE.MeshStandardMaterial({color:a.color, roughness:.95, flatShading:true}));
+      this.scene.add(m); this.astMeshes.push([a, m]);
+      const apts = [];
+      for(let i=0;i<256;i++) apts.push(asteroidPos(a, i/256*a.period));
+      this.scene.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(apts),
+        new THREE.LineBasicMaterial({color:0x8a7a55, transparent:true, opacity:.5})));
+    }
+    // Text-Label als Sprite (für Bahnhöfe & Station – nur in der Admin-Cam sichtbar)
+    const makeLabel = (txt)=>{
+      const c = document.createElement("canvas");
+      const x0 = c.getContext("2d"); x0.font = "bold 26px sans-serif";
+      c.width = Math.ceil(x0.measureText(txt).width)+16; c.height = 36;
+      const x = c.getContext("2d");
+      x.font = "bold 26px sans-serif"; x.fillStyle = "#e8ecf5";
+      x.strokeStyle = "rgba(4,6,14,.9)"; x.lineWidth = 5;
+      x.strokeText(txt, 8, 28); x.fillText(txt, 8, 28);
+      const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+        map:new THREE.CanvasTexture(c), transparent:true, depthWrite:false}));
+      spr.userData.aspect = c.width/c.height;
+      return spr;
+    };
+    // Weltraumbahnhöfe auf Leibniz (Rampen sind inertial fix – wie im Spiel)
+    this.padObjs = PADS.map(p=>{
+      const g = new THREE.Group();
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(9000, 12, 8),
+        new THREE.MeshBasicMaterial({color:0xf7941d}));
+      g.add(dot);
+      const spr = makeLabel(p.icon+" "+p.name);
+      const h = 42000; spr.scale.set(h*spr.userData.aspect, h, 1);
+      spr.position.y = 40000; g.add(spr);
+      this.scene.add(g);
+      return [p, g];
+    });
+    // Raumstation »Große Pause« (100-km-Orbit)
+    this.stationObj = (()=>{
+      const g = new THREE.Group();
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(8000, 12, 8),
+        new THREE.MeshBasicMaterial({color:0x39c2ff}));
+      g.add(dot);
+      const spr = makeLabel("🛰 Große Pause");
+      const h = 42000; spr.scale.set(h*spr.userData.aspect, h, 1);
+      spr.position.y = 38000; g.add(spr);
+      this.scene.add(g);
+      return g;
+    })();
     // Sterne
     const sg = new THREE.BufferGeometry();
     const sp = new Float32Array(1200*3), rnd = seededRand(77);
@@ -1777,7 +1797,7 @@ const AdminCam = {
     // Nebel-Kulisse: gleiche Fotos wie im Flug, nur weiter draußen skaliert
     // (Radius jenseits von Newton & Max-Zoom, innerhalb der Far-Plane 4e11)
     addNebulae(this.scene, 1.8e11, 2.6, 0.85);
-    // Fokus-Buttons
+    // Fokus-Buttons (Planeten + Kleinkörper als Follow-Cam)
     const icons = {Sonne:"☀️", Leibniz:"🌍", Monti:"🌗", Minzi:"🍬", Kepler:"🔥", Huygens:"🪐", Newton:"🔵"};
     const span = document.getElementById("admFocusBtns");
     for(const b of [SUN, KEPLER, LEIBNIZ, MONTI, MINZI, HUYGENS, NEWTON]){
@@ -1785,6 +1805,13 @@ const AdminCam = {
       btn.className = "btn"; btn.style.cssText = "padding:5px 10px;font-size:12px;";
       btn.textContent = icons[b.name]+" "+b.name;
       btn.onclick = ()=>this.setFocus(b);
+      span.appendChild(btn);
+    }
+    for(const a of ASTEROIDS){
+      const btn = document.createElement("button");
+      btn.className = "btn"; btn.style.cssText = "padding:5px 10px;font-size:12px;border-color:#8a7a55;";
+      btn.textContent = a.icon+" "+a.name.replace(/[»«]/g,"");
+      btn.onclick = ()=>this.setFocus(a);
       span.appendChild(btn);
     }
     // Maus: ziehen = drehen, Rad = Zoom
@@ -1810,14 +1837,33 @@ const AdminCam = {
     this.focus = b;
     this.minDist = b.R*1.6;
     this.dist = b===SUN ? SUN.R*9 : b.R*4.5;
-    document.getElementById("admInfo").innerHTML =
-      `<b style="color:var(--orange);font-size:16px;">${b.name}</b> · Radius ${(b.R/1000).toFixed(0)} km`+
-      (b.parent ? ` · umkreist ${b.parent.name} (${b.period>1e6?(b.period/86400).toFixed(0)+" Tage":(b.period/3600).toFixed(1)+" h"})` : "")+
-      `<br><small style="color:var(--muted)">🖱 Ziehen = drehen · Rad = Zoom · Buttons oben = Himmelskörper wechseln</small>`;
+    const isAst = ASTEROIDS.includes(b);
+    document.getElementById("admInfo").innerHTML = isAst
+      ? `<b style="color:var(--orange);font-size:16px;">${b.icon} ${b.kind} ${b.name}</b> ·
+         Ø ${(b.R*2/1000).toFixed(1)} km · umkreist die Sonne (${(b.period/86400).toFixed(0)} Tage, ${Math.round(b.incl*180/Math.PI)}° geneigt)
+         <br><small style="color:var(--muted)">${b.info} – Vorbeiflug-Scan unter 1000 km bringt +${b.sci} 🧪!</small>`
+      : `<b style="color:var(--orange);font-size:16px;">${b.name}</b> · Radius ${(b.R/1000).toFixed(0)} km`+
+        (b.parent ? ` · umkreist ${b.parent.name} (${b.period>1e6?(b.period/86400).toFixed(0)+" Tage":(b.period/3600).toFixed(1)+" h"})` : "")+
+        `<br><small style="color:var(--muted)">🖱 Ziehen = drehen · Rad = Zoom · Buttons oben = Himmelskörper & Kleinkörper wechseln</small>`;
+  },
+  /* Satelliten/Wracks/Tanker aus dem Karriere-Inventar als farbige Punkte */
+  rebuildAssets(){
+    if(this.assetDots) this.assetDots.forEach(o=>this.scene.remove(o.dot));
+    this.assetDots = [];
+    if(!this.ready) return;
+    for(const d of (Game.assets||[])){
+      const b = BODY_BY_NAME()[d.body]; if(!b) continue;
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(8000, 10, 6),
+        new THREE.MeshBasicMaterial({color:
+          d.kind==="wreck" ? 0xe05555 : d.kind==="tanker" ? 0xe8c540 : 0x5fc46a}));
+      this.scene.add(dot);
+      this.assetDots.push({d, b, dot});
+    }
   },
   speed(d){ this.speedI = Math.max(0, Math.min(this.SPEEDS.length-1, this.speedI+d)); },
   open(){
     this.init();
+    this.rebuildAssets();   // Orbit-Inventar kann sich zwischen Besuchen ändern
     document.getElementById("adminCam").style.display = "block";
     if(!this.focus) this.setFocus(LEIBNIZ);
     if(this.runningId===null){
@@ -1842,7 +1888,24 @@ const AdminCam = {
     }
     for(const [b,ring] of this.rings)
       ring.position.copy(b.parent && b.parent!==SUN ? bodyPos(b.parent, this.t) : V3());
-    const c = this.focus===SUN ? V3() : bodyPos(this.focus, this.t);
+    // Kleinkörper folgen ihren Bahnen (und trudeln langsam)
+    for(const [a,m] of this.astMeshes){
+      m.position.copy(asteroidPos(a, this.t));
+      m.rotation.y += 0.12*(this.SPEEDS[this.speedI][0]/86400);
+      m.rotation.x += 0.05*(this.SPEEDS[this.speedI][0]/86400);
+    }
+    // Bahnhöfe kleben auf Leibniz (inertial fix), Station & Inventar on rails
+    const lpA = bodyPos(LEIBNIZ, this.t);
+    for(const [p,g] of this.padObjs)
+      g.position.copy(lpA).addScaledVector(padDir(p), LEIBNIZ.R);
+    this.stationObj.position.copy(stationPos(this.t));
+    for(const o of (this.assetDots||[])){
+      const r = o.b.R + o.d.alt, w = Math.sqrt(o.b.mu/Math.pow(r,3));
+      const aA = o.d.phase + w*this.t;
+      o.dot.position.copy(bodyPos(o.b, this.t)).add(V3(Math.cos(aA)*r, 0, -Math.sin(aA)*r));
+    }
+    const c = this.focus===SUN ? V3() :
+      ASTEROIDS.includes(this.focus) ? asteroidPos(this.focus, this.t) : bodyPos(this.focus, this.t);
     const dir = V3(Math.cos(this.el)*Math.cos(this.az), Math.sin(this.el), Math.cos(this.el)*Math.sin(this.az));
     this.camera.position.copy(c).addScaledVector(dir, this.dist);
     this.camera.lookAt(c);
@@ -3248,13 +3311,21 @@ const Flight = {
       this.world.add(spr);
       this.particles.push({spr, life:0, maxLife:1, vel:V3(), grow:1});
     }
-    // Ap/Pe-Marker für die Kartenansicht
+    // Ap/Pe-Marker für die Kartenansicht. WICHTIG: Der farbige PUNKT sitzt exakt
+    // in der Sprite-MITTE (= Position des Objekts), das Label steht rechts daneben –
+    // sonst zeigt optisch der Text statt des Punkts den Standort an.
     const mkMarker = (txt,color)=>{
-      const c = document.createElement("canvas"); c.width=96; c.height=48;
+      const c = document.createElement("canvas");
+      const mx = c.getContext("2d"); mx.font = "bold 20px sans-serif";
+      const tw = Math.ceil(mx.measureText(txt).width);
+      c.width = 2*(tw+26); c.height = 48;          // Punkt bei (W/2, 24) = Zentrum
       const x = c.getContext("2d");
-      x.fillStyle=color; x.beginPath(); x.arc(24,24,8,0,7); x.fill();
-      x.font="bold 22px sans-serif"; x.fillStyle="#fff"; x.fillText(txt, 40, 32);
+      x.fillStyle=color; x.beginPath(); x.arc(c.width/2, 24, 8, 0, 7); x.fill();
+      x.font="bold 20px sans-serif"; x.fillStyle="#fff";
+      x.strokeStyle="rgba(4,6,14,.85)"; x.lineWidth=4;
+      x.strokeText(txt, c.width/2+14, 31); x.fillText(txt, c.width/2+14, 31);
       const m = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c), transparent:true, depthTest:false}));
+      m.userData.aspect = c.width/c.height;
       m.visible = false; this.world.add(m); return m;
     };
     this.apMarker = mkMarker("Ap","#2d7ad0");
@@ -3274,14 +3345,17 @@ const Flight = {
       return m;
     })();
     this.nodeMarker = mkMarker("Δv","#5fc46a");
-    this.stationMarker = mkMarker("ISS","#39c2ff");
+    this.stationMarker = mkMarker("Große Pause","#39c2ff");
     // Kleinkörper: unregelmäßige Fels-Meshes + Kartenmarker + Bahnlinien um die Sonne
     this.astObjs = ASTEROIDS.map(a=>{
       const geo = new THREE.IcosahedronGeometry(a.R, 1);
-      const posA = geo.attributes.position, rnd = seededRand(a.R);
+      // Noise MUSS aus der Position kommen (Hash), nicht aus einem Lauf-Index:
+      // Icosahedron-Vertices sind pro Face dupliziert – sonst reißt die Fläche auf!
+      const posA = geo.attributes.position;
       for(let i=0;i<posA.count;i++){
-        const f = 0.75 + rnd()*0.5;
-        posA.setXYZ(i, posA.getX(i)*f, posA.getY(i)*f, posA.getZ(i)*f);
+        const px=posA.getX(i), py=posA.getY(i), pz=posA.getZ(i);
+        const f = 0.82 + 0.36*Math.abs(Math.sin(px*12.9898 + py*78.233 + pz*37.719 + a.R));
+        posA.setXYZ(i, px*f, py*f, pz*f);
       }
       geo.computeVertexNormals();
       const mesh = new THREE.Mesh(geo,
@@ -3493,6 +3567,11 @@ const Flight = {
     }
     return g;
   },
+  /* Kartenmarker skalieren: Höhe = ms/2, Breite folgt dem Canvas-Seitenverhältnis
+     (der Punkt bleibt so immer exakt auf der Objektposition) */
+  scaleMarker(m, ms){
+    m.scale.set(ms/2*(m.userData.aspect||2), ms/2, 1);
+  },
   /* lokale Achsen am Punkt p (relativ zum dominanten Himmelskörper) */
   frameAt(p, b){
     b = b || this.body();
@@ -3587,7 +3666,7 @@ const Flight = {
     this.satDeploys = [];            // Orbit-Daten aller in diesem Flug ausgesetzten Sats
     this._astDone = [];              // Sandbox: bereits gescannte Kleinkörper (nur dieser Flug)
     this.buildGoalRings();           // blaue Zielorbit-Ringe der aktiven Missionen/Tutorials
-    this.node = null; this.nodeDir = null;
+    this.node = null; this.nodeDir = null; this.nodeSnap = null;
     this.nodeRelY = this.nodePlannedInc = undefined;
     this.debris.forEach(d=>this.world.remove(d.mesh));
     this.debris = [];
@@ -4405,13 +4484,13 @@ const Flight = {
     if(this.crashed||this.ended||this.landed){ this.showMsg("Manöverknoten gibt es nur im Flug!",2); return; }
     if(this.node){ this.removeNode(); return; }
     this.node = {t: this.t+120, pro:0, nor:0, rad:0};
-    this.nodeBurned = 0;
+    this.nodeBurned = 0; this.nodeSnap = null;
     if(!this.map) this.toggleMap();
     this.showMsg("Manöverknoten erstellt (in 2 min). Δv im Panel rechts einstellen!",4);
     this.updateNodeUI();
   },
   removeNode(){
-    this.node = null; this.nodeDir = null;
+    this.node = null; this.nodeDir = null; this.nodeSnap = null;
     this.nodeRelY = this.nodePlannedInc = undefined;
     if(this.sas==="node") this.sas = "off";
     this.nodeTrajLine.visible = false;
@@ -4907,6 +4986,8 @@ const Flight = {
     }
     // Auto-Cutoff am Manöverknoten: exakt das geplante Δv brennen, kein Überschießen
     if(this.node && this.sas==="node" && thrust>0){
+      // Zustand VOR der Zündung einfrieren: die grüne Plan-Bahn bleibt so statisch
+      if(!this.nodeSnap) this.nodeSnap = {pos:this.pos.clone(), vel:this.vel.clone(), t:this.t};
       this.nodeBurned = (this.nodeBurned||0) + thrust/m*dt;
       if(this.nodeBurned >= this.nodeDvTotal()){
         thrust = 0; this.throttle = 0;
@@ -5381,13 +5462,18 @@ const Flight = {
       this.apMarker.position.copy(pMax);
       this.peMarker.position.copy(pMin);
       const ms = this.camDist*0.045;
-      this.apMarker.scale.set(ms, ms/2, 1);
-      this.peMarker.scale.set(ms, ms/2, 1);
+      this.scaleMarker(this.apMarker, ms);
+      this.scaleMarker(this.peMarker, ms);
     }
     // ---- Manöverknoten: Zustand am Knoten + geplante Bahn ----
-    if(this.node && this.node.t > this.t){
-      let np = this.pos.clone(), nv = this.vel.clone(), nt = this.t;
-      const span = this.node.t - this.t;
+    // Läuft der Burn bereits, rechnen wir ab dem SCHNAPPSCHUSS von vor der Zündung
+    // (nodeSnap): Die grüne Bahn zeigt den urspünglichen PLAN und bleibt statisch,
+    // statt während des Brennens mitzuwandern.
+    const nSrc = this.nodeSnap;
+    if(this.node && this.node.t > (nSrc ? nSrc.t : this.t)){
+      let np = (nSrc?nSrc.pos:this.pos).clone(), nv = (nSrc?nSrc.vel:this.vel).clone(),
+          nt = nSrc?nSrc.t:this.t;
+      const span = this.node.t - nt;
       const ndt = Math.max(0.5, span/400);
       while(nt < this.node.t){
         const d = Math.min(ndt, this.node.t-nt);
@@ -5406,9 +5492,17 @@ const Flight = {
       const pro = nvRel.clone().normalize();
       const hv = npRel.clone().cross(nvRel).normalize();
       const rad = pro.clone().cross(hv).negate().normalize(); // radial nach außen
+      // NORMAL = reine Ebenen-Drehung: v wird um die Knotenlinie (den Ortsvektor)
+      // GEDREHT statt ein senkrechtes Δv aufaddiert. So bleibt |v| erhalten →
+      // Ap/Pe der geplanten Bahn ändern sich nicht (wie beim echten Plane-Change);
+      // der Wert in m/s ist die Bogenlänge der Drehung (≈ klassisches Normal-Δv).
       const dvWorld = pro.clone().multiplyScalar(this.node.pro)
-        .addScaledVector(hv, this.node.nor)
         .addScaledVector(rad, this.node.rad);
+      if(this.node.nor){
+        const axis = npRel.clone().normalize();
+        const theta = this.node.nor / Math.max(1e-6, nvRel.length());
+        dvWorld.add(nvRel.clone().applyAxisAngle(axis, theta).sub(nvRel));
+      }
       this.nodeDir = dvWorld.lengthSq()>1e-6 ? dvWorld.clone().normalize() : pro;
       // Fürs Inklinations-Tutorial: Höhe des Knotens über der Äquatorebene (y=0)
       // und Bahnneigung der GEPLANTEN Bahn direkt nach dem Burn
@@ -5421,7 +5515,7 @@ const Flight = {
       this.nodeMarker.visible = true;
       this.nodeMarker.position.copy(np).sub(bodyPos(nBody, nt)).add(nbNow);
       const nms = this.camDist*0.05;
-      this.nodeMarker.scale.set(nms, nms/2, 1);
+      this.scaleMarker(this.nodeMarker, nms);
       // geplante Bahn (grün)
       const nAttr = this.nodeTrajLine.geometry.attributes.position;
       let pp = np.clone(), pv = nv.clone().add(dvWorld), pt = nt;
@@ -5661,7 +5755,7 @@ const Flight = {
     if(this.map){
       this.stationMarker.position.copy(this.stationMesh.position);
       const sms = this._cd ? this._cd*0.045 : this.camDist*0.045;
-      this.stationMarker.scale.set(sms, sms/2, 1);
+      this.scaleMarker(this.stationMarker, sms);
     }
     // Kleinkörper: Fels-Mesh, Bahnlinie & Kartenmarker
     for(const ao of this.astObjs){
@@ -5674,7 +5768,7 @@ const Flight = {
       if(this.map){
         ao.marker.position.copy(ap2);
         const ams = (this._cd||this.camDist)*0.04;
-        ao.marker.scale.set(ams, ams/2, 1);
+        this.scaleMarker(ao.marker, ams);
       }
     }
     // Missions-Zielorbits (blau/grün) aktualisieren

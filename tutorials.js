@@ -254,7 +254,7 @@ const TUTORIALS = [
     {text:`Vor dir fliegt die Raumstation <b>»Große Pause«</b> – nur 3 km entfernt, im selben
       100-km-Orbit! Rechts im HUD siehst du <b>Abstand</b> und <b>Relativgeschwindigkeit</b>.<br><br>
       Wirf zuerst einen Blick auf die Lage: Öffne die Karte mit <b>[M]</b> –
-      die Station ist der hellblaue <b>ISS</b>-Marker direkt neben dir.`,
+      die Station ist der hellblaue <b>»Große Pause«</b>-Marker direkt neben dir.`,
      check:(o,F)=>F.map},
     {text:`Schließe die Karte wieder <b>[M]</b>. Auf dem Navball siehst du zwei Marker:
       das <b>türkise ◆</b> (da IST die Station) und das <b style="color:#ff6ad5">rosa ✛</b>
