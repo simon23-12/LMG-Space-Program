@@ -213,11 +213,11 @@ input[type=file]{display:none;}
   <canvas id="crewCam" width="180" height="92" style="position:absolute;right:12px;top:150px;
     background:rgba(10,16,32,.82);border:1px solid var(--blue-dark);border-radius:8px;display:none;"></canvas>
   <!-- Booster-Autopilot: Beobachtungsfenster für die Falcon-Landung der 1. Stufe -->
-  <div id="boosterCam" style="display:none;position:absolute;right:12px;top:255px;width:300px;z-index:6;
+  <div id="boosterCam" style="display:none;position:absolute;right:12px;top:255px;width:380px;z-index:6;
     background:#04060e;border:2px solid var(--orange);border-radius:10px;overflow:hidden;">
     <div style="padding:4px 9px;font-size:11px;background:rgba(10,16,32,.92);display:flex;justify-content:space-between;align-items:baseline;">
       <b style="color:var(--orange)">🛬 Booster-Autopilot</b><span id="boosterCamState" style="color:var(--muted)"></span></div>
-    <div id="boosterCamView" style="width:300px;height:180px;"></div>
+    <div id="boosterCamView" style="width:380px;height:230px;"></div>
     <div id="boosterCamInfo" style="padding:4px 9px;font-size:11px;color:var(--muted);background:rgba(10,16,32,.92);"></div>
   </div>
   <div id="hudControls">
@@ -591,7 +591,8 @@ function crewCapacity(stack){
 }
 function isCrewedStack(stack){ return crewCapacity(stack) > 0; }
 /* ---------- Preise (Karriere): jedes Bauteil kostet 🪙 ----------
-   Balancing: Startbudget 2500 · erste Rakete ~700 · Missionen zahlen 150+10×🧪.
+   Balancing: Startbudget 3500 · erste Rakete ~700 · Missionen zahlen 150+10×🧪 ·
+   Nebenverdienste (SIDE_JOBS) einmalig 2×1000 + 2×1500.
    Gelandete Raketen werden voll erstattet – nur Verbrauchtes/Verlorenes kostet. */
 const PART_COSTS = {
   probePod:350, probeS:250, pod:700, chute:60, chute3:220, lab:380, shield:140,
@@ -778,15 +779,42 @@ const TECH = [
   {id:"heavyPlus", name:"Schwerlast II",          cost:80,  req:["heavy"],              desc:"Der monströse »Donner«-Booster."},
   {id:"explore",   name:"Erkundung",              cost:90,  req:["surv","advProp"],     desc:"Landebeine für fremde Welten."},
   {id:"future",    name:"Zukunftstechnik",        cost:140, req:["heavy","payload"],    desc:"Atomantrieb – interplanetare Reisen werden komfortabel."},
-  {id:"reuse",     name:"Wiederverwendbarkeit",   cost:50,  req:["heavy"],              desc:"Gitterflossen + Landeautopilot: Die erste Stufe landet wie eine Falcon 9 – und bringt ihr Geld zurück!"},
+  {id:"reuse",     name:"Wiederverwendbarkeit",   cost:50,  req:["heavy"],              desc:"Gitterflossen + Landeautopilot: Die erste Stufe landet wie eine Falcon 9 – und bringt ihr Geld zurück! (Ohne Landeplatz wassert sie im Ozean: 50 % Bergungswert.)"},
+  {id:"landZone",  name:"Landing Zone",           cost:40,  req:["reuse"],              desc:"Betonierte Landeplattform »LZ-1« neben JEDER Startrampe: Der Booster fliegt per Boostback-Burn zurück zum Startplatz (RTLS) – Punktlandung = 100 % Bergungswert!"},
+  {id:"droneship", name:"Droneship",              cost:60,  req:["landZone"],           desc:"Autonomes Landeschiff »Lies die Anleitung« wartet im Ozean östlich der Rampe: Der Booster darf LÄNGER brennen (späterer Cutoff = mehr Nutzlast) und landet downrange auf See. 90 % Bergungswert."},
   {id:"raptorSL",  name:"Raptor (Meereshöhe)",    cost:120, req:["reuse"],              desc:"Vollstrom-Methantriebwerk – das effizienteste Triebwerk seiner Klasse. Schaltet den SUPERHEAVY-Booster frei!"},
   {id:"raptorVac", name:"Raptor (Vakuum)",        cost:150, req:["raptorSL"],           desc:"Die Vakuum-Version mit riesiger Glocke: Isp 380 s bei gewaltigem Schub."},
-  {id:"starshipT", name:"Starship",               cost:250, req:["raptorVac"],          desc:"Das beste Vehikel im Spiel: Edelstahl, Bellyflop-Landung [C], Platz für 6 Crew oder mehrere Satelliten. Dazu: Tanker-Variante fürs Auftanken im Orbit."},
+  {id:"starshipT", name:"Starship",               cost:250, req:["raptorVac"],          desc:"Das beste Vehikel im Spiel: Edelstahl, Bellyflop-Landung [C], Platz für 6 Crew oder mehrere Satelliten. Dazu: Tanker-Variante fürs Auftanken im Orbit – UND der Mechazilla-Startturm am Raumhafen, der den Superheavy nach dem Start wieder CATCHT (100 % Bergung)!"},
   {id:"padEq",     name:"Raumhafen am Äquator",   cost:35,  req:["basic","struct"],     desc:"Bodenstation-Ausbau: der Raumhafen »Schulhof Süd« liegt PERFEKT am Äquator – gleiche Bahnebene wie die »Große Pause«, Startfenster-Peilung [Z] und KEIN Gewichtslimit. Schwerlast startet nur hier!"},
   {id:"padPolar",  name:"Polare Startrampe",      cost:70,  req:["padEq","heavy"],      desc:"Die Polarstation »Skihütte« am 86. Breitengrad: Ein Ost-Start mündet fast im Polarorbit – der Satellit sieht nach und nach die GANZE Oberfläche. Einfach gebaut, aber ohne Gewichtslimit."},
   {id:"mission2",  name:"Missionsplanung",        cost:20,  req:["struct"],             desc:"Das Bodenteam wächst: Nimm ZWEI Missionen gleichzeitig an."},
   {id:"mission3",  name:"Missionszentrale",       cost:75,  req:["mission2","payload"], desc:"Profi-Planung mit großem Kontrollraum: DREI Missionen gleichzeitig."}
 ];
+/* Nebenverdienste: einmalige Geld-Aktionen, freigeschaltet über Forschung –
+   Finanzspritze für alle, die sich verbaut haben (Missionen bleiben die Hauptquelle). */
+const SIDE_JOBS = [
+  {id:"jobEltern", icon:"🎓", cash:1000, needs:["basic","struct"],
+   name:"Seminar »Warum Raketen (meistens) nicht explodieren«",
+   desc:"Elternabend-Special in der Aula – mit Live-Demo aus Brausetabletten und Filmdosen. Standing Ovations, der Hut geht rum."},
+  {id:"jobKollegium", icon:"🧻", cash:1000, needs:["basic","struct"],
+   name:"Lehrer-Fortbildung »Stufentrennung mit Hausmitteln«",
+   desc:"Das Kollegium übt Stufentrennung mit Klopapierrollen und Gummibändern. Die Physik-Fachschaft zahlt begeistert aus der Kaffeekasse."},
+  {id:"jobMensa", icon:"🍝", cash:1500, needs:["surv"],
+   name:"Werbedeal: »Raumfahrterprobter Hitzeschutz«",
+   desc:"Die Mensa bewirbt ihre Lasagne-Schalen jetzt mit eurem Hitzeschild-Logo (»übersteht den Wiedereintritt UND den Ofen«). Ihr bekommt eine Beteiligung – und lebenslang Nachschlag."},
+  {id:"jobBlueprints", icon:"📐", cash:1500, needs:["advProp"],
+   name:"Blueprints »ganz diskret« an die Nachbarschule verkaufen",
+   desc:"Deren Raumfahrt-AG zahlt bar auf die Kralle für eure Triebwerks-Baupläne. Keine Sorge: Ohne eure Randnotizen bauen die das GARANTIERT falsch herum zusammen."}
+];
+function jobUnlocked(j){ return j.needs.every(t=>Game.unlocked.includes(t)); }
+function doSideJob(id){
+  const j = SIDE_JOBS.find(x=>x.id===id);
+  if(!j || Game.sandbox || Game.jobsDone.includes(id) || !jobUnlocked(j)) return;
+  Game.jobsDone.push(id);
+  Game.funds += j.cash;
+  autoSave();
+  renderMissions();
+}
 /* Missionen wie KSP-Verträge: erst ANNEHMEN, dann im Flug erfüllen.
    req = welche Missionen vorher erledigt sein müssen (steigender Schwierigkeitsgrad). */
 const MISSIONS = [
@@ -808,6 +836,12 @@ const MISSIONS = [
    req:["orbit"], check:s=>s.satL},
   {id:"reuse1",  name:"Sie landet doch!", desc:"Wiederverwendung wie bei der Falcon 9: Rüste die erste Stufe mit Gitterflossen aus (Forschung »Wiederverwendbarkeit«), trenne sie MIT Restsprit ab (orange Marke an der Tank-Anzeige) und lass den Autopiloten sie heil landen!", sci:45,
    req:["orbit"], check:s=>s.boosterLanded},
+  {id:"lz1",     name:"Punktlandung!", desc:"Boostback wie bei SpaceX: Forsche »Landing Zone«, wähle in der Montagehalle RTLS als Landeplatz und lande die erste Stufe EXAKT auf der Plattform »LZ-1« neben der Rampe. Volle Bergung!", sci:35,
+   req:["reuse1"], check:s=>s.lzLanded},
+  {id:"ship1",   name:"Ahoi, Booster!", desc:"Downrange-Landung: Forsche »Droneship«, wähle es als Landeplatz und lande die erste Stufe auf dem Landeschiff »Lies die Anleitung« im Ozean. Der spätere Cutoff schenkt dir ordentlich Nutzlast!", sci:45,
+   req:["lz1"], check:s=>s.shipLanded},
+  {id:"catch1",  name:"Mechazilla!", desc:"Fang den Superheavy mit den Turm-Armen: Starship vom Raumhafen »Schulhof Süd« starten, Stufentrennung – der Autopilot fliegt den Booster per Boostback zurück, und der Turm CATCHT ihn. (Forschung »Starship«)", sci:60,
+   req:["reuse1"], check:s=>s.caught},
   {id:"satWetter", name:"Wetterdienst Leibniz", desc:"Setze den Wettersatelliten »Wolkengucker« in einem stabilen Orbit um Leibniz aus [N]. Ab morgen gibt's Pausenhof-Wettervorhersage! (Tipp: Sondenbus »Teller« als Steuereinheit.)", sci:35,
    req:["sat1"], check:s=>s.satWeather},
   {id:"satStrahlung", name:"Strahlungsgürtel kartieren", desc:"Bring den Forschungssatelliten »Strahlenspäher« in einen HOHEN Orbit (Periapsis > 250 km) und setze ihn dort aus [N]. Nur dort oben lässt sich die kosmische Strahlung sauber messen.", sci:50,
@@ -915,7 +949,7 @@ function cancelMission(id){
 /* ---------- Spielstand ---------- */
 let Game = newGame();
 function newGame(){
-  return {science:0, funds:2500, unlocked:["start"], done:[], labDone:[], tutsDone:[], sandbox:false,
+  return {science:0, funds:3500, unlocked:["start"], done:[], labDone:[], tutsDone:[], sandbox:false,
     activeMissions:[], design:[],    // Hangar startet leer – selbst bauen!
     introSeen:false,                 // Karriere-Begrüßung vom Bodenteam
     stationMods:[],                  // ausgebaute Module der »Großen Pause«
@@ -928,7 +962,8 @@ function newGame(){
 }
 /* Alte Spielstände auf neue Felder heben (Geld, Mehrfach-Missionen) */
 function migrateGame(){
-  if(typeof Game.funds !== "number") Game.funds = 2500;
+  if(typeof Game.funds !== "number") Game.funds = 3500;
+  if(!Array.isArray(Game.jobsDone)) Game.jobsDone = [];   // Nebenverdienste (einmalig)
   if(!Array.isArray(Game.activeMissions))
     Game.activeMissions = Game.activeMission ? [Game.activeMission] : [];
   delete Game.activeMission;
@@ -936,6 +971,7 @@ function migrateGame(){
   if(Game.introSeen===undefined) Game.introSeen = Game.done.length>0;
   if(!Game.pad) Game.pad = "lmg";
   if(!Array.isArray(Game.asteroidsScanned)) Game.asteroidsScanned = [];
+  if(!Game.boosterSite) Game.boosterSite = "rtls";   // RTLS/Droneship-Wahl im VAB
   // Bestands-Saves: Wer schon an der Station gedockt hat, startete de facto vom
   // Äquator – der neue Raumhafen wird gratis freigeschaltet, sonst wären die
   // laufenden Stations-Missionen plötzlich unfair schwer.
@@ -1001,6 +1037,11 @@ const UI = {
         " t, die Rampe trägt nur "+(pad.maxMass/1000)+" t.\n\nSchwere Raketen starten vom Raumhafen »Schulhof Süd« am Äquator (Forschung »Raumhafen am Äquator«).");
       return;
     }
+    // Superheavy braucht den Mechazilla-Turm (Startaufhängung + Flame Diverter)
+    if(VAB.stack.some(id=>PARTS[id].type==="superheavy") && pad.id!=="eq"){
+      alert("🦾 Der SUPERHEAVY startet nur vom Raumhafen »Schulhof Süd«!\n\nNur dort stehen der Mechazilla-Startturm und der Flame Diverter – und nur dort kann der Booster nach dem Start wieder GECATCHT werden.");
+      return;
+    }
     // Karriere: die Rakete muss bezahlt werden – Bergung nach Landung erstattet sie
     let cost = 0;
     if(!Game.sandbox){
@@ -1055,11 +1096,13 @@ const INTRO_PAGES = [
      Raumfahrtprogramm funktioniert. Versprochen, es lohnt sich!`},
   {face:"🪙", title:"Das liebe Geld", text:
     `Raketen wachsen leider nicht auf Bäumen: <b>Jedes Bauteil kostet 🪙</b>.
-     Dein Startbudget: <b>🪙 2500</b>.<br><br>
+     Dein Startbudget: <b>🪙 3500</b>.<br><br>
      Die gute Nachricht: Landet deine Rakete <b>sicher auf Leibniz</b>, bergen wir sie
      und du bekommst den <b>vollen Restwert zurück</b>! 💰<br><br>
      Die schlechte: Was <b>crasht</b> 💥 oder <b>im All zurückbleibt</b> 🛰, ist futsch.
-     Abgeworfene Stufen übrigens auch – baue also schlau!`},
+     Abgeworfene Stufen übrigens auch – baue also schlau!<br><br>
+     Und falls die Kasse mal klemmt: In der Missionszentrale gibt es
+     <b>💰 Nebenverdienste</b> – Seminare &amp; Deals, die Forschung freischaltet.`},
   {face:"📋", title:"Missionen & Wissenschaft", text:
     `Unter <b>📋 Missionen</b> warten Verträge: erst <b>annehmen</b>, dann im Flug
      erfüllen – das bringt <b>Wissenschaft 🧪 UND Geld 🪙</b>.<br><br>
@@ -1286,6 +1329,24 @@ const Tut = {
       // Nase Richtung Station
       Flight.q.setFromUnitVectors(V3(0,1,0), stationPos(0).sub(Flight.pos).normalize());
     }
+    if(t.scenario.tanker){
+      // Tanker-Starship im Orbit parken, Spieler ein Stück dahinter (Refuel-Übung)
+      const alt = t.scenario.tanker.alt || 120000;
+      const r = LEIBNIZ.R + alt, w = Math.sqrt(LEIBNIZ.mu/Math.pow(r,3)), v = w*r;
+      Flight.tutTanker = {kind:"tanker", body:"LEIBNIZ", alt, phase:0.6, name:"Tanker-Starship ⛽"};
+      Flight.spawnTutTanker();
+      const a = 0.6 - (t.scenario.tanker.behind||3000)/r;
+      Flight.pos = bodyPos(LEIBNIZ,0).add(V3(Math.cos(a)*r, 0, -Math.sin(a)*r));
+      Flight.vel = bodyVel(LEIBNIZ,0).add(V3(-Math.sin(a)*v, 0, -Math.cos(a)*v));
+      Flight.landed = false; Flight.flew = true; Flight.throttle = 0;
+      const s = Flight.activeSeg(); if(s) s.ignited = true;
+      Flight.q.setFromUnitVectors(V3(0,1,0),
+        Flight.assetPos(Flight.tutTanker,0).sub(Flight.pos).normalize());
+      // Tanker als Ziel: ✛-Anflughilfe + ZIEL-BREMSE zeigen direkt auf ihn
+      Flight.target = Flight.targetList().find(x=>x.kind==="tanker") || null;
+    }
+    if(t.scenario.fuelFrac !== undefined)
+      Flight.v.segs.forEach(sg=>{ sg.fuelLeft = sg.fuel*t.scenario.fuelFrac; });
     Flight.showMsg(t.icon+" Tutorial-Szenario geladen – viel Erfolg!", 3);
     UI.show("flight");
     this.render();
@@ -1498,6 +1559,33 @@ function renderMissionControl(list){
     d.style.display = "block";
     d.innerHTML = html; list.appendChild(d); return d;
   };
+  // --- Nebenverdienste (einmalige Geld-Aktionen, via Forschung freigeschaltet) ---
+  sec("💰 Nebenverdienste – die AG-Kasse aufbessern");
+  const jobsCard = card(`<p style="margin-bottom:8px;color:var(--muted)">Einmalige Aktionen –
+    neue Forschung schaltet neue Geldquellen frei. Kassenstand: <b>🪙 ${Game.funds}</b></p>`);
+  for(const j of SIDE_JOBS){
+    const done = Game.jobsDone.includes(j.id), open = jobUnlocked(j);
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:10px;align-items:center;margin:7px 0;"+(open||done?"":"opacity:.5;");
+    const techNames = j.needs.map(id=>"»"+(TECH.find(t=>t.id===id)||{}).name+"«").join(" + ");
+    row.innerHTML = `<span style="font-size:20px;">${done?"✅":open?j.icon:"🔒"}</span>
+      <div style="flex:1;"><b>${j.name}</b><br>
+      <small style="color:var(--muted)">${open||done ? j.desc : "Forschung nötig: "+techNames}</small></div>`;
+    if(open && !done){
+      const btn = document.createElement("button");
+      btn.className = "btn orange";
+      btn.style.cssText = "padding:6px 12px;font-size:13px;white-space:nowrap;";
+      btn.textContent = "+"+j.cash+" 🪙 kassieren";
+      btn.onclick = ()=>doSideJob(j.id);
+      row.appendChild(btn);
+    } else if(done){
+      const s = document.createElement("span");
+      s.style.cssText = "color:var(--muted);white-space:nowrap;font-size:13px;";
+      s.textContent = "+"+j.cash+" 🪙 kassiert";
+      row.appendChild(s);
+    }
+    jobsCard.appendChild(row);
+  }
   // --- Raumstation »Große Pause« ---
   sec("🛰 Raumstation »Große Pause« – das Jahresprojekt");
   const mods = Game.stationMods||[];
@@ -2941,6 +3029,9 @@ const VAB = {
       this.stack.unshift(id);
     }
     else if(p.type==="chute") this.stack.unshift(id);
+    else if(p.type==="sideboost" &&
+            this.stack.filter(x=>PARTS[x].type==="sideboost").length >= 2)
+      return alert("Maximal ZWEI Seitenbooster-Pakete pro Rakete!\n\nMehr passt nicht um den Rumpf – und endloses Booster-Stapeln wäre gratis-Δv. 😉");
     else this.stack.push(id);
     this.refresh();
   },
@@ -3014,6 +3105,9 @@ const VAB = {
       return "Deine Rakete braucht eine Kommandokapsel oder einen Sondenkern!";
     if(!this.stack.some(x=>["engine","srb","superheavy","starship"].includes(PARTS[x].type)))
       return "Deine Rakete braucht ein Triebwerk!";
+    // Cap auch für geladene Hangar-Raketen (Alt-Designs mit Booster-Farm)
+    if(this.stack.filter(x=>PARTS[x].type==="sideboost").length > 2)
+      return "Maximal ZWEI Seitenbooster-Pakete pro Rakete – bitte ausmisten!";
     return null;
   },
   segments(stack){
@@ -3077,6 +3171,17 @@ const VAB = {
     }
     Game.pad = id; autoSave(); this.renderInfo();
   },
+  /* Booster-Landeplatz (RTLS = Landing Zone an der Rampe / Droneship im Ozean) */
+  setBoosterSite(id){
+    const has = t => Game.sandbox || Game.unlocked.includes(t);
+    if(id==="rtls" && !has("landZone")){
+      alert("🔒 Erst die Forschung »Landing Zone« abschließen!"); return;
+    }
+    if(id==="ship" && !has("droneship")){
+      alert("🔒 Erst die Forschung »Droneship« abschließen!"); return;
+    }
+    Game.boosterSite = id; autoSave(); this.renderInfo();
+  },
   renderInfo(){
     const info = document.getElementById("vabInfo");
     const segs = this.segments(this.stack);
@@ -3104,6 +3209,22 @@ const VAB = {
     padHtml += `<small style="color:var(--muted)">${pad.short}</small>`;
     if(total > pad.maxMass)
       padHtml += `<div style="color:var(--red);font-weight:700;margin-top:4px">⚠ ${(total/1000).toFixed(1)} t – zu schwer für diese Rampe!</div>`;
+    // Booster-Landeplatz: nur relevant, wenn die 1. Stufe landen kann (Gitterflossen)
+    if(this.stack.some(id=>PARTS[id].type==="gridfin")){
+      const has = t => Game.sandbox || Game.unlocked.includes(t);
+      const site = Game.boosterSite || "rtls";
+      padHtml += `<h3>Booster-Landeplatz</h3>`;
+      for(const [id, icon, name, tech, note] of [
+        ["rtls", "🎯", "Landing Zone (RTLS)", "landZone", "Boostback zur Rampe · 100 %"],
+        ["ship", "🚢", "Droneship (Ozean)",   "droneship", "später Cutoff · 90 %"]]){
+        const ok = has(tech), sel = ok && site===id;
+        padHtml += `<div class="stat" onclick="VAB.setBoosterSite('${id}')" style="cursor:pointer;${
+          sel?"color:var(--orange);font-weight:700;":""}${ok?"":"opacity:.45;"}">
+          <span>${sel?"▶ ":""}${icon} ${name}</span><span>${ok?note:"🔒"}</span></div>`;
+      }
+      if(!has("landZone"))
+        padHtml += `<small style="color:var(--muted)">Ohne Landeplatz wassert der Booster downrange im Ozean (50 % Bergung). Forschung: »Landing Zone«.</small>`;
+    }
     let html = padHtml + `<h3>Rakete</h3>
       <div class="stat"><span>Gesamtmasse</span><span>${(total/1000).toFixed(2)} t</span></div>
       ${Game.sandbox?"":`<div class="stat"><span>Kosten</span><span style="${cost>Game.funds?"color:var(--red);font-weight:700":""}">🪙 ${cost}${cost>Game.funds?" – zu teuer!":""}</span></div>`}
@@ -3140,7 +3261,13 @@ const VAB = {
     const dropAt = (i,e)=>{
       e.preventDefault();
       let data; try{ data=JSON.parse(e.dataTransfer.getData("text/plain")); }catch(_){ return; }
-      if(data.kind==="new") this.stack.splice(i,0,data.id);
+      if(data.kind==="new"){
+        if(PARTS[data.id].type==="sideboost" &&
+           this.stack.filter(x=>PARTS[x].type==="sideboost").length >= 2){
+          alert("Maximal ZWEI Seitenbooster-Pakete pro Rakete!"); return;
+        }
+        this.stack.splice(i,0,data.id);
+      }
       else if(data.kind==="move"){
         const [part]=this.stack.splice(data.from,1);
         this.stack.splice(data.from<i?i-1:i,0,part);
@@ -3309,11 +3436,27 @@ const Flight = {
     // Nebel-Fotos: weit hinter allen Planeten; frame() koppelt die Opacity
     // an die Sternen-Ausblendung (Atmosphäre blendet sie aus)
     this.nebulae = addNebulae(this.scene, 7e10, 1, 1);
-    // Lokaler Boden am Startplatz (Tangentialebene; die Kugel ist zu grob für Bodennähe)
+    // Lokaler Boden am Startplatz (Tangentialebene; die Kugel ist zu grob für Bodennähe).
+    // Alle Rampen liegen »realistisch« an der KÜSTE: Richtung Osten (= Flugrichtung!)
+    // kommt nach ~2,8 km Sandstrand und ab ~3,3 km der offene Ozean.
     this.groundPlane = new THREE.Mesh(
       new THREE.CircleGeometry(40000, 48),
       new THREE.MeshStandardMaterial({color:0x3f8d4e, roughness:.95}));
-    this.world.add(this.groundPlane);
+    this.groundPlane.rotation.x = -Math.PI/2;
+    this.groundBeach = new THREE.Mesh(
+      new THREE.CircleGeometry(40000, 64),
+      new THREE.MeshStandardMaterial({color:0xd9c893, roughness:.95}));
+    this.groundBeach.rotation.x = -Math.PI/2;
+    this.groundBeach.position.set(42800, 2, 0);
+    this.groundSea = new THREE.Mesh(
+      new THREE.CircleGeometry(41000, 64),
+      new THREE.MeshStandardMaterial({color:0x1d5d9e, roughness:.3, metalness:.25}));
+    this.groundSea.rotation.x = -Math.PI/2;
+    this.groundSea.position.set(44300, 4, 0);
+    // Gruppe: lokales X = Ost, Y = hoch, Z = Nord (Basis wird in start() gesetzt)
+    this.groundGroup = new THREE.Group();
+    this.groundGroup.add(this.groundPlane, this.groundBeach, this.groundSea);
+    this.world.add(this.groundGroup);
     // Startrampe
     this.padGroup = this.buildPad();
     this.world.add(this.padGroup);
@@ -3338,7 +3481,7 @@ const Flight = {
       x.fillStyle=g; x.fillRect(0,0,64,64);
       return new THREE.CanvasTexture(c);
     })();
-    for(let i=0;i<110;i++){
+    for(let i=0;i<170;i++){
       const mat = new THREE.SpriteMaterial({map:smokeTex, transparent:true, opacity:0, depthWrite:false});
       const spr = new THREE.Sprite(mat);
       spr.visible = false;
@@ -3583,6 +3726,43 @@ const Flight = {
           dz===0?orangeMat:new THREE.MeshStandardMaterial({color:0x2a6fb8}));
         flag.position.set(-246.8,14.5,-60+dz); g.add(flag);
       }
+      // Starship-Startanlage (Forschung »Starship«): Mechazilla-Turm mit
+      // Catch-Armen + Flame Diverter – der Superheavy wird nach dem Start GECATCHT
+      if(Game.sandbox || (Game.unlocked||[]).includes("starshipT")){
+        const mzMat = new THREE.MeshStandardMaterial({color:0x3a4150, roughness:.55, metalness:.5});
+        const mz = new THREE.Group();
+        const shaft = new THREE.Mesh(new THREE.BoxGeometry(9,104,9), mzMat);
+        shaft.position.y = 52; mz.add(shaft);
+        for(let y=6; y<102; y+=10){
+          const strut = new THREE.Mesh(new THREE.BoxGeometry(11.4,0.7,11.4),
+            new THREE.MeshStandardMaterial({color:0x8d94a6, metalness:.5}));
+          strut.position.y = y; mz.add(strut);
+        }
+        // Catch-Arme (»Chopsticks«): Drehgelenk am Turm, geöffnet ±; schließen
+        // beim Catch (Animation über Flight.mzArmFold in frame())
+        for(const side of [1,-1]){
+          const piv = new THREE.Group(); piv.name = "mzArm"; piv.userData.side = side;
+          piv.position.set(side*5.2, 72, -29);
+          const arm = new THREE.Mesh(new THREE.BoxGeometry(3.2,2.8,32), mzMat);
+          arm.position.set(0,0,16); piv.add(arm);
+          const tip = new THREE.Mesh(new THREE.BoxGeometry(2.4,1.6,7), orangeMat);
+          tip.position.set(0,-0.6,30); piv.add(tip);
+          piv.rotation.y = side*0.55;
+          mz.add(piv);
+        }
+        mz.position.set(0,0,-34);   // Turm steht südlich, Arme reichen zur Rampe
+        g.add(mz);
+        // Flame Diverter: Stahl-Keile lenken den Raptor-Strahl seitlich ab
+        const divMat = new THREE.MeshStandardMaterial({color:0x2a2f39, roughness:.9, metalness:.3});
+        const trench = new THREE.Mesh(new THREE.BoxGeometry(64,1,20), divMat);
+        trench.position.y = 0.5; g.add(trench);
+        for(const sx of [1,-1]){
+          const wedge = new THREE.Mesh(new THREE.BoxGeometry(16,1.4,18),
+            new THREE.MeshStandardMaterial({color:0x6f7686, roughness:.5, metalness:.6}));
+          wedge.position.set(sx*11, 3, 0); wedge.rotation.z = -sx*0.65;
+          g.add(wedge);
+        }
+      }
     } else {
       // Polarstation »Skihütte«: zwei Container, kleiner Tank, Radarkuppel
       const contMat = new THREE.MeshStandardMaterial({color:0xc84f3a, roughness:.6});
@@ -3598,6 +3778,49 @@ const Flight = {
         const st = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,5,5), orangeMat);
         st.position.set(-45-k*14,2.5,52+Math.sin(k*2.1)*6); g.add(st);
       }
+    }
+    // Landing Zone »LZ-1« (Forschung landZone): Beton-Plattform nördlich der Rampe –
+    // Ziel des RTLS-Boostbacks. Gibt es an JEDER Rampe.
+    if(Game.sandbox || (Game.unlocked||[]).includes("landZone")){
+      const lz = new THREE.Group(); lz.name = "lzPad";
+      const slab = new THREE.Mesh(new THREE.CylinderGeometry(30,33,1.4,28),
+        new THREE.MeshStandardMaterial({color:0x565d69, roughness:.9}));
+      slab.position.y = 0.7; lz.add(slab);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(24,0.9,8,42), orangeMat);
+      ring.rotation.x = Math.PI/2; ring.position.y = 1.5; lz.add(ring);
+      const barMat = new THREE.MeshStandardMaterial({color:0xe8ecf5});
+      for(const ry of [Math.PI/4, -Math.PI/4]){
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(36,0.3,3.2), barMat);
+        bar.position.y = 1.5; bar.rotation.y = ry; lz.add(bar);
+      }
+      lz.position.set(10, 0, 260);
+      g.add(lz);
+    }
+    return g;
+  },
+  /* Droneship »Lies die Anleitung«: autonome Lande-Barge, positioniert sich im
+     Ozean unter dem vorhergesagten Aufschlagpunkt des Boosters */
+  buildDroneship(){
+    const g = new THREE.Group();
+    const hullMat = new THREE.MeshStandardMaterial({color:0x2c3442, roughness:.7, metalness:.3});
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(92,8,52), hullMat);
+    hull.position.y = 1.4; g.add(hull);   // sitzt halb im Wasser
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(86,0.6,46),
+      new THREE.MeshStandardMaterial({color:0x596273, roughness:.85}));
+    deck.position.y = 5.7; g.add(deck);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(17,0.8,8,36),
+      new THREE.MeshStandardMaterial({color:0xf7941d}));
+    ring.rotation.x = Math.PI/2; ring.position.y = 6.2; g.add(ring);
+    const barMat = new THREE.MeshStandardMaterial({color:0xe8ecf5});
+    for(const ry of [Math.PI/4, -Math.PI/4]){
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(24,0.25,2.6), barMat);
+      bar.rotation.y = ry; bar.position.y = 6.2; g.add(bar);
+    }
+    // 4 Positions-Thruster in den Ecken (halten die Barge auf Station)
+    const tMat = new THREE.MeshStandardMaterial({color:0x6f7686});
+    for(const [sx,sz] of [[1,1],[1,-1],[-1,1],[-1,-1]]){
+      const t = new THREE.Mesh(new THREE.CylinderGeometry(2.2,2.6,7,10), tMat);
+      t.position.set(sx*42, 4.5, sz*22); g.add(t);
     }
     return g;
   },
@@ -3644,6 +3867,10 @@ const Flight = {
     if(this.booster && this.booster.mesh) this.world.remove(this.booster.mesh);
     this.booster = null; this.belly = null;
     this.statBoosterLanded = false; this.statBoosterRefund = 0;
+    this.statLZLanded = false; this.statShipLanded = false; this.statCaught = false;
+    // Tutorial-Tanker aufräumen (setzt Tut.start bei Bedarf neu)
+    if(this.tutTankerMesh){ this.world.remove(this.tutTankerMesh); this.tutTankerMesh = null; }
+    this.tutTanker = null; this.refueled = false;
     document.getElementById("boosterCam").style.display = "none";
     this.docked = false; this.dockOffset = null;
     this.autoDock = null; this.target = null; this.launchWindowMiss = undefined;
@@ -3719,15 +3946,38 @@ const Flight = {
     const north = new THREE.Vector3().crossVectors(up, east).normalize();
     this.padLocal = pd.clone().multiplyScalar(LEIBNIZ.R);
     this.groundLocal = pd.clone().multiplyScalar(LEIBNIZ.R*0.999995);
+    // Anker für Booster-Landeplätze: Ost/Nord der Rampe, Landing Zone,
+    // Droneship (Position wird erst im Flug gesetzt – es fährt zum Ziel!)
+    this.padEastV = east.clone(); this.padNorthV = north.clone();
+    this.lzLocal = (Game.sandbox || Game.unlocked.includes("landZone"))
+      ? this.padLocal.clone().addScaledVector(east, 10).addScaledVector(north, 260) : null;
+    this.dsLocal = null;
+    // Mechazilla-Catch-Punkt (nur Raumhafen »Schulhof Süd« mit Starship-Forschung)
+    this.catchLocal = (this.pad.id==="eq" && (Game.sandbox || Game.unlocked.includes("starshipT")))
+      ? this.padLocal.clone().addScaledVector(north, -20) : null;
+    if(!this.droneMesh){
+      this.droneMesh = this.buildDroneship();
+      this.world.add(this.droneMesh);
+    }
+    this.droneMesh.visible = false;
     // Rampen-Mesh passend zur gewählten Rampe neu bauen (LMG / Raumhafen / Polar)
     if(this.padGroup) this.world.remove(this.padGroup);
     this.padGroup = this.buildPad(this.pad.id);
     this.world.add(this.padGroup);
-    this.groundPlane.material.color.set(this.pad.id==="polar" ? 0xdfe9f2 : 0x3f8d4e);
-    const padQ = new THREE.Quaternion().setFromUnitVectors(V3(0,1,0), up);
+    // Mechazilla-Arme einsammeln (Catch-Animation in frame())
+    this.mzArms = [];
+    this.padGroup.traverse(o=>{ if(o.name==="mzArm") this.mzArms.push(o); });
+    this.mzArmFold = 0;
+    const polar = this.pad.id==="polar";
+    this.groundPlane.material.color.set(polar ? 0xdfe9f2 : 0x3f8d4e);
+    this.groundBeach.material.color.set(polar ? 0xb9c2cc : 0xd9c893);   // Kies statt Sand
+    this.groundSea.material.color.set(polar ? 0x27506e : 0x1d5d9e);     // Polarmeer dunkler
+    // Rampe & Boden mit EXPLIZITER Basis ausrichten (X=Ost, Y=hoch, Z=Nord) –
+    // so liegt die Küste im Gruppen-X garantiert im Osten, egal welche Rampe
+    const padQ = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(east, up, north));
     this.padGroup.quaternion.copy(padQ);
-    this.groundPlane.quaternion.copy(padQ);
-    this.groundPlane.rotateX(-Math.PI/2);
+    this.groundGroup.quaternion.copy(padQ);
     for(const spr of this.cloudSprites){
       const d = spr.userData;
       d.local = this.padLocal.clone()
@@ -3793,22 +4043,38 @@ const Flight = {
       const dir = V3(0,1,0).applyQuaternion(this.q);
       const dPos = this.pos.clone().addScaledVector(dir, -(this.height()/2+5));
       const dVel = this.vel.clone().addScaledVector(dir, -4);
-      const canLand = !this.booster &&
-        dropped.parts.some(id=>PARTS[id].type==="gridfin") &&
+      // Superheavy: wird am Raumhafen vom Mechazilla-Turm GECATCHT (eigene Gitterflossen)
+      const canCatch = !this.booster && this.catchLocal &&
+        dropped.parts.some(id=>PARTS[id].type==="superheavy") &&
         dropped.thrust>0 && dropped.fuelLeft>0 &&
         leibnizAlt(this.pos, this.t) < 250000;
+      const canLand = canCatch || (!this.booster &&
+        dropped.parts.some(id=>PARTS[id].type==="gridfin") &&
+        dropped.thrust>0 && dropped.fuelLeft>0 &&
+        leibnizAlt(this.pos, this.t) < 250000);
       if(canLand){
+        // Landeplatz: Turm-Catch (Superheavy), RTLS-Boostback zur Landing Zone,
+        // Droneship im Ozean – oder (ohne Forschung) ballistisch (= Wasserung).
+        const site = canCatch ? "catch" : this.boosterSiteEff();
         this.booster = {
           pos:dPos, vel:dVel, q:this.q.clone(), mesh:dMesh,
           fuel:dropped.fuelLeft, fuelMax:Math.max(1,dropped.fuel),
           thrust:dropped.thrust, isp:dropped.isp||290, dry:dropped.dry,
           height:stackHeight(debrisStack),
           value:stackCost(debrisStack),
+          site,
+          tgt: site==="catch" ? this.catchLocal.clone()
+             : site==="rtls" && this.lzLocal ? this.lzLocal.clone() : null,
+          // Catch: Arme greifen oben – die Stufen-UNTERKANTE hängt entsprechend tiefer
+          catchAlt: site==="catch" ? Math.max(10, 72 - stackHeight(debrisStack) + 6) : 0,
           state:"flip", stateT:0, finDeploy:0, throttle:0, doneT:0
         };
-        const lowFuel = dropped.fuelLeft < dropped.fuel*0.12;
+        const lowFuel = dropped.fuelLeft < dropped.fuel*(site==="rtls"||site==="catch" ? 0.3 : 0.12);
         this.showMsg(lowFuel
           ? "🛬 Booster-Autopilot übernimmt – ⚠️ wenig Restsprit, das wird knapp!"
+          : site==="catch" ? "🦾 Booster-Autopilot: Boostback zum TURM – Mechazilla macht sich bereit!"
+          : site==="rtls" ? "🛬 Booster-Autopilot: Boostback zur Landing Zone (RTLS)!"
+          : site==="ship" ? "🛬 Booster-Autopilot: Landeanflug aufs Droneship!"
           : "🛬 Booster-Autopilot übernimmt die erste Stufe – Landeanflug!", 4);
       } else {
         this.debris.push({
@@ -4054,12 +4320,14 @@ const Flight = {
     el.style.display = "block";
     if(!this.pipRenderer){
       this.pipRenderer = new THREE.WebGLRenderer({antialias:true});
-      this.pipRenderer.setSize(300, 180);
+      this.pipRenderer.setSize(380, 230);
       document.getElementById("boosterCamView").appendChild(this.pipRenderer.domElement);
-      this.pipCam = new THREE.PerspectiveCamera(50, 300/180, 0.5, 2.2e11);
+      this.pipCam = new THREE.PerspectiveCamera(50, 380/230, 0.5, 2.2e11);
     }
-    const states = {flip:"🔄 Wende-Manöver", coast:"🪂 Abstieg (Gitterflossen)",
-      burn:"🔥 LANDING BURN", landed:"✅ GELANDET!", crashed:"💥 verloren"};
+    const states = {flip:"🔄 Wende-Manöver", boostback:"↩️ BOOSTBACK-BURN",
+      coast:"🪂 Abstieg (Gitterflossen)",
+      burn:"🔥 LANDING BURN", landed:"✅ GELANDET!", crashed:"💥 verloren",
+      catchup:"🏗 ANFLUG AUF DEN TURM", caught:"🦾 GECATCHT!"};
     document.getElementById("boosterCamState").textContent = states[b.state]||"";
     const lp = bodyPos(LEIBNIZ, this.t);
     const alt = Math.max(0, b.pos.distanceTo(lp)-LEIBNIZ.R);
@@ -4073,22 +4341,64 @@ const Flight = {
     const up = b.pos.clone().sub(lp).normalize();
     let east = new THREE.Vector3().crossVectors(V3(0,1,0), up);
     if(east.lengthSq()<1e-9) east = V3(1,0,0); else east.normalize();
-    const dist = Math.min(180, 45 + vrel*0.35);
+    // Landing Burn: weiter rausgezoomt + flacherer Blickwinkel – man sieht die
+    // Flamme, den Boden UND das Landeziel (stylischer Cinematic-Shot)
+    const want = (b.state==="burn" || b.state==="landed" || b.state==="caught")
+      ? Math.min(420, 130 + vrel*0.9)
+      : Math.min(180, 45 + vrel*0.35);
+    b.camDist = b.camDist===undefined ? want : b.camDist + (want-b.camDist)*0.06;
+    const dist = b.camDist;
+    const upFac = (b.state==="burn" || b.state==="landed" || b.state==="caught") ? 0.07 : 0.18;
     this.pipCam.position.copy(bRel)
       .addScaledVector(east, dist)
-      .addScaledVector(up, b.height*0.5 + dist*0.18);
+      .addScaledVector(up, b.height*0.5 + dist*upFac);
     this.pipCam.up.copy(up);
     this.pipCam.lookAt(bRel.clone().addScaledVector(up, b.height*0.5));
     this.pipRenderer.render(this.scene, this.pipCam);
   },
+  /* Effektiver Booster-Landeplatz: "rtls" (Landing Zone), "ship" (Droneship)
+     oder null (keine Forschung → ballistisch downrange = Wasserung) */
+  boosterSiteEff(){
+    const has = t => Game.sandbox || Game.unlocked.includes(t);
+    if((Game.boosterSite||"rtls")==="ship" && has("droneship")) return "ship";
+    if(has("landZone")) return "rtls";
+    return null;
+  },
+  /* Ballistische Aufschlag-Vorhersage im Leibniz-Frame (grob, mit Drag):
+     liefert den lokalen Auftreffpunkt (Vektor vom Planetenzentrum) oder null */
+  predictImpactRel(b, tt){
+    const lp = bodyPos(LEIBNIZ, tt), lv = bodyVel(LEIBNIZ, tt);
+    const p = b.pos.clone().sub(lp), v = b.vel.clone().sub(lv);
+    const m = b.dry + b.fuel;
+    for(let i=0;i<700;i++){
+      const r = p.length();
+      if(r <= LEIBNIZ.R) return p.normalize().multiplyScalar(LEIBNIZ.R);
+      const alt = r - LEIBNIZ.R;
+      const dtp = alt > 25000 ? 2 : 0.6;
+      const a = p.clone().multiplyScalar(-LEIBNIZ.mu/(r*r*r));
+      const vv = v.length();
+      if(alt < LEIBNIZ.atmoH && vv > 0.1){
+        const rho = LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH);
+        a.addScaledVector(v, -Math.min(0.5*rho*vv*13/m, 0.4/dtp));   // cdA ≈ Flossen raus
+      }
+      v.addScaledVector(a, dtp); p.addScaledVector(v, dtp);
+    }
+    return null;
+  },
   /* ---------- Booster-Autopilot: landet die 1. Stufe im Falcon-9-Stil ----------
-     Zustände: flip (retrograde drehen) → coast (Gitterflossen raus, Aerobraking)
-     → burn (Suicide Burn) → landed/crashed. Läuft substep-integriert, damit
-     auch bei Zeitraffer (≤50×) nichts explodiert. */
+     Zustände: flip (retrograde drehen) → [boostback (RTLS: zurück zur Rampe)]
+     → coast (Gitterflossen raus, Aerobraking + Ziel-Steuerung) → burn (Suicide
+     Burn) → landed/crashed. Läuft substep-integriert, damit auch bei
+     Zeitraffer (≤50×) nichts explodiert. */
   updateBooster(dt){
     const b = this.booster;
     if(!b || b.state==="crashed") return;
-    if(b.state==="landed"){
+    if(b.state==="landed" || b.state==="caught"){
+      // Gecatcht: die Arme übernehmen die Last – der Booster sackt sanft 2,5 m
+      if(b.state==="caught" && b.sink > 0){
+        const d = Math.min(b.sink, dt*1.3);
+        b.sink -= d; b.local.setLength(b.local.length() - d);
+      }
       b.pos.copy(bodyPos(LEIBNIZ, this.t)).add(b.local);   // folgt dem Planeten
       b.vel.copy(bodyVel(LEIBNIZ, this.t));
       return;
@@ -4111,19 +4421,80 @@ const Flight = {
       b.stateT += dtb;
       // Zustandsmaschine
       if(b.state==="flip"){
-        if(b.stateT > 3){ b.state = "coast"; b.stateT = 0; }
+        if(b.stateT > 3){
+          // RTLS/Turm-Catch: erst zurückbrennen – sonst direkt in den Abstieg
+          b.state = ((b.site==="rtls"||b.site==="catch") && b.tgt && b.fuel > b.fuelMax*0.22)
+            ? "boostback" : "coast";
+          b.stateT = 0;
+        }
+      } else if(b.state==="boostback"){
+        // Boostback-Burn: horizontal Richtung Landing Zone brennen, bis der
+        // vorhergesagte Aufschlagpunkt nah genug an der Plattform liegt
+        if(b._pT===undefined || tt - b._pT > 0.8){ b._imp = this.predictImpactRel(b, tt); b._pT = tt; }
+        let err = b._imp ? b.tgt.clone().sub(b._imp) : null;
+        if(err) err.addScaledVector(up, -err.dot(up));   // nur horizontal zählt
+        if(!err || err.length() < (b.site==="catch" ? 350 : 800) || b.fuel < b.fuelMax*0.12 || b.stateT > 90){
+          b.state = "coast"; b.stateT = 0; b.throttle = 0; b._bbDir = null;
+        } else {
+          b._bbDir = err.normalize();
+          const nose = V3(0,1,0).applyQuaternion(b.q);
+          b.throttle = nose.dot(b._bbDir) > 0.9 ? 1 : 0;   // erst ausrichten, dann brennen
+        }
       } else if(b.state==="coast"){
         b.finDeploy = Math.min(1, b.finDeploy + dtb/1.8);   // Flossen ausklappen
+        // Droneship: fährt autonom zum vorhergesagten Aufschlagpunkt (auf See!)
+        if(b.site==="ship" && !b.tgt){
+          const imp = this.predictImpactRel(b, tt);
+          if(imp && this.padLocal){
+            const d = imp.clone().sub(this.padLocal);
+            const e = Math.max(d.dot(this.padEastV), 6000);   // mindestens hinter der Küste
+            b.tgt = this.padLocal.clone()
+              .addScaledVector(this.padEastV, e)
+              .addScaledVector(this.padNorthV, d.dot(this.padNorthV))
+              .normalize().multiplyScalar(LEIBNIZ.R);
+            this.dsLocal = b.tgt.clone();
+          }
+        }
+        // Gitterflossen-Steuerung: aerodynamischer »Lift« zieht die Bahn zum Ziel
+        if(b.tgt && alt < 55000 && alt < LEIBNIZ.atmoH){
+          if(b._pT===undefined || tt - b._pT > 1.2){ b._imp = this.predictImpactRel(b, tt); b._pT = tt; }
+          if(b._imp){
+            const err = b.tgt.clone().sub(b._imp);
+            err.addScaledVector(up, -err.dot(up));
+            const el = err.length();
+            if(el > 20){
+              const rho = LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH);
+              const fd = 0.5*rho*v*v*(5 + 8*b.finDeploy);
+              const aLat = Math.min(fd/m*0.35, 4) * Math.min(1, el/1200) * b.finDeploy;
+              b.vel.addScaledVector(err.normalize(), aLat*dtb);
+            }
+          }
+        }
+        // Endanflug (< 8 km): Quergeschwindigkeit DIREKT aufs Ziel regeln –
+        // robust auch im Zeitraffer (die Vorhersage-Steuerung allein streut zu sehr
+        // für 45-m-Catch bzw. Landing-Zone-Punktlandung)
+        if(b.tgt && alt < 8000 && vDown > 1){
+          const errC = b.tgt.clone().sub(rel);
+          errC.addScaledVector(up, -errC.dot(up));
+          const tGo = Math.max(3, (alt - b.catchAlt)/Math.max(vDown, 5));
+          const vLatWant = errC.divideScalar(tGo);
+          if(vLatWant.length() > 45) vLatWant.setLength(45);
+          const vH = airVel.clone().addScaledVector(up, -airVel.dot(up));
+          const dvC = vLatWant.sub(vH);
+          const dc = dvC.length();
+          if(dc > 1e-3) b.vel.addScaledVector(dvC.normalize(), Math.min(6, dc/dtb)*dtb);
+        }
         const aNet = Math.max(0.5, b.thrust/m - g);
         // Auslegung auf die GESAMT-Geschwindigkeit (Retro-Burn bremst ja auch
         // die Horizontalfahrt mit) + großzügige Marge statt Falcon-Hoverslam
         const burnDist = vDown>0 ? v*v/(2*aNet) : 0;
-        if(vDown>0 && alt <= burnDist*1.6 + 150){ b.state = "burn"; b.stateT = 0; }
+        if(vDown>0 && alt - b.catchAlt <= burnDist*1.6 + 150){ b.state = "burn"; b.stateT = 0; }
       } else if(b.state==="burn"){
         if(b.fuel<=0){ b.throttle = 0; }
         else if(vDown > 3){
-          // Zielprofil: ~2 m/s bei 4 m Höhe; Gain 1.35 gleicht Regelverzug aus
-          const aDes = 1.35*Math.max(0, v*v - 4)/(2*Math.max(alt - 4, 1)) + g;
+          // Zielprofil: ~2 m/s bei 4 m Höhe (Turm-Catch: über der Catch-Höhe);
+          // Gain 1.35 gleicht Regelverzug aus
+          const aDes = 1.35*Math.max(0, v*v - 4)/(2*Math.max(alt - b.catchAlt - 4, 1)) + g;
           b.throttle = Math.min(1, Math.max(0.04, aDes*m/b.thrust));
         } else {
           // Endanflug/überbremst: knapp unter Schwebeschub -> sanft absetzen
@@ -4138,15 +4509,33 @@ const Flight = {
         const hv = hor.length();
         target = up.clone();
         if(hv > 2) target.addScaledVector(hor.normalize(), -Math.min(0.45, hv/70));
+        // Ziel-Feinsteuerung: leicht ÜBER den Landeplatz kippen – UND per
+        // Schubvektor die Quergeschwindigkeit aktiv aufs Ziel regeln (sonst
+        // reicht die Präzision für 45-m-Catch/LZ nicht zuverlässig)
+        if(b.tgt){
+          const errT = b.tgt.clone().sub(rel);
+          errT.addScaledVector(up, -errT.dot(up));
+          const el = errT.length();
+          if(el > 3) target.addScaledVector(errT.normalize(), Math.min(0.25, el/600));
+          if(alt - b.catchAlt < 2500 && b.fuel > 0){
+            const vWant = errT.clone().multiplyScalar(0.25);
+            if(vWant.length() > 14) vWant.setLength(14);
+            const dvL = vWant.sub(hor);
+            const dl = dvL.length();
+            if(dl > 1e-3) b.vel.addScaledVector(dvL.normalize(), Math.min(4, dl/dtb)*dtb);
+          }
+        }
         target.normalize();
+      } else if(b.state==="boostback" && b._bbDir){
+        target = b._bbDir.clone();
       } else target = v>12 ? airVel.clone().normalize().negate() : up.clone();
       const nose = V3(0,1,0).applyQuaternion(b.q);
       const full = new THREE.Quaternion().setFromUnitVectors(nose, target);
       b.q.premultiply(new THREE.Quaternion().slerp(full,
-        Math.min(1, (0.35 + 0.8*b.finDeploy)*dtb)));
+        Math.min(1, (0.35 + 0.8*b.finDeploy + (b.state==="boostback"?0.5:0))*dtb)));
       // Kräfte: Gravitation + Schub + Luftwiderstand
       const a = this.accel(b.pos, tt);
-      if(b.state==="burn" && b.fuel>0 && b.throttle>0){
+      if((b.state==="burn" || b.state==="boostback") && b.fuel>0 && b.throttle>0){
         const thrustDir = V3(0,1,0).applyQuaternion(b.q);
         a.addScaledVector(thrustDir, b.thrust*b.throttle/m);
         b.fuel = Math.max(0, b.fuel - b.thrust*b.throttle/(b.isp*G0)*dtb);
@@ -4162,21 +4551,65 @@ const Flight = {
       tt += dtb;
       // Aufsetzen (Mesh-Ursprung = Stufen-Unterkante) – Planet ZUR NEUEN Zeit!
       const lp2 = bodyPos(LEIBNIZ, tt), lv2 = bodyVel(LEIBNIZ, tt);
+      // Mechazilla-CATCH: erreicht der Booster die Arm-Höhe nah genug am Turm
+      // und langsam genug, schnappen die Arme zu – wie in Boca Chica!
+      if(b.site==="catch" && b.tgt){
+        const relN = b.pos.clone().sub(lp2);
+        const altN = relN.length() - LEIBNIZ.R;
+        if(altN <= b.catchAlt + 2){
+          const horE = relN.clone().sub(b.tgt);
+          horE.addScaledVector(up, -horE.dot(up));
+          const vrel = b.vel.clone().sub(lv2).length();
+          if(horE.length() < 45 && vrel <= 9){
+            b.state = "caught"; b.throttle = 0; b.sink = 2.5;
+            b.local = b.tgt.clone().setLength(LEIBNIZ.R + b.catchAlt);
+            b.pos.copy(lp2).add(b.local);
+            b.vel.copy(lv2);
+            b.q.setFromUnitVectors(V3(0,1,0), b.local.clone().normalize());
+            this.statBoosterLanded = true; this.statCaught = true;
+            if(!Game.sandbox){
+              Game.funds += b.value;
+              this.statBoosterRefund = (this.statBoosterRefund||0) + b.value;
+              autoSave();
+              this.showMsg("🦾 GECATCHT! Mechazilla hat den Superheavy gefangen ("+vrel.toFixed(1)+" m/s) +🪙 "+b.value+" (100 %)",6);
+            } else this.showMsg("🦾 GECATCHT! Mechazilla hat den Superheavy gefangen ("+vrel.toFixed(1)+" m/s) – wie in Boca Chica! 🎉",6);
+            b.doneT = performance.now();
+            break;
+          }
+        }
+      }
       if(b.pos.distanceTo(lp2) <= LEIBNIZ.R){
         const vrel = b.vel.clone().sub(lv2).length();
         if(vrel <= 12){
           b.state = "landed"; b.throttle = 0;
           b.local = b.pos.clone().sub(lp2).normalize().multiplyScalar(LEIBNIZ.R);
+          // WO gelandet? Landing Zone > Droneship > Gelände > Wasserung
+          const dLZ = this.lzLocal ? b.local.distanceTo(this.lzLocal) : 1e9;
+          const dDS = this.dsLocal ? b.local.distanceTo(this.dsLocal) : 1e9;
+          const dPad = b.local.clone().sub(this.padLocal || b.local);
+          const inWater = dPad.dot(this.padEastV||V3(0,0,-1)) > 3300 && dPad.length() < 85000;
+          let fac, wo;
+          if(dDS < 130){
+            fac = 0.9; wo = "🚢 AUF DEM DRONESHIP"; this.statShipLanded = true;
+            b.local.setLength(LEIBNIZ.R + 5.7);   // steht auf dem Deck, nicht im Wasser
+          } else if(dLZ < 400){
+            fac = 1; wo = "🎯 PUNKTLANDUNG auf der Landing Zone"; this.statLZLanded = true;
+          } else if(inWater){
+            fac = 0.5; wo = "🌊 GEWASSERT – schwimmt aufrecht, Bergung per Schiff";
+          } else {
+            fac = 0.6; wo = "🏞 im Gelände gelandet – Bergungstransport nötig";
+          }
           b.pos.copy(lp2).add(b.local);
           b.vel.copy(lv2);
           b.q.setFromUnitVectors(V3(0,1,0), b.local.clone().normalize());
           this.statBoosterLanded = true;
           if(!Game.sandbox){
-            Game.funds += b.value;
-            this.statBoosterRefund = (this.statBoosterRefund||0) + b.value;
+            const cash = Math.round(b.value*fac);
+            Game.funds += cash;
+            this.statBoosterRefund = (this.statBoosterRefund||0) + cash;
             autoSave();
-            this.showMsg("🏆 BOOSTER GELANDET! ("+vrel.toFixed(1)+" m/s) Stufe geborgen: +🪙 "+b.value,6);
-          } else this.showMsg("🏆 BOOSTER GELANDET! ("+vrel.toFixed(1)+" m/s) Wie eine echte Falcon 9! 🚀",5);
+            this.showMsg("🏆 BOOSTER GELANDET! "+wo+" ("+vrel.toFixed(1)+" m/s) +🪙 "+cash+" ("+Math.round(fac*100)+" %)",6);
+          } else this.showMsg("🏆 BOOSTER GELANDET! "+wo+" ("+vrel.toFixed(1)+" m/s) 🚀",5);
         } else {
           b.state = "crashed";
           for(let k=0;k<10;k++) this.spawnParticle(b.pos.clone(),
@@ -4324,6 +4757,13 @@ const Flight = {
       const r = LEIBNIZ.R + d.alt, w = Math.sqrt(LEIBNIZ.mu/Math.pow(r,3));
       list.push({kind:"tanker", name:d.name||"Tanker-Starship ⛽", alt:d.alt,
         phase0:d.phase, w,
+        pos:t=>this.assetPos(d,t), vel:t=>this.assetVel(d,t)});
+    }
+    // Tutorial-Tanker (Sandbox): fürs Refuel-Training anvisierbar
+    if(this.tutTanker){
+      const d = this.tutTanker;
+      const r = LEIBNIZ.R + d.alt, w = Math.sqrt(LEIBNIZ.mu/Math.pow(r,3));
+      list.push({kind:"tanker", name:d.name, alt:d.alt, phase0:d.phase, w,
         pos:t=>this.assetPos(d,t), vel:t=>this.assetVel(d,t)});
     }
     return list;
@@ -4496,10 +4936,33 @@ const Flight = {
     const a = d.phase + w*t, v = w*r;
     return bodyVel(b,t).add(V3(-Math.sin(a)*v, 0, -Math.cos(a)*v));
   },
+  /* Tutorial-Tanker (Sandbox): geparktes Tanker-Starship fürs Refuel-Training */
+  spawnTutTanker(){
+    if(this.tutTankerMesh) this.world.remove(this.tutTankerMesh);
+    const mesh = new THREE.Group();
+    const ship = buildPartMesh("starshipTank"); ship.position.y = -26; mesh.add(ship);
+    this.world.add(mesh);
+    this.tutTankerMesh = mesh;
+  },
   /* Orbital-Tankstelle: nah ran an ein geparktes Tanker-Starship (< 60 m, < 4 m/s)
      → Tanks voll, Tanker verbraucht. */
   checkTanker(){
-    if(Game.sandbox || !this.v || this.landed || this.crashed || this.ended || this.docked) return;
+    if(!this.v || this.landed || this.crashed || this.ended || this.docked) return;
+    // Tutorial-Tanker: gleiche Regeln, setzt fürs Tutorial das Flag »refueled«
+    if(this.tutTanker &&
+       this.pos.distanceTo(this.assetPos(this.tutTanker, this.t)) < 60 &&
+       this.vel.distanceTo(this.assetVel(this.tutTanker, this.t)) < 4){
+      let filled = false;
+      for(const s of this.v.segs) if(s.fuelLeft < s.fuel){ s.fuelLeft = s.fuel; filled = true; }
+      if(filled){
+        this.refueled = true;
+        this.world.remove(this.tutTankerMesh); this.tutTankerMesh = null;
+        this.tutTanker = null;
+        if(this.target && this.target.kind==="tanker") this.target = null;
+        this.showMsg("⛽ AUFGETANKT! Alle Tanks voll – der leere Tanker verglüht kontrolliert. 🔥",5);
+      }
+    }
+    if(Game.sandbox) return;
     for(const d of (Game.assets||[])){
       if(d.kind!=="tanker") continue;
       if(this.pos.distanceTo(this.assetPos(d, this.t)) > 60) continue;
@@ -5381,6 +5844,8 @@ const Flight = {
       anomalies:(Game.anomaliesFound||[]).length,
       rescueLanded:!!this.rescueLanded,
       boosterLanded:!!this.statBoosterLanded,
+      lzLanded:!!this.statLZLanded, shipLanded:!!this.statShipLanded,
+      caught:!!this.statCaught,
       labAny:Game.labDone.length>0};
     // Nur AKTIVE (angenommene) Missionen können erfüllt werden – wie KSP-Verträge.
     // Mit »Missionsplanung« laufen bis zu 3 Verträge parallel.
@@ -5689,7 +6154,22 @@ const Flight = {
     this.cloudShell.position.copy(lp);
     this.atmoShell.position.copy(lp);
     this.padGroup.position.copy(lp).add(this.padLocal||V3(LEIBNIZ.R,0,0));
-    this.groundPlane.position.copy(lp).add(this.groundLocal||V3(LEIBNIZ.R,0,0));
+    this.groundGroup.position.copy(lp).add(this.groundLocal||V3(LEIBNIZ.R,0,0));
+    // Mechazilla-Arme: offen im Anflug, schnappen beim Catch zu (~1 s)
+    if(this.mzArms && this.mzArms.length){
+      const wantF = this.booster && this.booster.state==="caught" ? 1 : 0;
+      this.mzArmFold = (this.mzArmFold||0) + (wantF - this.mzArmFold)*0.055;
+      for(const a of this.mzArms)
+        a.rotation.y = a.userData.side*(0.55 - 0.44*this.mzArmFold);
+    }
+    // Droneship: liegt (sobald positioniert) im Ozean und folgt dem Planeten
+    if(this.droneMesh){
+      if(this.dsLocal && !this.map){
+        this.droneMesh.visible = true;
+        this.droneMesh.position.copy(lp).add(this.dsLocal);
+        this.droneMesh.quaternion.setFromUnitVectors(V3(0,1,0), this.dsLocal.clone().normalize());
+      } else this.droneMesh.visible = false;
+    }
     for(const spr of this.cloudSprites)
       if(spr.userData.local) spr.position.copy(lp).add(spr.userData.local);
     for(const [m, ring] of this.moonRings) ring.position.copy(bodyPos(m.parent, this.t));
@@ -5708,7 +6188,7 @@ const Flight = {
     // Nebel-Kulisse: wie die Sterne in der Atmosphäre ausblenden
     for(const neb of this.nebulae)
       neb.material.opacity = (this.map ? 1 : 1-f) * neb.userData.base;
-    this.groundPlane.visible = !this.map && alt<16000;
+    this.groundGroup.visible = !this.map && alt<16000;
     this.padGroup.visible = !this.map && alt<25000;
     for(const [,ring] of this.moonRings) ring.visible = this.map;
     this.shipMarker.visible = this.map && !this.crashed;
@@ -5792,6 +6272,21 @@ const Flight = {
           this.spawnParticle(nozzle, pvel, 0.8+Math.random()*0.9,
             2.5+Math.random()*3, i===0 ? 0xffa030 : 0xbfc4cf);
         }
+        // Flame Diverter am Starship-Pad: EXTRA Dampf-/Rauchfontänen schießen
+        // seitlich aus den Stahl-Keilen – 33 Raptors wollen irgendwohin!
+        if(alt < 100 && this.pad && this.pad.id==="eq" &&
+           this.v.stack.some(id=>PARTS[id].type==="superheavy")){
+          const fr1 = this.frameAt(this.pos);
+          for(let k=0;k<4;k++){
+            const sgn = k%2 ? 1 : -1;
+            const side = fr1.east.clone().multiplyScalar(sgn)
+              .addScaledVector(fr1.north, (Math.random()-0.5)*0.6).normalize();
+            this.spawnParticle(
+              this.pos.clone().addScaledVector(dir, -hh).addScaledVector(side, 7+Math.random()*10),
+              this.vel.clone().addScaledVector(side, 45+Math.random()*40).addScaledVector(fr1.up, 8+Math.random()*16),
+              1.5+Math.random()*1.3, 7+Math.random()*8, k===0 ? 0xffb060 : 0xe2e7f0);
+          }
+        }
       }
     }
     // Wiedereintritts-Glühen: Plasma bei hoher Geschwindigkeit in dichter Luft
@@ -5841,6 +6336,8 @@ const Flight = {
     // Partikel altern mit SIMULATIONS-Zeit (sonst driften sie bei Warp gegen die Planetenbewegung)
     this.updateParticles(simmed);
     for(const sat of this.sats) sat.mesh.position.copy(sat.pos);
+    if(this.tutTanker && this.tutTankerMesh)
+      this.tutTankerMesh.position.copy(this.assetPos(this.tutTanker, this.t));
     // Anomalie-Leuchtfeuer & Orbit-Inventar (Sats/Wracks) positionieren
     const bodyMap = BODY_BY_NAME();
     for(const {a, g} of this.anomalyMeshes){
@@ -6359,8 +6856,11 @@ const Flight = {
     document.getElementById("throttleFill").style.height=(this.throttle*100)+"%";
     document.getElementById("fuelFill").style.height=((s&&(s.fuel+s.srbFuel))?fuelPct:0)+"%";
     // Gitterflossen an Bord? Orange Marke = Restsprit für den Landing Burn
-    document.getElementById("fuelMark").style.display =
+    // (RTLS braucht MEHR: der Boostback-Burn zurück zur Rampe kostet extra)
+    const fm = document.getElementById("fuelMark");
+    fm.style.display =
       (s && s.thrust && s.parts.some(id=>PARTS[id].type==="gridfin")) ? "" : "none";
+    fm.style.bottom = this.boosterSiteEff()==="rtls" ? "30%" : "12%";
     // Seitenbooster: eigene Tankanzeige (eigener Treibstoff-Pool!)
     const boG = this.v.boost, boEl = document.getElementById("boostGauge");
     if(boG && boG.attached){

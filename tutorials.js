@@ -410,5 +410,39 @@ const TUTORIALS = [
    ],
    done:`🏆 STARSHIP GELANDET! Bauchlage → Flip → Landing Burn: die spektakulärste
      Landung der Raumfahrt. Tipp für eigene Flüge: Das Tanker-Starship (ohne Flaps)
-     parkst du im Orbit und tankst dort wieder auf – so reicht es bis Monti und weiter!`}
+     parkst du im Orbit und tankst dort wieder auf – so reicht es bis Monti und weiter!`},
+
+  {id:"refuel", icon:"⛽", title:"Starship: Orbital Refueling", sub:"Tanks fast leer? Im Orbit wartet ein Tanker – flieg ran und tanke auf!",
+   scenario:{stack:["starship"], tanker:{alt:120000, behind:3000}, fuelFrac:0.15},
+   steps:[
+    {text:`Dein Starship ist im 120-km-Orbit – aber die Tanks sind <b>fast leer</b>
+      (schau auf die Anzeige: nur noch ~15 %!). Für Monti oder weiter reicht das nie.<br><br>
+      Die Lösung von SpaceX: <b>Orbital Refueling</b>. 3 km voraus wartet ein geparktes
+      <b>Tanker-Starship ⛽</b> – es ist bereits als Ziel markiert.<br><br>
+      Wirf einen Blick auf die Karte <b>[M]</b>: Da vorne fliegt es!`,
+     check:(o,F)=>F.map},
+    {text:`Karte wieder zu <b>[M]</b>. Auf dem Navball siehst du den Anflug-Assistenten:
+      das <b style="color:#ff6ad5">rosa ✛</b>.<br><br>
+      Wie beim Stations-Rendezvous: <b>Nase mit W/A/S/D aufs ✛ drehen</b> und in
+      <b>kurzen Stößen</b> Schub geben <b>[↑]</b> – das ✛ lenkt UND bremst dich
+      automatisch ein.<br><br>
+      ⚠️ Sparsam brennen, dein Sprit ist knapp! Ran bis <b>unter 500 m</b>.`,
+     check:(o,F)=>F.refueled || (F.tutTanker && !F.map && F.pos.distanceTo(F.assetPos(F.tutTanker,F.t))<500)},
+    {text:`Unter 500 m! Jetzt der Feinanflug – ganz ruhig:<br><br>
+      Nase aufs <b style="color:#ff6ad5">rosa ✛</b>, kleine Schubstöße. Die Betankung
+      startet automatisch, sobald du <b>näher als 60 m</b> bist und <b>langsamer als
+      4 m/s</b> relativ zum Tanker fliegst – wie zwei aneinanderliegende Schiffe.<br><br>
+      Schau auf die Relativgeschwindigkeit rechts und taste dich ran!`,
+     check:(o,F)=>F.refueled},
+    {text:`⛽ <b>VOLLGETANKT!</b> Alle Tanks wieder auf 100 % – der leere Tanker
+      verglüht kontrolliert in der Atmosphäre.<br><br>
+      Fühl den Unterschied: Eben warst du gestrandet, jetzt hast du Δv für eine
+      <b>Monti-Reise</b> übrig. Brenn zur Feier kurz prograde und hebe deine
+      <b>Apoapsis über 300 km</b>!`,
+     check:o=>o.ap>300000},
+   ],
+   done:`🏆 ORBITAL REFUELING GEMEISTERT! Genau so plant SpaceX Mond- und Mars-Flüge:
+     Das Starship startet fast leer in den Orbit und wird dort von Tankern aufgefüllt –
+     erst dann geht's auf die große Reise. In der Karriere gilt: Tanker-Starship mit [Z]
+     auf der Rampe als Ziel wählen, hinfliegen, auftanken (der Tanker wird verbraucht).`}
 ];
