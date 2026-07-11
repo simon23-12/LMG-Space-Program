@@ -3742,15 +3742,15 @@ const Flight = {
         // beim Catch (Animation über Flight.mzArmFold in frame())
         for(const side of [1,-1]){
           const piv = new THREE.Group(); piv.name = "mzArm"; piv.userData.side = side;
-          piv.position.set(side*5.2, 72, -29);
+          piv.position.set(side*5.2, 72, -6);   // Gelenk an der Turm-Nordkante
           const arm = new THREE.Mesh(new THREE.BoxGeometry(3.2,2.8,32), mzMat);
-          arm.position.set(0,0,16); piv.add(arm);
+          arm.position.set(0,0,-16); piv.add(arm);
           const tip = new THREE.Mesh(new THREE.BoxGeometry(2.4,1.6,7), orangeMat);
-          tip.position.set(0,-0.6,30); piv.add(tip);
+          tip.position.set(0,-0.6,-30); piv.add(tip);
           piv.rotation.y = side*0.55;
           mz.add(piv);
         }
-        mz.position.set(0,0,-34);   // Turm steht südlich, Arme reichen zur Rampe
+        mz.position.set(0,0,34);   // +Z = Süd: Turm steht südlich, Arme reichen zur Rampe
         g.add(mz);
         // Flame Diverter: Stahl-Keile lenken den Raptor-Strahl seitlich ab
         const divMat = new THREE.MeshStandardMaterial({color:0x2a2f39, roughness:.9, metalness:.3});
@@ -3793,7 +3793,7 @@ const Flight = {
         const bar = new THREE.Mesh(new THREE.BoxGeometry(36,0.3,3.2), barMat);
         bar.position.y = 1.5; bar.rotation.y = ry; lz.add(bar);
       }
-      lz.position.set(10, 0, 260);
+      lz.position.set(10, 0, -260);   // −Z = Nord (Gruppen-Z zeigt nach Süd!)
       g.add(lz);
     }
     return g;
@@ -3972,10 +3972,12 @@ const Flight = {
     this.groundPlane.material.color.set(polar ? 0xdfe9f2 : 0x3f8d4e);
     this.groundBeach.material.color.set(polar ? 0xb9c2cc : 0xd9c893);   // Kies statt Sand
     this.groundSea.material.color.set(polar ? 0x27506e : 0x1d5d9e);     // Polarmeer dunkler
-    // Rampe & Boden mit EXPLIZITER Basis ausrichten (X=Ost, Y=hoch, Z=Nord) –
-    // so liegt die Küste im Gruppen-X garantiert im Osten, egal welche Rampe
+    // Rampe & Boden mit EXPLIZITER Basis ausrichten: X=Ost, Y=hoch, Z=SÜD.
+    // ⚠️ {Ost, hoch, Nord} wäre LINKSHÄNDIG (Spiegelmatrix, keine Rotation) –
+    // setFromRotationMatrix kippt die Rampe dann um 90°! X×Y muss Z ergeben.
+    const south = north.clone().negate();
     const padQ = new THREE.Quaternion().setFromRotationMatrix(
-      new THREE.Matrix4().makeBasis(east, up, north));
+      new THREE.Matrix4().makeBasis(east, up, south));
     this.padGroup.quaternion.copy(padQ);
     this.groundGroup.quaternion.copy(padQ);
     for(const spr of this.cloudSprites){
