@@ -559,6 +559,8 @@ const PARTS = {
            info:"Misst kosmische Strahlung – funktioniert nur im HOHEN Orbit (Periapsis > 250 km). Aussetzen: [N]"},
   satS:   {name:"Spähsatellit »Adlerauge«",  type:"sat",    cat:"sat", mass:350, w:9,h:6, tech:"fine",
            info:"Streng geheim! Scharfe Fotos gelingen nur im TIEFEN Orbit (Pe > 70 km, Ap < 130 km). Aussetzen: [N]"},
+  satK:   {name:"Kommerz-Satellit »Werbefunk«", type:"sat", cat:"sat", mass:220, w:8,h:6, tech:"payload", com:true,
+           info:"Für die 📡 Satelliten-Aufträge in der Missionszentrale: im GEFORDERTEN Orbit aussetzen [N] = Prämie kassieren. Funkt danach dauerhaft Werbung → 🪙 nach jedem Flug!"},
   fairing:{name:"Nutzlast-Fairing",          type:"fairing",cat:"sat", mass:120, w:12,h:5, tech:"payload", info:"Halber Luftwiderstand. Mit [F] absprengen!"},
   tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"fine", info:"0,7 t für Satelliten-Manöver."},
   engT:   {name:"Triebwerk »Floh«",          type:"engine", cat:"sat", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"fine", info:"Winziges Manövriertriebwerk (8 kN)."},
@@ -578,7 +580,14 @@ const PARTS = {
 /* Radialteile (Flossen, Seitenbooster): hängen seitlich am Nachbartank
    und belegen KEINE eigene Höhe im Stack – wie in echt. */
 function isRadial(id){ const t = PARTS[id] && PARTS[id].type; return t==="fin" || t==="sideboost" || t==="gridfin"; }
-function stackHeight(stack){ return stack.reduce((a,id)=>a+(isRadial(id)?0:PARTS[id].h),0); }
+/* Sitzt ein Starship im Stack, reisen Satelliten IM Frachtraum (PEZ-Dispenser
+   wie bei Starlink): sie belegen dann keine Stack-Höhe und werden nicht gemalt. */
+function satInStarship(stack, id){
+  return PARTS[id].type==="sat" && stack.some(x=>PARTS[x].type==="starship");
+}
+function stackHeight(stack){
+  return stack.reduce((a,id)=>a+(isRadial(id)||satInStarship(stack,id)?0:PARTS[id].h),0);
+}
 /* Bemannt? Kapsel ODER (Nicht-Tanker-)Starship. Kapazität: Pod 1(+Labor 1), Starship 6 */
 function crewCapacity(stack){
   let cap = 0;
@@ -599,7 +608,7 @@ const PART_COSTS = {
   tankS:100, engS:220, tankM:180, engVac:420, engNuc:1400, engIon:900, tankXL:700,
   decoupler:40, interXS:30, inter:50, interL:90, legs:90, rcs:130, srb:150, fin:25, gridfin:240, tankL:350, engMain:650, srbL:300,
   sb2:260, sb4:500, probe:180, solar:70, battery:50, bay:80, bayS:50, antenna:60,
-  satW:320, satR:420, satS:550, fairing:80, tankXS:70, engT:120, dock:100,
+  satW:320, satR:420, satS:550, satK:380, fairing:80, tankXS:70, engT:120, dock:100,
   engRapSL:900, engRapVac:1100, superheavy:2600, starship:4200, starshipTank:3200
 };
 for(const [id,c] of Object.entries(PART_COSTS)) if(PARTS[id]) PARTS[id].cost = c;
@@ -799,14 +808,56 @@ const SIDE_JOBS = [
   {id:"jobKollegium", icon:"🧻", cash:1000, needs:["basic","struct"],
    name:"Lehrer-Fortbildung »Stufentrennung mit Hausmitteln«",
    desc:"Das Kollegium übt Stufentrennung mit Klopapierrollen und Gummibändern. Die Physik-Fachschaft zahlt begeistert aus der Kaffeekasse."},
-  {id:"jobMensa", icon:"🍝", cash:1500, needs:["surv"],
+  {id:"jobMensa", icon:"🍝", cash:1500, needs:["surv","advProp","padEq","mission2"],
    name:"Werbedeal: »Raumfahrterprobter Hitzeschutz«",
    desc:"Die Mensa bewirbt ihre Lasagne-Schalen jetzt mit eurem Hitzeschild-Logo (»übersteht den Wiedereintritt UND den Ofen«). Ihr bekommt eine Beteiligung – und lebenslang Nachschlag."},
-  {id:"jobBlueprints", icon:"📐", cash:1500, needs:["advProp"],
+  {id:"jobBlueprints", icon:"📐", cash:1500, needs:["crewed","payload","heavy","explore"],
    name:"Blueprints »ganz diskret« an die Nachbarschule verkaufen",
    desc:"Deren Raumfahrt-AG zahlt bar auf die Kralle für eure Triebwerks-Baupläne. Keine Sorge: Ohne eure Randnotizen bauen die das GARANTIERT falsch herum zusammen."}
 ];
 function jobUnlocked(j){ return j.needs.every(t=>Game.unlocked.includes(t)); }
+/* ---------- Satelliten-Aufträge: endlos nachspawnende Geld-Verträge ----------
+   Freigeschaltet mit »Satellitentechnik« (payload). Kommerz-Satellit »Werbefunk«
+   im geforderten Orbit aussetzen [N] → Prämie; der Sat funkt danach dauerhaft
+   Werbung und bringt nach jedem Karriere-Flug passives Einkommen. */
+const SAT_FIRMS = [
+  "Pausenbrot-Bringdienst »BrotRakete«", "Streamingdienst »PausenKino«",
+  "Nachhilfe-App »EinserFunk«", "Limonaden-Marke »AstroBrause«",
+  "Radiosender »Radio Schulhof«", "Kaugummi-Imperium »OrbitGum«",
+  "Wetterfrosch-Kanal »Frosch TV«", "Turnschuh-Label »Schwerelos«"
+];
+function satContractsUnlocked(){ return Game.unlocked.includes("payload"); }
+function genSatContract(){
+  const rnd = Math.random();
+  let c;
+  if(rnd < 0.4){          // LEO – Einsteiger
+    const lo = 80 + Math.floor(Math.random()*8)*10;
+    c = {label:"LEO "+lo+"–"+(lo+120)+" km", altMin:lo*1000, altMax:(lo+120)*1000, cash:700};
+  } else if(rnd < 0.7){   // MEO – höher hinaus
+    const lo = 300 + Math.floor(Math.random()*7)*100;
+    c = {label:"Hoher Orbit "+lo+"–"+(lo+400)+" km", altMin:lo*1000, altMax:(lo+400)*1000, cash:1000};
+  } else if(rnd < 0.88){  // polar
+    c = {label:"Polarorbit (inc > 75°, 90–600 km)", altMin:90000, altMax:600000, incMin:75, cash:1300};
+  } else {                // Synchronbahn
+    c = {label:"Synchronbahn (≈ 1998 km)", geo:true, cash:1600};
+  }
+  c.id = "sc" + Math.random().toString(36).slice(2, 9);
+  c.firm = SAT_FIRMS[Math.floor(Math.random()*SAT_FIRMS.length)];
+  return c;
+}
+function topUpSatContracts(){
+  if(!satContractsUnlocked() || Game.sandbox) return;
+  Game.satContracts = Game.satContracts || [];
+  while(Game.satContracts.length < 2) Game.satContracts.push(genSatContract());
+}
+/* passt der aktuelle Orbit zum Auftrag? (Pe UND Ap im Band, ggf. Inklination) */
+function satContractMet(c, o, inc){
+  if(o.body!==LEIBNIZ || o.pe<LEIBNIZ.atmoH || o.ap<=0) return false;
+  if(c.geo) return isGeoOrbit(o.pe, o.ap);
+  if(o.pe < c.altMin || o.ap > c.altMax) return false;
+  if(c.incMin && inc < c.incMin) return false;
+  return true;
+}
 function doSideJob(id){
   const j = SIDE_JOBS.find(x=>x.id===id);
   if(!j || Game.sandbox || Game.jobsDone.includes(id) || !jobUnlocked(j)) return;
@@ -964,6 +1015,8 @@ function newGame(){
 function migrateGame(){
   if(typeof Game.funds !== "number") Game.funds = 3500;
   if(!Array.isArray(Game.jobsDone)) Game.jobsDone = [];   // Nebenverdienste (einmalig)
+  if(!Array.isArray(Game.satContracts)) Game.satContracts = [];   // 📡 Satelliten-Aufträge
+  if(!Array.isArray(Game.crewPick)) Game.crewPick = [];           // Crew-Auswahl im VAB
   if(!Array.isArray(Game.activeMissions))
     Game.activeMissions = Game.activeMission ? [Game.activeMission] : [];
   delete Game.activeMission;
@@ -1586,6 +1639,25 @@ function renderMissionControl(list){
     }
     jobsCard.appendChild(row);
   }
+  // --- Satelliten-Aufträge: endlos nachspawnende Geld-Verträge ---
+  sec("📡 Satelliten-Aufträge – Geld verdienen im Akkord");
+  if(!satContractsUnlocked()){
+    card(`<p style="color:var(--muted)">🔒 Forschung »Satellitentechnik« schaltet kommerzielle
+      Satelliten-Aufträge frei: Firmen zahlen für den <b>Kommerz-Satelliten »Werbefunk«</b> im
+      Wunschorbit – und jeder ausgesetzte Sat funkt danach dauerhaft Werbung (🪙 nach jedem Flug).</p>`);
+  } else {
+    topUpSatContracts();
+    const nCom = (Game.assets||[]).filter(a=>a.kind==="sat" && a.com).length;
+    card(`<p style="margin-bottom:8px;color:var(--muted)">Baue den <b>Kommerz-Satelliten
+      »Werbefunk«</b> ein (Kategorie Satellit) und setze ihn im geforderten Orbit aus [N] –
+      erledigte Aufträge spawnen sofort neu. In der Karte zeigen blaue Ringe den Zielorbit
+      (grün = erreicht). Aktive Werbe-Sats: <b>${nCom}</b> → <b>+${nCom*40} 🪙 nach jedem Flug</b>.</p>`+
+      (Game.satContracts||[]).map(c=>`<div style="display:flex;gap:10px;align-items:baseline;margin:6px 0;">
+        <span style="font-size:18px;">📡</span>
+        <div style="flex:1;"><b>${c.firm}</b><br>
+          <small style="color:var(--muted)">wünscht: ${c.label} – Pe UND Ap im Band${c.incMin?", Inklination > "+c.incMin+"°":""}</small></div>
+        <b style="color:var(--orange);white-space:nowrap;">+${c.cash} 🪙</b></div>`).join(""));
+  }
   // --- Raumstation »Große Pause« ---
   sec("🛰 Raumstation »Große Pause« – das Jahresprojekt");
   const mods = Game.stationMods||[];
@@ -2088,6 +2160,14 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       }
       add(cylinder(r*0.2,r*0.2,h*0.35,MAT.dark,8), h*0.95);
       wing(-1, p.w*0.7); wing(1, p.w*0.7);
+    } else if(id==="satK"){
+      // Kommerz-Satellit: knallorange Werbe-Box mit leuchtender "Reklametafel"
+      add(new THREE.Mesh(new THREE.BoxGeometry(p.w*0.6,h*0.7,p.w*0.6), MAT.orange), h*0.42);
+      const board = new THREE.Mesh(new THREE.BoxGeometry(p.w*0.75,h*0.4,0.3),
+        new THREE.MeshStandardMaterial({color:0xfff2c4, emissive:0xffdf80, emissiveIntensity:.7}));
+      board.position.set(0, h*0.55, p.w*0.34); g.add(board);
+      add(cylinder(0.15,0.15,h*0.6,MAT.gray,6), h*1.0);
+      wing(-1, p.w*0.85); wing(1, p.w*0.85);
     } else {
       // Spähsatellit: dunkler Tubus mit großer Linse – unauffällig…
       add(cylinder(r*0.55, r*0.55, h*0.85, MAT.dark, 18), h*0.45);
@@ -2516,7 +2596,7 @@ function buildRocketGroup(stack, fairingIntact){
     let yy = 0;
     for(let i=stack.length-1; i>=0; i--){
       yBot[i] = yy;
-      if(!isRadial(stack[i])) yy += PARTS[stack[i]].h;
+      if(!isRadial(stack[i]) && !satInStarship(stack, stack[i])) yy += PARTS[stack[i]].h;
     }
   }
   for(let i=stack.length-1; i>=0; i--){
@@ -2529,9 +2609,14 @@ function buildRocketGroup(stack, fairingIntact){
       const hp = hIdx>=0 ? PARTS[stack[hIdx]] : null;
       const mesh = buildPartMesh(id, hp ? {r:hp.w/2, h:hp.h} : null);
       mesh.position.y = hIdx>=0 ? yBot[hIdx] : y;
+      // Booster einer OBEREN Stufe (Stufentrenner darunter): Flammen bleiben aus,
+      // bis ihre Stufe nach der Trennung die unterste ist (analog zu "flame idle")
+      if(p.type==="sideboost" && stack.slice(i+1).some(x=>PARTS[x].type==="decoupler"))
+        mesh.traverse(o=>{ if(o.name==="bflame") o.userData.upper = true; });
       grp.add(mesh);
       continue;
     }
+    if(satInStarship(stack, id)) continue;   // reist unsichtbar im Starship-Frachtraum
     const mesh = buildPartMesh(id);
     mesh.position.y = y;
     // Triebwerke in Oberstufen (Stufentrenner darunter) zünden noch nicht –
@@ -3029,11 +3114,15 @@ const VAB = {
       this.stack.unshift(id);
     }
     else if(p.type==="chute") this.stack.unshift(id);
-    else if(p.type==="sideboost" &&
-            this.stack.filter(x=>PARTS[x].type==="sideboost").length >= 2)
-      return alert("Maximal ZWEI Seitenbooster-Pakete pro Rakete!\n\nMehr passt nicht um den Rumpf – und endloses Booster-Stapeln wäre gratis-Δv. 😉");
+    else if(p.type==="sideboost" && this.boostCapViolated([...this.stack, id]))
+      return alert("Maximal ZWEI Seitenbooster-Pakete pro STUFE!\n\nMehr passt nicht um den Rumpf – und endloses Booster-Stapeln wäre gratis-Δv. 😉 (Tipp: Auch Oberstufen dürfen je 2 Pakete tragen.)");
     else this.stack.push(id);
     this.refresh();
+  },
+  /* max. 2 Seitenbooster-Pakete pro STUFE (jede Stufe hat ihren eigenen Pool) */
+  boostCapViolated(stack){
+    return this.segments(stack).some(sg=>
+      sg.filter(x=>PARTS[x].type==="sideboost").length > 2);
   },
   remove(i){ this.stack.splice(i,1); this.refresh(); },
   /* ---------- Hangar: Raketen speichern & wiederverwenden ("Workhorses") ---------- */
@@ -3106,8 +3195,8 @@ const VAB = {
     if(!this.stack.some(x=>["engine","srb","superheavy","starship"].includes(PARTS[x].type)))
       return "Deine Rakete braucht ein Triebwerk!";
     // Cap auch für geladene Hangar-Raketen (Alt-Designs mit Booster-Farm)
-    if(this.stack.filter(x=>PARTS[x].type==="sideboost").length > 2)
-      return "Maximal ZWEI Seitenbooster-Pakete pro Rakete – bitte ausmisten!";
+    if(this.boostCapViolated(this.stack))
+      return "Maximal ZWEI Seitenbooster-Pakete pro STUFE – bitte ausmisten!";
     return null;
   },
   segments(stack){
@@ -3136,22 +3225,23 @@ const VAB = {
       hasFins:seg.some(id=>PARTS[id].type==="fin")};
   },
   buildVessel(){
+    // Seitenbooster gehören zu IHRER Stufe (eigener Pool pro Segment):
+    // sie zünden mit der Stufe (oder [R]) und [J] wirft nur die aktiven ab.
     const segs = this.segments(this.stack).map(s=>{
       const st = this.segStats(s);
-      return {parts:[...s], ...st, fuelLeft:st.fuel, srbLeft:st.srbFuel, ignited:false};
-    });
-    // Seitenbooster: eigener Pool, zünden mit Stufe 1, Abwurf mit [J]
-    let boost = null;
-    const bIds = this.stack.filter(id=>PARTS[id].type==="sideboost");
-    if(bIds.length){
-      boost = {dry:0, fuel:0, thrust:0, attached:true, ignited:false};
-      for(const id of bIds){
-        const p = PARTS[id];
-        boost.dry += p.mass; boost.fuel += p.fuel; boost.thrust += p.thrust;
+      let boost = null;
+      const bIds = s.filter(id=>PARTS[id].type==="sideboost");
+      if(bIds.length){
+        boost = {dry:0, fuel:0, thrust:0, attached:true, ignited:false};
+        for(const id of bIds){
+          const p = PARTS[id];
+          boost.dry += p.mass; boost.fuel += p.fuel; boost.thrust += p.thrust;
+        }
+        boost.fuelLeft = boost.fuel;
       }
-      boost.fuelLeft = boost.fuel;
-    }
-    return {segs, stack:[...this.stack], boost};
+      return {parts:[...s], ...st, fuelLeft:st.fuel, srbLeft:st.srbFuel, ignited:false, boost};
+    });
+    return {segs, stack:[...this.stack]};
   },
   /* Startmasse inkl. Seitenbooster – für das Rampen-Limit */
   totalMass(){
@@ -3182,6 +3272,22 @@ const VAB = {
     }
     Game.boosterSite = id; autoSave(); this.renderInfo();
   },
+  /* Crew-Auswahl (Karriere): Klick wählt Kader-Mitglieder für den Flug */
+  toggleCrew(name){
+    Game.crewPick = Game.crewPick||[];
+    const i = Game.crewPick.indexOf(name);
+    if(i >= 0) Game.crewPick.splice(i, 1);
+    else {
+      const a = (Game.roster||[]).find(x=>x.name===name);
+      if(!a || a.status!=="bereit"){ alert("🧑‍🚀 "+name+" ist gerade nicht einsatzbereit!"); return; }
+      if(Game.crewPick.length >= crewCapacity(this.stack)){
+        alert("Alle "+crewCapacity(this.stack)+" Plätze sind belegt – erst jemanden abwählen (Klick).");
+        return;
+      }
+      Game.crewPick.push(name);
+    }
+    autoSave(); this.renderInfo();
+  },
   renderInfo(){
     const info = document.getElementById("vabInfo");
     const segs = this.segments(this.stack);
@@ -3189,11 +3295,15 @@ const VAB = {
     const statsArr = segs.map(s=>this.segStats(s));
     const massOf = st=>st.dry+st.fuel+st.srbFuel;
     statsArr.forEach(st=>total+=massOf(st));
-    // Seitenbooster: eigener Pool (segStats überspringt sie) – zählen aber
-    // voll zu Gesamtmasse und zum Start-TWR der Stufe 1!
-    const bParts = this.stack.filter(id=>PARTS[id].type==="sideboost");
-    const bMass = bParts.reduce((a,id)=>a+PARTS[id].mass+PARTS[id].fuel,0);
-    const bThrust = bParts.reduce((a,id)=>a+PARTS[id].thrust,0);
+    // Seitenbooster: eigener Pool PRO STUFE (segStats überspringt sie) –
+    // zählen voll zu Gesamtmasse und zum TWR IHRER Stufe
+    const segBoost = segs.map(sg=>{
+      const ids = sg.filter(id=>PARTS[id].type==="sideboost");
+      return {n: ids.length,
+        mass:   ids.reduce((a,id)=>a+PARTS[id].mass+PARTS[id].fuel,0),
+        thrust: ids.reduce((a,id)=>a+PARTS[id].thrust,0)};
+    });
+    const bMass = segBoost.reduce((a,b)=>a+b.mass,0);
     total += bMass;
     const cost = stackCost(this.stack);
     // Startrampen-Wahl: Klick wechselt, 🔒 = Forschung fehlt, rot = zu schwer
@@ -3225,30 +3335,46 @@ const VAB = {
       if(!has("landZone"))
         padHtml += `<small style="color:var(--muted)">Ohne Landeplatz wassert der Booster downrange im Ozean (50 % Bergung). Forschung: »Landing Zone«.</small>`;
     }
+    // Crew-Auswahl (Karriere, bemannte Rakete): Kader-Mitglieder anklicken
+    if(!Game.sandbox && isCrewedStack(this.stack) && (Game.roster||[]).length){
+      Game.crewPick = (Game.crewPick||[]).filter(n=>
+        (Game.roster||[]).some(a=>a.name===n && a.status==="bereit"));
+      const cap = crewCapacity(this.stack), pick = Game.crewPick;
+      padHtml += `<h3>Crew-Auswahl (${pick.length}/${cap})</h3>`;
+      for(const a of Game.roster){
+        const sel = pick.includes(a.name), ok = a.status==="bereit";
+        const lvl = crewLevel(a);
+        padHtml += `<div class="stat" onclick="VAB.toggleCrew('${a.name.replace(/'/g,"\\'")}')" style="cursor:pointer;${
+          sel?"color:var(--orange);font-weight:700;":""}${ok?"":"opacity:.4;"}">
+          <span>${sel?"▶ ":""}${ROLES[a.role].icon} ${a.name}${lvl?" "+"⭐".repeat(lvl):""}</span>
+          <span>${ok ? (a.flights||0)+" Flüge" : "🚫 "+a.status}</span></div>`;
+      }
+      padHtml += `<small style="color:var(--muted)">Klick = auswählen/abwählen. Freie Plätze besetzt das Bodenteam automatisch (Boni: ${ROLES.pilot.icon} Agilität · ${ROLES.ing.icon} Sprit · ${ROLES.sci.icon} Forschung).</small>`;
+    }
+    const dryTotal = statsArr.reduce((a,st)=>a+st.dry,0) +
+      this.stack.filter(id=>PARTS[id].type==="sideboost").reduce((a,id)=>a+PARTS[id].mass,0);
     let html = padHtml + `<h3>Rakete</h3>
       <div class="stat"><span>Gesamtmasse</span><span>${(total/1000).toFixed(2)} t</span></div>
+      <div class="stat"><span>Leergewicht (Tanks leer)</span><span>${(dryTotal/1000).toFixed(2)} t</span></div>
       ${Game.sandbox?"":`<div class="stat"><span>Kosten</span><span style="${cost>Game.funds?"color:var(--red);font-weight:700":""}">🪙 ${cost}${cost>Game.funds?" – zu teuer!":""}</span></div>`}
       <div class="stat"><span>Teile</span><span>${this.stack.length}</span></div>
       <div class="stat"><span>Stufen</span><span>${segs.length}</span></div>
       <h3>Stufen (von unten)</h3>`;
     for(let i=0;i<segs.length;i++){
-      const st = statsArr[i];
+      const st = statsArr[i], sb = segBoost[i];
       let upper=0;
-      for(let j=i+1;j<segs.length;j++) upper += massOf(statsArr[j]);
+      for(let j=i+1;j<segs.length;j++) upper += massOf(statsArr[j]) + segBoost[j].mass;
       const m0 = upper+massOf(st), m1 = upper+st.dry;
-      // Δv ohne Booster (eigener Pool), aber Start-TWR der Stufe 1 MIT
-      // Boosterschub und -masse – die hängen beim Liftoff ja mit dran
-      const withBoost = i===0 && bMass>0;
-      const totalThrust = st.thrust+st.srbThrust + (withBoost?bThrust:0);
+      // Δv ohne Booster (eigener Pool), aber TWR der Stufe MIT ihren eigenen
+      // Boosterschub + -masse – die zünden ja simultan mit der Stufe
+      const totalThrust = st.thrust+st.srbThrust + sb.thrust;
       const dv = st.isp&&m0>m1 ? st.isp*G0*Math.log(m0/m1) : 0;
-      const twr = totalThrust/((m0+(withBoost?bMass:0))*G0);
-      html += `<div class="stage-box"><b>Stufe ${i+1}</b> – ${(massOf(st)/1000).toFixed(2)} t<br>
-        Δv ≈ ${dv.toFixed(0)} m/s · TWR ${twr.toFixed(2)}${withBoost?" (mit Boostern)":""}
+      const twr = totalThrust/((m0+sb.mass)*G0);
+      html += `<div class="stage-box"><b>Stufe ${i+1}</b> – ${(massOf(st)/1000).toFixed(2)} t
+        <small style="color:var(--muted)">(leer ${(st.dry/1000).toFixed(2)} t)</small><br>
+        Δv ≈ ${dv.toFixed(0)} m/s · TWR ${twr.toFixed(2)}${sb.n?" (mit Boostern)":""}
+        ${sb.n?`<br>+ Seitenbooster: ${(sb.mass/1000).toFixed(2)} t · ${(sb.thrust/1000).toFixed(0)} kN – zünden mit Stufe ${i+1} oder [R], Abwurf [J]`:""}
         ${totalThrust&&twr<1?'<br><span style="color:var(--red)">⚠ TWR &lt; 1: hebt evtl. nicht ab!</span>':''}</div>`;
-    }
-    if(bParts.length){
-      html += `<div class="stage-box"><b>Seitenbooster</b> – ${(bMass/1000).toFixed(2)} t, eigener Tank!<br>
-        +${(bThrust/1000).toFixed(0)} kN Schub · Zünden: Stufe 1 oder [R] · Abwurf: [J]</div>`;
     }
     html += `<h3>Aufbau (oben → unten)</h3>
       <small style="color:var(--muted)">Ziehen zum Umsortieren · Teile aus der Liste hierher ziehen</small>
@@ -3262,15 +3388,23 @@ const VAB = {
       e.preventDefault();
       let data; try{ data=JSON.parse(e.dataTransfer.getData("text/plain")); }catch(_){ return; }
       if(data.kind==="new"){
-        if(PARTS[data.id].type==="sideboost" &&
-           this.stack.filter(x=>PARTS[x].type==="sideboost").length >= 2){
-          alert("Maximal ZWEI Seitenbooster-Pakete pro Rakete!"); return;
+        if(PARTS[data.id].type==="sideboost"){
+          const test = [...this.stack]; test.splice(i,0,data.id);
+          if(this.boostCapViolated(test)){
+            alert("Maximal ZWEI Seitenbooster-Pakete pro STUFE!"); return;
+          }
         }
         this.stack.splice(i,0,data.id);
       }
       else if(data.kind==="move"){
+        const before = [...this.stack];
         const [part]=this.stack.splice(data.from,1);
         this.stack.splice(data.from<i?i-1:i,0,part);
+        // Umsortieren darf den Pro-Stufe-Booster-Cap nicht sprengen
+        if(PARTS[part].type==="sideboost" && this.boostCapViolated(this.stack)){
+          this.stack = before;
+          alert("Maximal ZWEI Seitenbooster-Pakete pro STUFE!");
+        }
       }
       this.refresh();
     };
@@ -3897,14 +4031,20 @@ const Flight = {
     if(crewCap > 0){
       if(!Game.sandbox && Game.roster){
         const free = Game.roster.filter(a=>a.status==="bereit");
+        // 1) Im VAB handverlesene Crew zuerst (Auswahl rechts im Info-Panel)
+        for(const n of (Game.crewPick||[])){
+          if(this.crewObjs.length >= crewCap) break;
+          const a = free.find(x=>x.name===n);
+          if(a){ this.crewObjs.push(a); free.splice(free.indexOf(a),1); }
+        }
         const pickRole = role=>{
           const c = [...free].sort((a,b)=>(a.role===role?-1:1)-(b.role===role?-1:1) || a.flights-b.flights)[0];
           if(c) free.splice(free.indexOf(c),1);
           return c;
         };
-        // Rollen im Wechsel besetzen, bis die Kapazität (Pod 1–2, Starship 6) voll ist
+        // 2) Restplätze: Rollen im Wechsel, bis die Kapazität (Pod 1–2, Starship 6) voll ist
         const order = ["pilot","sci","ing"];
-        for(let k=0; k<crewCap && free.length; k++){
+        for(let k=this.crewObjs.length; k<crewCap && free.length; k++){
           const a = pickRole(order[k%3]);
           if(a) this.crewObjs.push(a);
         }
@@ -3997,8 +4137,10 @@ const Flight = {
   },
   mass(){
     let m=0;
-    for(const s of this.v.segs) m+=s.dry+s.fuelLeft+s.srbLeft;
-    if(this.v.boost && this.v.boost.attached) m += this.v.boost.dry + this.v.boost.fuelLeft;
+    for(const s of this.v.segs){
+      m += s.dry+s.fuelLeft+s.srbLeft;
+      if(s.boost && s.boost.attached) m += s.boost.dry + s.boost.fuelLeft;
+    }
     return m;
   },
   activeSeg(){ return this.v.segs[0]; },
@@ -4020,22 +4162,18 @@ const Flight = {
       }
       s.ignited = true; this.landed=false; this.flew=true;
       this.ensureRumble();
-      const bo = this.v.boost;
+      const bo = s.boost;
       if(bo && bo.attached && !bo.ignited){
         bo.ignited = true;   // klassischer Simultanstart – [R] zündet sie auch alleine
-        this.showMsg("Zündung – Hauptstufe + Seitenbooster! 🔥🔥",2);
+        this.showMsg("Zündung – Stufe + ihre Seitenbooster! 🔥🔥",2);
       } else this.showMsg("Zündung! 🔥",2);
       return;
     }
     if(this.v.segs.length>1){
+      // Abgeworfene Stufe nimmt IHREN Booster-Pool mit (seg.boost hängt am Segment)
       const dropped = this.v.segs.shift();
       this.stagedOnce = true;   // ab jetzt kein Aero-Wobble mehr (Oberstufen fliegen ruhig)
       this.v.stack.splice(this.v.stack.length-dropped.parts.length, dropped.parts.length);
-      // Hingen Seitenbooster an der abgeworfenen Stufe, fliegen sie mit weg –
-      // sonst schiebt ihr (unsichtbarer) Treibstoffpool ungedrosselt weiter!
-      const bo = this.v.boost;
-      if(bo && bo.attached && dropped.parts.some(id=>PARTS[id].type==="sideboost"))
-        bo.attached = false;
       this.rebuildRocket();
       // abgeworfene Stufe wird zu physischem Trümmerteil – ODER, mit
       // Gitterflossen + Restsprit, zum autopilot-gelandeten Falcon-Booster!
@@ -4087,8 +4225,12 @@ const Flight = {
       }
       const n = this.activeSeg();
       if(n && (n.thrust||n.srbThrust)) n.ignited = true;
+      // Die neue Stufe bringt ihre EIGENEN Seitenbooster mit → zünden simultan
+      if(n && n.ignited && n.boost && n.boost.attached) n.boost.ignited = true;
       if(!canLand)   // Booster-Autopilot-Meldung nicht überschreiben
-        this.showMsg(n && n.ignited ? "Stufentrennung + Zündung!" : "Stufentrennung!",2);
+        this.showMsg(n && n.ignited
+          ? (n.boost && n.boost.ignited ? "Stufentrennung + Zündung (mit Seitenboostern)! 🔥🔥" : "Stufentrennung + Zündung!")
+          : "Stufentrennung!",2);
     }
   },
   toggleInfinite(){
@@ -4109,21 +4251,28 @@ const Flight = {
   },
   igniteBoosters(){
     if(!this.v || this.crashed || this.ended) return;
-    const bo = this.v.boost;
-    if(!bo || !bo.attached){ this.showMsg("Keine Seitenbooster (mehr) dran! 🚀",2); return; }
+    const s = this.activeSeg();
+    const bo = s && s.boost;
+    if(!bo || !bo.attached){ this.showMsg("Keine Seitenbooster an der AKTIVEN Stufe! 🚀",2); return; }
     if(bo.ignited){ this.showMsg("Seitenbooster brennen bereits! (Abwurf mit [J])",2); return; }
     bo.ignited = true;
     this.flew = true;
     this.ensureRumble();
     this.showMsg("🔥 SEITENBOOSTER GEZÜNDET! (Hauptstufe separat mit [Leertaste])",3);
   },
+  /* [J]: wirft NUR die Booster der aktiven Stufe ab – nach der Stufentrennung
+     wirft das nächste [J] dann die Booster der neuen Stufe ab. */
   jettisonBoosters(){
-    const bo = this.v && this.v.boost;
-    if(!bo || !bo.attached){ this.showMsg("Keine Seitenbooster (mehr) dran! 🚀",2); return; }
+    const s = this.v && this.activeSeg();
+    const bo = s && s.boost;
+    if(!bo || !bo.attached){ this.showMsg("Keine Seitenbooster an der AKTIVEN Stufe! 🚀",2); return; }
     bo.attached = false;
     const fr = this.frameAt(this.pos);
-    let i;
-    while((i = this.v.stack.findIndex(id=>PARTS[id].type==="sideboost")) >= 0){
+    // nur die sideboost-Teile der AKTIVEN (untersten) Stufe entfernen –
+    // die sitzt am ENDE des Stack-Arrays (Index 0 = Spitze)
+    const segStart = this.v.stack.length - s.parts.length;
+    for(let i=this.v.stack.length-1; i>=segStart; i--){
+      if(PARTS[this.v.stack[i]].type!=="sideboost") continue;
       const p = PARTS[this.v.stack[i]];
       const H = strapOnHeight(this.v.stack, i);   // Höhe wie montiert – Form bleibt gleich!
       this.v.stack.splice(i,1);
@@ -4142,8 +4291,10 @@ const Flight = {
         });
       }
     }
+    // Segment-Teileliste synchron halten (stage() splict am Stack-Ende!)
+    s.parts = s.parts.filter(id=>PARTS[id].type!=="sideboost");
     this.rebuildRocket();
-    this.showMsg("💨 Seitenbooster abgeworfen!",2);
+    this.showMsg("💨 Seitenbooster (aktive Stufe) abgeworfen!",2);
   },
   toggleBays(){
     if(this.crashed||this.ended) return;
@@ -4824,11 +4975,19 @@ const Flight = {
     const goals = [];
     if(typeof Tut!=="undefined" && Tut.active && Tut.active.scenario.goalOrbit)
       goals.push(Tut.active.scenario.goalOrbit);
-    else if(!Game.sandbox)
+    else if(!Game.sandbox){
       for(const id of (Game.activeMissions||[])){
         const m = MISSIONS.find(x=>x.id===id);
         if(m && m.orbitGoal) goals.push(m.orbitGoal);
       }
+      // Satelliten-Aufträge: Zielringe nur zeigen, wenn ein »Werbefunk« an Bord ist
+      if(this.v && this.v.stack.includes("satK"))
+        for(const c of (Game.satContracts||[]))
+          goals.push(c.geo
+            ? {body:"LEIBNIZ", alt:GEO_ALT, peMin:GEO_MIN, apMax:GEO_MAX, label:"Auftrag: "+c.label}
+            : {body:"LEIBNIZ", alt:(c.altMin+c.altMax)/2, peMin:c.altMin, apMax:c.altMax,
+               incMin:c.incMin, label:"Auftrag: "+c.label});
+    }
     for(const g of goals){
       const b = BODY_BY_NAME()[g.body] || LEIBNIZ;
       const r = b.R + g.alt;
@@ -5244,6 +5403,9 @@ const Flight = {
   /* Komplett-Satellit (Wetter/Strahlung/Späh) aussetzen: prüft die Orbit-
      Anforderungen des jeweiligen Typs und setzt die Missions-Flags */
   deploySpecialSat(satId, seg){
+    // PEZ-Dispenser: Im Starship reisen Sats im Frachtraum und werden wie bei
+    // Starlink SEITLICH aus dem Schlitz geschoben (langsam, keine Kollision)
+    const pez = this.v.stack.some(id=>PARTS[id].type==="starship");
     seg.dry -= PARTS[satId].mass;
     seg.parts.splice(seg.parts.indexOf(satId),1);
     const si = this.v.stack.indexOf(satId);
@@ -5252,13 +5414,19 @@ const Flight = {
     const up = this.pos.clone().normalize();
     const mesh = deployWings(buildPartMesh(satId));
     this.world.add(mesh);
-    this.sats.push({pos:this.pos.clone().addScaledVector(up,20), vel:this.vel.clone(), mesh});
+    if(pez){
+      const slot = V3(0,0,1).applyQuaternion(this.q);   // seitlich aus dem Rumpf
+      this.sats.push({pos:this.pos.clone().addScaledVector(slot, 8),
+        vel:this.vel.clone().addScaledVector(slot, 1.4), mesh});
+    } else this.sats.push({pos:this.pos.clone().addScaledVector(up,20), vel:this.vel.clone(), mesh});
     const o = this.orbit();
     const stable = o.body===LEIBNIZ && o.pe>LEIBNIZ.atmoH && o.ap>0;
     if(stable) this.satL = true;
     (this.satDeploys = this.satDeploys||[]).push(
       {body:o.body.name, pe:o.pe, ap:o.ap, inc:this.orbitInc(), pad:this.pad?this.pad.id:"lmg"});
-    let msg = "📡 "+PARTS[satId].name+" ausgesetzt!";
+    const left = this.v.stack.filter(id=>PARTS[id].type==="sat").length;
+    let msg = (pez ? "📤 PEZ-Dispenser: " : "📡 ") + PARTS[satId].name + " ausgesetzt!" +
+      (pez && left ? " (noch "+left+" im Frachtraum – wieder [N])" : "");
     if(stable && this.orbitInc()>75){ this.satPolar = true; msg += " 🧭 Polarorbit!"; }
     if(o.body===LEIBNIZ && isGeoOrbit(o.pe, o.ap)) msg += " 🕗 Synchronbahn!";
     if(satId==="satW"){
@@ -5273,6 +5441,22 @@ const Flight = {
       if(stable && o.ap<130000){ this.satSpy = true; msg += " 🕵️ Die Fotos sind gestochen scharf…"; }
       else msg += " ⚠️ Falscher Orbit! Späh-Fotos brauchen Pe > 70 km und Ap < 130 km.";
     }
+    if(satId==="satK"){
+      // Kommerz-Satellit: passt der Orbit zu einem offenen Auftrag → Prämie!
+      if(Game.sandbox) msg += " (Satelliten-Aufträge gibt es nur in der Karriere.)";
+      else {
+        topUpSatContracts();
+        const inc = this.orbitInc();
+        const c = (Game.satContracts||[]).find(x=>satContractMet(x, o, inc));
+        if(c){
+          Game.funds += c.cash;
+          Game.satContracts.splice(Game.satContracts.indexOf(c), 1);
+          topUpSatContracts();
+          msg = "📡💰 AUFTRAG ERFÜLLT für "+c.firm+"! +🪙 "+c.cash+
+            " – der »Werbefunk« sendet ab jetzt Dauerwerbung (🪙 nach jedem Flug).";
+        } else msg += " ⚠️ Passt zu KEINEM offenen Auftrag – in der Missionszentrale stehen die geforderten Orbits (Pe UND Ap müssen im Band liegen).";
+      }
+    }
     // Karriere: bleibt dauerhaft im Orbit-Inventar
     const bodyKey = Object.keys(BODY_BY_NAME()).find(k=>BODY_BY_NAME()[k]===o.body);
     if(!Game.sandbox && bodyKey && o.pe > (o.body.atmoH||0) && o.ap > 0){
@@ -5283,7 +5467,7 @@ const Flight = {
         if(i>=0) Game.assets.splice(i,1);
       }
       Game.assets.push({kind:"sat", body:bodyKey, alt:Math.round(o.alt),
-        phase:Math.random()*Math.PI*2, name:PARTS[satId].name});
+        phase:Math.random()*Math.PI*2, name:PARTS[satId].name, com:satId==="satK"});
       autoSave();
     }
     this.showMsg(msg,5);
@@ -5520,8 +5704,9 @@ const Flight = {
         if(s.srbLeft<0) s.srbLeft=0;
       }
     }
-    // Seitenbooster: eigene Zündung ([R] oder mit Stufe 1), eigener Tank
-    const bo = this.v.boost;
+    // Seitenbooster: eigene Zündung ([R] oder mit ihrer Stufe), eigener Tank –
+    // Pool hängt am AKTIVEN Segment (obere Stufen bringen ihre eigenen mit)
+    const bo = s && s.boost;
     if(bo && bo.attached && bo.ignited && bo.fuelLeft>0 &&
        warp<=2 && !this.powerDead && !this.commDead){
       thrust += bo.thrust;
@@ -5885,6 +6070,10 @@ const Flight = {
       this.statRefund = stackCost(this.v.stack);
       Game.funds += this.statRefund;
     }
+    // 📡 Dauerwerbung: jeder Kommerz-Satellit im Orbit zahlt nach jedem Flug
+    const nCom = (Game.assets||[]).filter(a=>a.kind==="sat" && a.com).length;
+    this.statComIncome = nCom*40;
+    if(this.statComIncome) Game.funds += this.statComIncome;
     const missionsDone = Game.done.length - this.statMissions;
     // Crew-Erfahrung: fliegen, Orbit, Docking, fremde Welten, heil zurück
     for(const a of (this.crewObjs||[])){
@@ -5944,6 +6133,7 @@ const Flight = {
         <span>Startkosten</span><b style="color:var(--red)">−${this.launchCost||0} 🪙</b>
         <span>Bergung (Landung auf Leibniz)</span><b style="color:var(--green)">+${this.statRefund||0} 🪙</b>
         ${this.statBoosterRefund?`<span>Booster gelandet 🛬</span><b style="color:var(--green)">+${this.statBoosterRefund} 🪙</b>`:""}
+        ${this.statComIncome?`<span>Werbeeinnahmen (Kommerz-Sats) 📡</span><b style="color:var(--green)">+${this.statComIncome} 🪙</b>`:""}
         <span>Kontostand</span><b>🪙 ${Game.funds}</b>`}
       </div>`;
     const lbl = document.getElementById("modalNoShowLabel");
@@ -6184,12 +6374,23 @@ const Flight = {
     const inSpace = !this.landed && !this.crashed && alt >= LEIBNIZ.atmoH;
     if(inSpace !== this._wasSpace){ this._wasSpace = inSpace; updateMusic(); }
     const f = Math.max(0, 1-Math.max(0,alt)/LEIBNIZ.atmoH);
-    const sky = new THREE.Color(0x04060e).lerp(new THREE.Color(0x87b6ea), this.map?0:f*f);
+    // Tag/Nacht am Boden: Die Spieluhr (24-h-Tag ab 08:00) steuert die Helligkeit –
+    // wer auf der Rampe vorspult, erlebt Abend, Nacht und Morgengrauen!
+    // (Nur bodennah eingeblendet; im Orbit zählt die echte Sonnengeometrie.)
+    const dayFrac = (((8*3600 + this.t) % 86400) + 86400) % 86400 / 86400;
+    const elev = Math.sin(2*Math.PI*(dayFrac - 0.25));        // 12:00 = 1, 24:00 = −1
+    const dayL = Math.max(0, Math.min(1, elev*1.7 + 0.12));   // Dämmerung ~06/18 Uhr
+    const gb = Math.max(0, Math.min(1, 1 - alt/40000));       // Boden-Blend (0 ab 40 km)
+    this.dayLight = 1 - gb*(1 - dayL);                        // 1 = voller Tag
+    this.sunLight.intensity = 1.3*(0.08 + 0.92*this.dayLight);
+    this.sunGlow.material.opacity = this.dayLight;   // Sonne "geht unter" (bodennah)
+    const fEff = f*this.dayLight;
+    const sky = new THREE.Color(0x04060e).lerp(new THREE.Color(0x87b6ea), this.map?0:fEff*fEff);
     this.scene.background = sky;
-    this.starField.material.opacity = this.map ? 1 : 1-f;
+    this.starField.material.opacity = this.map ? 1 : 1-fEff;
     // Nebel-Kulisse: wie die Sterne in der Atmosphäre ausblenden
     for(const neb of this.nebulae)
-      neb.material.opacity = (this.map ? 1 : 1-f) * neb.userData.base;
+      neb.material.opacity = (this.map ? 1 : 1-fEff) * neb.userData.base;
     this.groundGroup.visible = !this.map && alt<16000;
     this.padGroup.visible = !this.map && alt<25000;
     for(const [,ring] of this.moonRings) ring.visible = this.map;
@@ -6203,7 +6404,7 @@ const Flight = {
     const s = this.activeSeg();
     const burning = s && s.ignited && warp<=2 &&
       (s.fuelLeft>0&&s.thrust&&this.throttle>0 || s.srbLeft>0&&s.srbThrust);
-    const boB = this.v.boost;
+    const boB = s && s.boost;
     const boosterBurn = boB && boB.attached && boB.ignited && boB.fuelLeft>0 && warp<=2;
     if(this.rocketGroup){
       this.rocketGroup.visible = !this.crashed && (!this.map);
@@ -6212,10 +6413,10 @@ const Flight = {
       this.rocketGroup.position.copy(dir).multiplyScalar(-hh);
       this.rocketGroup.quaternion.copy(this.q);
       setFlames(this.rocketGroup, !!burning, Math.max(0.3,this.throttle));
-      // Seitenbooster-Flammen (eigene Zündung, eigener Tank)
-      const bo2 = this.v.boost;
-      const bOn = bo2 && bo2.attached && bo2.ignited && bo2.fuelLeft>0 && warp<=2;
-      this.rocketGroup.traverse(o=>{ if(o.name==="bflame") o.visible = !!bOn; });
+      // Seitenbooster-Flammen: nur die der AKTIVEN Stufe brennen (obere Stufen
+      // haben ihre Booster-Flammen via userData.upper markiert)
+      const bOn = !!boosterBurn;
+      this.rocketGroup.traverse(o=>{ if(o.name==="bflame") o.visible = bOn && !o.userData.upper; });
       // Servicebuchten: nacheinander auf-/zufahren (Hülle gleitet nach unten)
       const nB = this.rocketGroup.userData.nBays||0;
       if(nB){
@@ -6451,7 +6652,17 @@ const Flight = {
     }
     // In dichter Atmosphäre (heller Himmel) etwas dezenter
     const alt = leibnizAlt(this.pos, this.t);
-    const dim = 0.45 + 0.55*Math.min(1, Math.max(0, alt/LEIBNIZ.atmoH));
+    let dim = 0.45 + 0.55*Math.min(1, Math.max(0, alt/LEIBNIZ.atmoH));
+    // Überblendung: steht die Sonne auf dem Bildschirm (fast) HINTER dem Schiff,
+    // wird der Flare weich runtergedimmt – sonst verschwindet die Rakete im
+    // Gegenlicht komplett. (Schiff sitzt im Szenen-Ursprung.)
+    const prS = new THREE.Vector3(0, 0, 0).project(this.camera);
+    const shx = (prS.x*0.5+0.5)*w, shy = (-prS.y*0.5+0.5)*h;
+    const dShip = Math.hypot(sx-shx, sy-shy);
+    dim *= Math.min(1, 0.3 + 0.7*dShip/(0.3*Math.min(w, h)));
+    // Nachts auf der Rampe ist die Sonne "untergegangen" → kein Flare
+    dim *= this.dayLight===undefined ? 1 : this.dayLight;
+    if(dim < 0.02) return;
     const S = Math.min(w, h)/900;                    // skaliert mit der Fenstergröße
     x.globalCompositeOperation = "lighter";
     // Kern: gleißend weiß mit warmem Saum
@@ -6746,10 +6957,10 @@ const Flight = {
       ${!this.landed ? `<div class="row"><span>Inklination</span><span>${this.orbitInc().toFixed(0)}°</span></div>` : ""}
       <div class="row"><span>Stufen übrig</span><span>${this.v.segs.length}</span></div>
       <div class="row"><span>Treibstoff (Stufe)</span><span>${(s&&(s.fuel+s.srbFuel))?fuelPct.toFixed(0)+" %":"–"}</span></div>
-      ${this.v.boost && this.v.boost.attached ? `<div class="row"><span>Seitenbooster</span><span>${
-        this.v.boost.ignited
-          ? (this.v.boost.fuelLeft>0 ? (this.v.boost.fuelLeft/this.v.boost.fuel*100).toFixed(0)+" % 🔥 · [J] Abwurf"
-                                     : "leer – [J] Abwurf!")
+      ${s && s.boost && s.boost.attached ? `<div class="row"><span>Seitenbooster</span><span>${
+        s.boost.ignited
+          ? (s.boost.fuelLeft>0 ? (s.boost.fuelLeft/s.boost.fuel*100).toFixed(0)+" % 🔥 · [J] Abwurf"
+                                : "leer – [J] Abwurf!")
           : '<b style="color:var(--orange)">[R] zünden</b>'
       }</span></div>` : ""}
       <div class="row"><span>Δv (Stufe)</span><span>${dvLeft>0?dvLeft.toFixed(0)+" m/s":"–"}</span></div>
@@ -6864,7 +7075,7 @@ const Flight = {
       (s && s.thrust && s.parts.some(id=>PARTS[id].type==="gridfin")) ? "" : "none";
     fm.style.bottom = this.boosterSiteEff()==="rtls" ? "30%" : "12%";
     // Seitenbooster: eigene Tankanzeige (eigener Treibstoff-Pool!)
-    const boG = this.v.boost, boEl = document.getElementById("boostGauge");
+    const boG = s && s.boost, boEl = document.getElementById("boostGauge");
     if(boG && boG.attached){
       boEl.style.display = "";
       document.getElementById("boostFill").style.height = (boG.fuelLeft/boG.fuel*100)+"%";
