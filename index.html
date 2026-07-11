@@ -223,20 +223,20 @@ input[type=file]{display:none;}
   <div id="hudControls">
     <button class="btn" onclick="Flight.stage()">Stufe [Leer]</button>
     <button class="btn" id="sasBtn" onclick="Flight.toggleSAS()">SAS [T]</button>
-    <button class="btn" onclick="Flight.igniteBoosters()">🔥 Booster [R]</button>
-    <button class="btn" onclick="Flight.jettisonBoosters()">Booster ab [J]</button>
-    <button class="btn" onclick="Flight.toggleChute()">Schirm [P]</button>
-    <button class="btn" onclick="Flight.jettisonFairing()">Fairing [F]</button>
-    <button class="btn" onclick="Flight.deploySat()">Satellit [N]</button>
-    <button class="btn" onclick="Flight.togglePanels()">☀️ Panele [G]</button>
-    <button class="btn" onclick="Flight.toggleEVA()">🧑‍🚀 EVA [V]</button>
-    <button class="btn" onclick="Flight.toggleBellyflop()">🤸 Bellyflop [C]</button>
-    <button class="btn" onclick="Flight.toggleDock()">🔗 Docken [L]</button>
-    <button class="btn" onclick="Flight.installModule()">🏗 Modul [I]</button>
-    <button class="btn" onclick="Flight.toggleBays()">📦 Bucht [O]</button>
+    <button class="btn" id="btnBoostR" onclick="Flight.igniteBoosters()">🔥 Booster [R]</button>
+    <button class="btn" id="btnBoostJ" onclick="Flight.jettisonBoosters()">Booster ab [J]</button>
+    <button class="btn" id="btnChute" onclick="Flight.toggleChute()">Schirm [P]</button>
+    <button class="btn" id="btnFairing" onclick="Flight.jettisonFairing()">Fairing [F]</button>
+    <button class="btn" id="btnSat" onclick="Flight.deploySat()">Satellit [N]</button>
+    <button class="btn" id="btnPanels" onclick="Flight.togglePanels()">☀️ Panele [G]</button>
+    <button class="btn" id="btnEva" onclick="Flight.toggleEVA()">🧑‍🚀 EVA [V]</button>
+    <button class="btn" id="btnBelly" onclick="Flight.toggleBellyflop()">🤸 Bellyflop [C]</button>
+    <button class="btn" id="btnDock" onclick="Flight.toggleDock()">🔗 Docken [L]</button>
+    <button class="btn" id="btnModul" onclick="Flight.installModule()">🏗 Modul [I]</button>
+    <button class="btn" id="btnBay" onclick="Flight.toggleBays()">📦 Bucht [O]</button>
     <button class="btn" id="infBtn" style="display:none" onclick="Flight.toggleInfinite()">∞ Tank [U]</button>
     <button class="btn" onclick="Flight.addNode()">Manöver [K]</button>
-    <button class="btn" onclick="Flight.runExperiment()">Experiment [B]</button>
+    <button class="btn" id="btnExp" onclick="Flight.runExperiment()">Experiment [B]</button>
     <button class="btn" onclick="Flight.revert()">↩ Neustart</button>
     <button class="btn" onclick="Flight.toggleMap()">Karte [M]</button>
     <button class="btn" onclick="Flight.warpDown()">⏪ [,]</button>
@@ -319,7 +319,12 @@ input[type=file]{display:none;}
     <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">
       Bewährte Raketen laden und immer wieder fliegen. Speichern: 💾 in der Montagehalle.</div>
     <div id="hangarList" style="max-height:320px;overflow-y:auto;"></div>
+    <!-- Raketen als Datei mitnehmen: Schüler*innen sitzen nicht immer am selben PC! -->
     <div style="display:flex;gap:10px;margin-top:18px;">
+      <button class="btn" style="flex:1" onclick="VAB.exportRockets()" title="Alle gespeicherten Raketen als Datei herunterladen – zum Mitnehmen auf einen anderen PC">⬇ Als Datei sichern</button>
+      <button class="btn" style="flex:1" onclick="document.getElementById('rocketFile').click()" title="Raketen-Datei von einem anderen PC laden">⬆ Datei laden</button>
+      <input type="file" id="rocketFile" accept=".json,application/json" style="display:none"
+        onchange="if(this.files[0]) VAB.importRockets(this.files[0]); this.value='';">
       <button class="btn" style="flex:1" onclick="document.getElementById('hangarModal').style.display='none'">Schließen</button>
     </div>
   </div>
@@ -547,10 +552,10 @@ const PARTS = {
            info:"Vier radiale Feststoffbooster für Monster-Raketen. Zünden: Stufe 1 oder [R] · Abwurf: [J]"},
   probe:  {name:"Sondenkern »Pixel«",        type:"probe",  cat:"sat", mass:150, w:8,h:6, tech:"payload", charge:80, info:"Unbemanntes Gehirn – braucht ständig Strom (0,25 ⚡/s)! Interne Batterie: 80 ⚡."},
   solar:  {name:"Solarpanele (ausfahrbar)",  type:"solar",  cat:"sat", mass:60,  w:14,h:4, tech:"payload", info:"Mit [G] ausfahren: +3 ⚡/s. Vorsicht: reißen im Fahrtwind ab!"},
-  battery:{name:"Batterie",                  type:"battery",cat:"sat", mass:60,  w:8,h:5, tech:"payload", charge:500, info:"Speichert 500 ⚡ für Sonden, SAS und Experimente."},
+  battery:{name:"Batterie",                  type:"battery",cat:"sat", mass:60,  w:8,h:5, tech:"surv", charge:500, info:"Speichert 500 ⚡ für Sonden, SAS und Experimente."},
   bay:    {name:"Servicebucht M",            type:"bay",    cat:"sat", mass:80,  w:11,h:5, covers:2, tech:"payload",
            info:"Aerodynamischer Stauraum: verkleidet die ZWEI Bauteile DIREKT DARÜBER (z. B. Satellit + Batterie) und senkt den Luftwiderstand. Öffnen: [O]"},
-  bayS:   {name:"Servicebucht S",            type:"bay",    cat:"sat", mass:45,  w:9,h:2.5, covers:1, tech:"payload",
+  bayS:   {name:"Servicebucht S",            type:"bay",    cat:"sat", mass:45,  w:9,h:2.5, covers:1, tech:"surv",
            info:"Kompakte Bucht – verkleidet EIN Bauteil darüber, perfekt für Batterie oder Solarpanele. Öffnen: [O]"},
   antenna:{name:"Antenne »Quassel«",         type:"antenna",cat:"sat", mass:40,  w:4,h:5, tech:"payload", info:"Funkt Daten nach Leibniz."},
   satW:   {name:"Wettersatellit »Wolkengucker«", type:"sat", cat:"sat", mass:200, w:8,h:6, tech:"payload",
@@ -779,10 +784,10 @@ const TECH = [
   {id:"start",     name:"Startkapital",           cost:0,   req:[],                     desc:"Die ersten Schritte ins All."},
   {id:"basic",     name:"Feststoffraketen",       cost:10,  req:["start"],              desc:"Booster und Flossen für stabile Starts."},
   {id:"struct",    name:"Strukturbau",            cost:12,  req:["start"],              desc:"Stufentrennung – der Schlüssel zu großen Raketen."},
-  {id:"surv",      name:"Überleben & Forschung",  cost:18,  req:["basic"],              desc:"Hitzeschild für die Rückkehr, Labor für die Wissenschaft."},
+  {id:"surv",      name:"Überleben & Forschung",  cost:18,  req:["basic"],              desc:"Hitzeschild für die Rückkehr, Labor für die Wissenschaft – dazu Batterie & Servicebucht S, damit im Orbit nicht der Strom ausgeht."},
   {id:"crewed",    name:"Bemannte Raumfahrt",     cost:25,  req:["surv"],               desc:"Lebenserhaltung & Sitze: Jetzt fliegen echte Pilot*innen mit!"},
   {id:"advProp",   name:"Flüssigtriebwerke II",   cost:30,  req:["basic","struct"],     desc:"Effiziente Vakuum-Triebwerke und mittlere Tanks."},
-  {id:"payload",   name:"Satellitentechnik",      cost:45,  req:["advProp"],            desc:"Sondenkerne, Solarpanele, Batterien, Fairings."},
+  {id:"payload",   name:"Satellitentechnik",      cost:45,  req:["advProp"],            desc:"Sondenkerne, Solarpanele, Fairings, Servicebucht M – und die 📡 Satelliten-Aufträge!"},
   {id:"fine",      name:"Feinwerktechnik",        cost:40,  req:["payload"],            desc:"Miniatur-Antriebe für präzise Satelliten-Manöver."},
   {id:"heavy",     name:"Schwerlast-Raketen",     cost:60,  req:["advProp"],            desc:"Große Tanks, großes Triebwerk – große Ziele."},
   {id:"heavyPlus", name:"Schwerlast II",          cost:80,  req:["heavy"],              desc:"Der monströse »Donner«-Booster."},
@@ -3114,8 +3119,8 @@ const VAB = {
       this.stack.unshift(id);
     }
     else if(p.type==="chute") this.stack.unshift(id);
-    else if(p.type==="sideboost" && this.boostCapViolated([...this.stack, id]))
-      return alert("Maximal ZWEI Seitenbooster-Pakete pro STUFE!\n\nMehr passt nicht um den Rumpf – und endloses Booster-Stapeln wäre gratis-Δv. 😉 (Tipp: Auch Oberstufen dürfen je 2 Pakete tragen.)");
+    else if((p.type==="sideboost" || p.type==="srb") && this.capError([...this.stack, id]))
+      return alert(this.capError([...this.stack, id]));
     else this.stack.push(id);
     this.refresh();
   },
@@ -3123,6 +3128,15 @@ const VAB = {
   boostCapViolated(stack){
     return this.segments(stack).some(sg=>
       sg.filter(x=>PARTS[x].type==="sideboost").length > 2);
+  },
+  /* Booster-Stapel-Caps: verhindert Gratis-Δv durch endloses Stapeln.
+     Seitenbooster max. 2 pro Stufe, Feststoffbooster (srb) max. 1 pro Stufe. */
+  capError(stack){
+    if(this.boostCapViolated(stack))
+      return "Maximal ZWEI Seitenbooster-Pakete pro STUFE!";
+    if(this.segments(stack).some(sg=>sg.filter(x=>PARTS[x].type==="srb").length > 1))
+      return "Nur EIN Feststoffbooster pro STUFE – »Böller« kann man nicht stapeln! 🧨\n\nMehr Wumms: den größeren »Donner« erforschen oder Seitenbooster anbauen.";
+    return null;
   },
   remove(i){ this.stack.splice(i,1); this.refresh(); },
   /* ---------- Hangar: Raketen speichern & wiederverwenden ("Workhorses") ---------- */
@@ -3189,14 +3203,49 @@ const VAB = {
     document.getElementById("hangarModal").style.display = "none";
     this.refresh();
   },
+  /* Hangar als Datei sichern/laden – für den Rechnerwechsel im Klassenraum */
+  exportRockets(){
+    const all = this.savedRockets();
+    if(!all.length){ alert("Noch keine gespeicherten Raketen zum Sichern! (💾 in der Montagehalle)"); return; }
+    const blob = new Blob([JSON.stringify(all, null, 2)], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "lmg-raketen.json";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+  importRockets(file){
+    const rd = new FileReader();
+    rd.onload = ()=>{
+      try{
+        const inc = JSON.parse(rd.result);
+        if(!Array.isArray(inc)) throw new Error("kein Array");
+        const all = this.savedRockets();
+        let neu = 0, akt = 0;
+        for(const r of inc){
+          if(!r || typeof r.name!=="string" || !Array.isArray(r.stack)) continue;
+          const stack = r.stack.filter(id=>typeof id==="string" && PARTS[id]);
+          if(!stack.length) continue;
+          const i = all.findIndex(x=>x.name===r.name);
+          if(i>=0){ all[i] = {name:r.name, stack}; akt++; }
+          else { all.push({name:r.name, stack}); neu++; }
+        }
+        localStorage.setItem("lmgRockets", JSON.stringify(all));
+        this.renderHangar();
+        alert(neu+akt ? "📂 Import fertig: "+neu+" neu, "+akt+" aktualisiert." :
+          "In der Datei steckte keine brauchbare Rakete. 🤔");
+      }catch(e){ alert("Das ist keine gültige Raketen-Datei! 🤔 (Erwartet: lmg-raketen.json aus »Als Datei sichern«)"); }
+    };
+    rd.readAsText(file);
+  },
   validate(){
     if(!this.stack.some(x=>["pod","probe","starship"].includes(PARTS[x].type)))
       return "Deine Rakete braucht eine Kommandokapsel oder einen Sondenkern!";
     if(!this.stack.some(x=>["engine","srb","superheavy","starship"].includes(PARTS[x].type)))
       return "Deine Rakete braucht ein Triebwerk!";
-    // Cap auch für geladene Hangar-Raketen (Alt-Designs mit Booster-Farm)
-    if(this.boostCapViolated(this.stack))
-      return "Maximal ZWEI Seitenbooster-Pakete pro STUFE – bitte ausmisten!";
+    // Caps auch für geladene Hangar-Raketen (Alt-Designs mit Booster-Farm)
+    const capErr = this.capError(this.stack);
+    if(capErr) return capErr + " Bitte ausmisten!";
     return null;
   },
   segments(stack){
@@ -3388,23 +3437,18 @@ const VAB = {
       e.preventDefault();
       let data; try{ data=JSON.parse(e.dataTransfer.getData("text/plain")); }catch(_){ return; }
       if(data.kind==="new"){
-        if(PARTS[data.id].type==="sideboost"){
-          const test = [...this.stack]; test.splice(i,0,data.id);
-          if(this.boostCapViolated(test)){
-            alert("Maximal ZWEI Seitenbooster-Pakete pro STUFE!"); return;
-          }
-        }
+        const test = [...this.stack]; test.splice(i,0,data.id);
+        const err = this.capError(test);
+        if(err){ alert(err); return; }
         this.stack.splice(i,0,data.id);
       }
       else if(data.kind==="move"){
         const before = [...this.stack];
         const [part]=this.stack.splice(data.from,1);
         this.stack.splice(data.from<i?i-1:i,0,part);
-        // Umsortieren darf den Pro-Stufe-Booster-Cap nicht sprengen
-        if(PARTS[part].type==="sideboost" && this.boostCapViolated(this.stack)){
-          this.stack = before;
-          alert("Maximal ZWEI Seitenbooster-Pakete pro STUFE!");
-        }
+        // Umsortieren darf die Pro-Stufe-Booster-Caps nicht sprengen
+        const err = this.capError(this.stack);
+        if(err){ this.stack = before; alert(err); }
       }
       this.refresh();
     };
@@ -5794,25 +5838,41 @@ const Flight = {
         }
       }
       // --- Wiedereintrittshitze: beim schnellen Sinkflug ohne Hitzeschild tödlich ---
+      // Ab ~1600 m/s abwärts in der Atmosphäre reicht schon DÜNNE Luft: Wer aus
+      // dem Orbit (>2200 m/s) ohne Schild kommt, verglüht IMMER – auch bei
+      // flachen "Aerobraking-Tricks" durch die Hochatmosphäre.
       const relPos = this.pos.clone().sub(bodyPos(LEIBNIZ,this.t));
       const descending = airVel.dot(relPos) < 0;
       const heat = rho*v*v*v;
-      if(!this.landed && descending && v>1700 && heat>5e7){
-        const shielded = this.v.stack.some(id=>
-          PARTS[id].type==="shield" || PARTS[id].type==="starship");   // Starship: Hitzeschutz-Kacheln
+      if(!this.landed && descending && v>1600 && heat>1.5e7){
+        let shielded = this.v.stack.some(id=>PARTS[id].type==="shield");
+        const isStarship = this.v.stack.some(id=>PARTS[id].type==="starship");
+        let tilesWrong = false;
+        if(!shielded && isStarship){
+          // Starship: Kacheln sitzen NUR am Bauch (+Z körperfest) – sie schützen
+          // ausschließlich BAUCH VORAN in den Wind (Bellyflop [C]), wie in echt!
+          const bellyDir = V3(0,0,1).applyQuaternion(this.q);
+          shielded = bellyDir.dot(airVel.clone().normalize()) > 0.5;
+          tilesWrong = !shielded;
+        }
         if(this._heatMsgT===undefined || this.t-this._heatMsgT>4){
           this._heatMsgT = this.t;
           this.showMsg(shielded
             ? "🔥 Wiedereintritt – der Hitzeschild glüht!"
-            : "⚠️🔥 KEIN HITZESCHILD – die Struktur verglüht!", 3);
+            : tilesWrong
+              ? "⚠️🔥 KACHELN ZEIGEN NICHT IN DEN WIND – sofort [C] Bauchlage, sonst verglüht das Starship!"
+              : "⚠️🔥 KEIN HITZESCHILD – die Struktur verglüht!", 3);
         }
         if(!shielded){
-          this.heatDmg = (this.heatDmg||0) + heat/1.5e9*dt;
+          // Grundschaden + Heizraten-Anteil: selbst dünnste Luft grillt auf Dauer
+          this.heatDmg = (this.heatDmg||0) + (0.12 + heat/5e8)*dt;
           if(this.heatDmg>=1 && !this.crashed){
             this.crashed = true;
             this.warpI = 0;
             this.explode();
-            this.showMsg("💥 Beim Wiedereintritt verglüht! Nächstes Mal einen Hitzeschild einbauen."+
+            this.showMsg((tilesWrong
+              ? "💥 Starship verglüht – die Kacheln zeigten nicht in den Wind! Nächstes Mal rechtzeitig [C] Bauchlage."
+              : "💥 Beim Wiedereintritt verglüht! Nächstes Mal einen Hitzeschild einbauen.")+
               (this.crew&&this.crew.length?" Die Crew rettet sich per Schleudersitz! 🪂":""), 99);
           }
         }
@@ -6920,12 +6980,39 @@ const Flight = {
     x.fillText(heading.toFixed(0)+"°", cx, 13);
     x.fillText((pitch>=0?"+":"")+pitch.toFixed(0)+"°", cx, 134);
   },
+  /* Nur Buttons zeigen, die zum aktuellen Vehikel passen – ohne Fallschirm
+     braucht niemand einen Schirm-Knopf (weniger Overwhelm für Klasse 8) */
+  updateButtons(){
+    const st = this.v ? this.v.stack : [];
+    const has = type => st.some(id=>PARTS[id].type===type);
+    const show = (id, on)=>{
+      const el = document.getElementById(id);
+      if(el) el.style.display = on ? "" : "none";
+    };
+    const anyBoost = this.v && this.v.segs.some(sg=>sg.boost && sg.boost.attached);
+    show("btnBoostR", anyBoost);
+    show("btnBoostJ", anyBoost);
+    show("btnChute", has("chute"));
+    show("btnFairing", !!(this.v && this.v.fairingIntact));
+    show("btnSat", has("sat") || st.includes("probe"));
+    show("btnPanels", has("solar"));
+    show("btnEva", this.crew.length > 0);
+    show("btnBelly", st.some(id=>PARTS[id].type==="starship" && PARTS[id].flaps));
+    show("btnDock", has("dock"));
+    show("btnModul", !Game.sandbox && has("dock"));
+    show("btnBay", has("bay"));
+    show("btnExp", has("lab"));
+  },
   drawHUD(){
+    this.updateButtons();
     const o = this.orbit();
     const fmt = m=> m>=10000 ? (m/1000).toFixed(1)+" km" : m.toFixed(0)+" m";
     const fmtAp = m=> m<0 ? "– (Fluchtbahn)" : fmt(m);
     const s = this.activeSeg();
-    const fuelPct = s ? ((s.fuelLeft+s.srbLeft)/Math.max(1,(s.fuel+s.srbFuel))*100) : 0;
+    // Tank-Anzeige = NUR Flüssigtreibstoff (drosselbar); Feststoffbooster haben
+    // eine eigene Zeile/Gauge – sonst sieht es aus, als würde der Tank bei
+    // Schub 0 "leerlaufen", obwohl nur die (nicht drosselbaren!) SRBs brennen
+    const fuelPct = s ? (s.fuelLeft/Math.max(1,s.fuel)*100) : 0;
     // Rest-Δv der aktiven Stufe (Ziolkowski)
     const mNow = this.mass();
     let dvLeft = 0;
@@ -6956,7 +7043,9 @@ const Flight = {
       <div class="row"><span>Periapsis</span><span>${o.pe<-o.body.R*0.99?"–":fmt(o.pe)}</span></div>
       ${!this.landed ? `<div class="row"><span>Inklination</span><span>${this.orbitInc().toFixed(0)}°</span></div>` : ""}
       <div class="row"><span>Stufen übrig</span><span>${this.v.segs.length}</span></div>
-      <div class="row"><span>Treibstoff (Stufe)</span><span>${(s&&(s.fuel+s.srbFuel))?fuelPct.toFixed(0)+" %":"–"}</span></div>
+      <div class="row"><span>Treibstoff (Stufe)</span><span>${(s&&s.fuel)?fuelPct.toFixed(0)+" %":"–"}</span></div>
+      ${s && s.srbFuel ? `<div class="row"><span>Feststoffbooster</span><span>${
+        (s.srbLeft/s.srbFuel*100).toFixed(0)} %${s.ignited&&s.srbLeft>0?" 🔥 (nicht drosselbar)":""}</span></div>` : ""}
       ${s && s.boost && s.boost.attached ? `<div class="row"><span>Seitenbooster</span><span>${
         s.boost.ignited
           ? (s.boost.fuelLeft>0 ? (s.boost.fuelLeft/s.boost.fuel*100).toFixed(0)+" % 🔥 · [J] Abwurf"
@@ -7067,7 +7156,7 @@ const Flight = {
         Game.activeMissions.map(id=>(MISSIONS.find(m=>m.id===id)||{}).name).join("<br>🎯 ")+"</b>" :
         (!Game.sandbox && !Tut.active ? '<br><small style="color:var(--muted)">Keine Mission angenommen</small>' : "")}`;
     document.getElementById("throttleFill").style.height=(this.throttle*100)+"%";
-    document.getElementById("fuelFill").style.height=((s&&(s.fuel+s.srbFuel))?fuelPct:0)+"%";
+    document.getElementById("fuelFill").style.height=((s&&s.fuel)?fuelPct:0)+"%";
     // Gitterflossen an Bord? Orange Marke = Restsprit für den Landing Burn
     // (RTLS braucht MEHR: der Boostback-Burn zurück zur Rampe kostet extra)
     const fm = document.getElementById("fuelMark");
@@ -7075,10 +7164,15 @@ const Flight = {
       (s && s.thrust && s.parts.some(id=>PARTS[id].type==="gridfin")) ? "" : "none";
     fm.style.bottom = this.boosterSiteEff()==="rtls" ? "30%" : "12%";
     // Seitenbooster: eigene Tankanzeige (eigener Treibstoff-Pool!)
-    const boG = s && s.boost, boEl = document.getElementById("boostGauge");
-    if(boG && boG.attached){
+    // Booster-Gauge = Seitenbooster-Pool + Feststoffbooster der aktiven Stufe
+    // (beide nicht drosselbar, beide getrennt vom Flüssigtank)
+    const boG = s && s.boost && s.boost.attached ? s.boost : null;
+    const bTot = (boG ? boG.fuel : 0) + (s ? s.srbFuel : 0);
+    const boEl = document.getElementById("boostGauge");
+    if(bTot > 0){
       boEl.style.display = "";
-      document.getElementById("boostFill").style.height = (boG.fuelLeft/boG.fuel*100)+"%";
+      const bLeft = (boG ? boG.fuelLeft : 0) + (s ? s.srbLeft : 0);
+      document.getElementById("boostFill").style.height = (bLeft/bTot*100)+"%";
     } else boEl.style.display = "none";
     document.getElementById("powerFill").style.height=(this.maxCharge?this.charge/this.maxCharge*100:0)+"%";
     if(this.node) this.updateNodeUI();   // Countdown auch außerhalb der Karte aktuell halten
