@@ -356,7 +356,7 @@ const TUTORIALS = [
      <b>Forschung</b> neue Bauteile frei. Tipp: Nimm das Labor auf JEDE Mission mit.`},
 
   {id:"booster", icon:"🛬", title:"Booster-Landung (Falcon-Stil)", sub:"Erste Stufe mit Gitterflossen – abtrennen, zuschauen, sparen.",
-   scenario:{stack:["chute","pod","rcs","tankM","engVac","decoupler","inter","gridfin","fin","tankL","engMain"]},
+   scenario:{stack:["chute","pod","rcs","tankM","engVac","decoupler","inter","gridfin","fin","tankL","tankL","engMain"]},
    steps:[
     {text:`Diese Rakete hat <b>Gitterflossen</b> an der ersten Stufe (die angelegten
       Gitter oben am großen Tank – wie bei der Falcon 9!). Damit kann der
@@ -367,8 +367,8 @@ const TUTORIALS = [
      check:(o,F)=>!F.landed && F.flew},
     {text:`Neige die Rakete mit <b>[D]</b> leicht nach Osten (Gravity Turn) und steig
       weiter. Behalte dabei die <b>Tank-Anzeige</b> im Auge – sie sinkt Richtung
-      orange Marke!<br><br>Steig über <b>12 km</b>.`,
-     check:o=>o.alt>12000},
+      orange Marke!<br><br>Steig über <b>10 km</b>.`,
+     check:o=>o.alt>10000},
     {text:`Jetzt kommt der Falcon-Moment! 🚀<br><br>
       Trenne die erste Stufe mit der <b>[Leertaste]</b>, <b>SOLANGE der Tankbalken
       noch ÜBER der orangen Marke ist</b>. Zu spät = kein Sprit für die Landung,

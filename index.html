@@ -6520,6 +6520,69 @@ const Flight = {
           cv.scale.set(sc, sc, sc);
         }
       }
+      // --- Plasma-Glühen beim Wiedereintritt: ab ~600 °C Schiffstemp (rote
+      // HUD-Anzeige) wächst ein Stoßfront-Glühen + Plasmaschweif, wie in echt.
+      // Rein visuell – die Hitze-PHYSIK sitzt in step() (heatDmg).
+      {
+        const airV = this.vel.clone().sub(bodyVel(LEIBNIZ, this.t));
+        let gI = THREE.MathUtils.clamp((this.shipTemp-600)/900, 0, 1);
+        if(this.map || this.crashed || this.landed ||
+           alt > LEIBNIZ.atmoH || airV.length() < 600) gI = 0;
+        if(gI > 0 && !this.plasmaGroup){
+          const c = document.createElement("canvas"); c.width = c.height = 64;
+          const x = c.getContext("2d");
+          const g = x.createRadialGradient(32,32,2,32,32,30);
+          g.addColorStop(0,"rgba(255,244,214,1)");
+          g.addColorStop(0.35,"rgba(255,170,70,0.85)");
+          g.addColorStop(1,"rgba(255,120,40,0)");
+          x.fillStyle = g; x.fillRect(0,0,64,64);
+          const tex = new THREE.CanvasTexture(c);
+          const grp = new THREE.Group();
+          const mkSpr = name=>{
+            const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:tex,
+              transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
+            sp.name = name; grp.add(sp); return sp;
+          };
+          mkSpr("pShock"); mkSpr("pHalo");
+          // Plasmaschweif: Kegel, Spitze windwärts am Schiff, fächert nach hinten auf
+          const trail = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 10, 1, true),
+            new THREE.MeshBasicMaterial({color:0xff9040, transparent:true,
+              depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide}));
+          trail.name = "pTrail"; trail.rotation.x = Math.PI; grp.add(trail);
+          this.plasmaGroup = grp; this.scene.add(grp);
+        }
+        if(this.plasmaGroup){
+          this.plasmaGroup.visible = gI > 0;
+          if(gI > 0){
+            const aDir = airV.normalize();
+            // +Y der Gruppe = windabgewandt (dahin strömt das Plasma)
+            this.plasmaGroup.quaternion.setFromUnitVectors(V3(0,1,0), aDir.clone().negate());
+            const H = Math.max(6, this.height());
+            const flick = 0.78 + 0.16*Math.sin(this.t*17) + 0.08*Math.sin(this.t*43+1.3);
+            const shock = this.plasmaGroup.getObjectByName("pShock");
+            const sSz = H*(1.5 + 0.8*gI);
+            shock.scale.set(sSz, sSz, 1);
+            shock.position.y = -H*0.45;          // Stoßfront windwärts vorm Schiff
+            shock.material.opacity = 0.85*gI*flick;
+            const halo = this.plasmaGroup.getObjectByName("pHalo");
+            const hSz = H*3.2;
+            halo.scale.set(hSz, hSz, 1);
+            halo.material.opacity = 0.3*gI*flick;
+            const trail = this.plasmaGroup.getObjectByName("pTrail");
+            const len = H*(2.5 + 3.5*gI), r = H*0.5*(0.6 + 0.7*gI);
+            trail.scale.set(r, len, r);
+            trail.position.y = len/2 - H*0.5;
+            trail.material.opacity = 0.38*gI*flick;
+            // glühende Trümmer-/Plasmafunken, die nach hinten wegströmen
+            if(gI > 0.15 && warp <= 2){
+              const spread = V3((Math.random()-.5)*14,(Math.random()-.5)*14,(Math.random()-.5)*14);
+              this.spawnParticle(this.pos.clone(),
+                this.vel.clone().addScaledVector(aDir, -(120+Math.random()*100)).add(spread),
+                0.4+Math.random()*0.5, 3+Math.random()*3.5, 0xff8830);
+            }
+          }
+        }
+      }
       // Abgas-Partikel: nur in der Atmosphäre (im Vakuum gibt es keine Rauchwolke)
       if((burning || boosterBurn) && !this.map && alt < LEIBNIZ.atmoH){
         const nozzle = this.pos.clone().addScaledVector(dir, -hh);
