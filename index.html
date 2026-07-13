@@ -2984,6 +2984,90 @@ function makeCloudSpriteTexture(){
   }
   return new THREE.CanvasTexture(c);
 }
+/* Boden-Kacheln für Gras/Sand/Meer: einmalig erzeugte 256er-Canvas-Texturen,
+   danach 0 Laufzeitkosten (Mipmaps machen die Ferne automatisch ruhig).
+   Bewusst fast WEISS gemalt – material.color tönt sie ein, dadurch funktioniert
+   der Polar-Umschalter (Schnee/Kies/Polarmeer) ohne eigene Texturen weiter.
+   Alle Formen werden 3×3 versetzt gezeichnet → nahtlos kachelbar. */
+function makeGroundTexture(kind){
+  const S = 256, c = document.createElement("canvas"); c.width = c.height = S;
+  const x = c.getContext("2d");
+  const rnd = seededRand(kind==="grass" ? 7 : kind==="sand" ? 13 : 29);
+  x.fillStyle = "#fff"; x.fillRect(0,0,S,S);
+  const wrap = draw=>{ for(const dx of [-S,0,S]) for(const dy of [-S,0,S]) draw(dx,dy); };
+  const dot = (px,py,r,a,l)=>wrap((dx,dy)=>{
+    x.fillStyle = "rgba("+l+","+l+","+l+","+a+")";
+    x.beginPath(); x.arc(px+dx, py+dy, r, 0, 7); x.fill();
+  });
+  const wavyLine = (y0,amp,freq,ph,w,style)=>wrap((dx,dy)=>{
+    x.strokeStyle = style; x.lineWidth = w; x.beginPath();
+    x.moveTo(dx, y0+dy+Math.sin(ph)*amp);
+    for(let px=8; px<=S; px+=8) x.lineTo(px+dx, y0+dy+Math.sin(px*freq+ph)*amp);
+    x.stroke();
+  });
+  if(kind==="grass"){
+    for(let i=0;i<60;i++)   dot(rnd()*S, rnd()*S, 7+rnd()*16, .07, (130+rnd()*70)|0);  // Wiesen-Flecken
+    for(let i=0;i<2400;i++) dot(rnd()*S, rnd()*S, .6+rnd()*1.8, .22+rnd()*.25, (140+rnd()*115)|0);
+  } else if(kind==="sand"){
+    for(let i=0;i<26;i++)   wavyLine(rnd()*S, 3+rnd()*3, .05+rnd()*.03, rnd()*7, 1.5+rnd()*2, "rgba(120,110,90,.10)"); // Dünen-Rippel
+    for(let i=0;i<1800;i++) dot(rnd()*S, rnd()*S, .5+rnd()*1.2, .2+rnd()*.22, (165+rnd()*90)|0);
+  } else { // "sea": kurze Wellen-Tupfer (lange Linien = Streifen-Artefakte am Horizont!)
+    // Basis leicht dunkler als Weiß, damit helle Kämme aufhellen KÖNNEN (Multiply-Tint)
+    x.fillStyle = "#e6e6ec"; x.fillRect(0,0,S,S);
+    for(let i=0;i<650;i++){
+      const px = rnd()*S, py = rnd()*S, len = 4+rnd()*12, ang = (rnd()-0.5)*0.7;
+      const l = rnd()<0.7 ? (rnd()*40)|0 : (215+rnd()*40)|0;   // dunkle Täler + helle Kämme
+      const st = "rgba("+l+","+l+","+(l+25)+","+(.05+rnd()*.08).toFixed(2)+")", w = 1+rnd()*1.6;
+      wrap((dx,dy)=>{   // gleicher Strich an allen 9 Versätzen = nahtlose Kachel
+        x.strokeStyle = st; x.lineWidth = w;
+        x.beginPath(); x.moveTo(px+dx, py+dy);
+        x.lineTo(px+dx+Math.cos(ang)*len, py+dy+Math.sin(ang)*len); x.stroke();
+      });
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 4;   // flache Blickwinkel (Horizont) bleiben scharf
+  return tex;
+}
+/* Wellen-Normalmap fürs Meer (FFT-Ozean-Optik für Arme, einmalig ~100 ms):
+   Summe vieler Sinuswellen mit GANZZAHLIGEN Wellenvektoren → kachelt perfekt
+   nahtlos. RGB = Tangentspace-Normale, A = Wellenhöhe (Schaumkronen im Shader).
+   Richtungen um eine "Windrichtung" gebündelt = streifige Ozean-Anmutung. */
+function makeSeaNormalTexture(){
+  const S = 512, rnd = seededRand(4711), waves = [];
+  const windAng = 0.6;
+  for(let i=0;i<36;i++){
+    const wl  = 7*Math.pow(16, rnd());                   // Wellenlänge 7..112 px
+    const ang = windAng + (rnd()-0.5)*2.4;
+    const nx  = Math.round(S/wl*Math.cos(ang)), ny = Math.round(S/wl*Math.sin(ang));
+    if(!nx && !ny) continue;
+    waves.push({nx, ny, amp:Math.pow(wl,1.15), ph:rnd()*6.283});
+  }
+  const ampSum = waves.reduce((a,w)=>a+w.amp, 0);
+  const img = new ImageData(S, S), d = img.data, K = 2*Math.PI/S;
+  const steep = 260/ampSum;                              // Normalen-Stärke
+  for(let y=0;y<S;y++) for(let x=0;x<S;x++){
+    let h=0, gx=0, gy=0;
+    for(const w of waves){
+      const p = K*(w.nx*x + w.ny*y) + w.ph;
+      const s = Math.sin(p), co = Math.cos(p)*w.amp*K;
+      h += w.amp*s; gx += co*w.nx; gy += co*w.ny;
+    }
+    const nl = 1/Math.hypot(gx*steep, gy*steep, 1), o = (y*S+x)*4;
+    d[o]   = 128 - gx*steep*nl*127;                      // Normale X
+    d[o+1] = 128 - gy*steep*nl*127;                      // Normale Y
+    d[o+2] = 128 + nl*127;                               // Normale Z
+    const hn = 0.5 + 0.5*h/(ampSum*0.75);                // Höhe → Kronen-Maß (clippt kaum)
+    d[o+3] = Math.max(0, Math.min(255, hn*255));
+  }
+  const c = document.createElement("canvas"); c.width = c.height = S;
+  c.getContext("2d").putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  return tex;
+}
 
 /* =================================================================
    VAB (3D-Montagehalle)
@@ -3546,7 +3630,10 @@ const Flight = {
     this.world = new THREE.Group();
     this.scene.add(this.world);
     // Licht
-    this.scene.add(new THREE.AmbientLight(0x607090, 0.55));
+    this.ambLight = new THREE.AmbientLight(0x607090, 0.55);
+    this.ambSpace = new THREE.Color(0x607090);   // kühles All-Streulicht
+    this.ambDay = new THREE.Color(0xe8e4da);     // warmes Tageslicht am Boden
+    this.scene.add(this.ambLight);
     this.sunLight = new THREE.DirectionalLight(0xfff2dd, 1.3);
     this.sunLight.position.set(1e7, 4e6, 6e6); this.scene.add(this.sunLight);
     // Die Sonne selbst (im Welt-Ursprung)
@@ -3617,23 +3704,107 @@ const Flight = {
     // Lokaler Boden am Startplatz (Tangentialebene; die Kugel ist zu grob für Bodennähe).
     // Alle Rampen liegen »realistisch« an der KÜSTE: Richtung Osten (= Flugrichtung!)
     // kommt nach ~2,8 km Sandstrand und ab ~3,3 km der offene Ozean.
+    const grassTex = makeGroundTexture("grass"); grassTex.repeat.set(220,220);
+    const sandTex  = makeGroundTexture("sand");  sandTex.repeat.set(220,220);
+    const seaNorm  = makeSeaNormalTexture();     seaNorm.repeat.set(520,520);
     this.groundPlane = new THREE.Mesh(
       new THREE.CircleGeometry(40000, 48),
-      new THREE.MeshStandardMaterial({color:0x3f8d4e, roughness:.95}));
+      new THREE.MeshStandardMaterial({color:0x3f8d4e, roughness:.95, map:grassTex}));
     this.groundPlane.rotation.x = -Math.PI/2;
     this.groundBeach = new THREE.Mesh(
       new THREE.CircleGeometry(40000, 64),
-      new THREE.MeshStandardMaterial({color:0xd9c893, roughness:.95}));
+      new THREE.MeshStandardMaterial({color:0xd9c893, roughness:.95, map:sandTex}));
     this.groundBeach.rotation.x = -Math.PI/2;
     this.groundBeach.position.set(42800, 2, 0);
-    this.groundSea = new THREE.Mesh(
-      new THREE.CircleGeometry(41000, 64),
-      new THREE.MeshStandardMaterial({color:0x1d5d9e, roughness:.3, metalness:.25}));
+    // Meer mit Shader-Patch (onBeforeCompile): zwei gegenläufig driftende
+    // Normalmap-Layer (Wellen), Schaumkronen aus der Höhe (Alpha-Kanal) und
+    // Fresnel-Aufhellung zum Horizont. Pro Frame ändert sich NUR uTime.
+    this.seaUniforms = {uTime:{value:0}, uHorizon:{value:new THREE.Color(0xbfe6f5)}};
+    this.seaHorizonBase = new THREE.Color(0xbfe6f5);
+    const seaMat = new THREE.MeshStandardMaterial({color:0x114f9c, roughness:.34,
+      metalness:0, normalMap:seaNorm, normalScale:new THREE.Vector2(1.7,1.7)});
+    seaMat.onBeforeCompile = sh=>{
+      Object.assign(sh.uniforms, this.seaUniforms);
+      sh.fragmentShader = "uniform float uTime;\nuniform vec3 uHorizon;\n" + sh.fragmentShader
+        // Scroll-UVs + Schaumkronen: Geschwindigkeiten ×1000 sind GANZZAHLIG,
+        // damit der uTime-Wrap (t % 1000 in frame()) unsichtbar bleibt!
+        .replace("#include <color_fragment>", `#include <color_fragment>
+          vec2 sUv1 = vUv + uTime*vec2(0.020, 0.012);
+          vec2 sUv2 = vUv.yx*2.83 - uTime*vec2(0.017, 0.031);   // 90° gedreht → kein sichtbares Kachel-Raster
+          float h1 = texture2D( normalMap, sUv1 ).a, h2 = texture2D( normalMap, sUv2 ).a;
+          // Detail mit der Entfernung ausblenden – die hochfrequente Kachel
+          // erzeugt sonst Moiré-Raster in der Mitteldistanz
+          float seaFade = 1.0/(1.0 + length(vViewPosition)*0.00035);
+          diffuseColor.rgb *= mix(0.94, 0.45 + 0.5*(h1+h2), seaFade);  // Täler dunkel, Kämme hell
+          float crest = smoothstep(0.74, 0.88, 0.35*h1 + 0.65*h2) * (0.35+0.65*seaFade);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 1.0), crest*0.75);`)
+        .replace("#include <normal_fragment_maps>", `
+          vec3 mapN1 = texture2D( normalMap, sUv1 ).xyz*2.0-1.0;
+          vec3 mapN2 = texture2D( normalMap, sUv2 ).xyz*2.0-1.0;
+          mapN2.xy = mapN2.yx;   // Drehung der UVs auch auf die Normale anwenden
+          vec3 mapN = normalize(vec3(mapN1.xy + mapN2.xy*0.8, mapN1.z*mapN2.z));
+          mapN.xy *= normalScale * seaFade;
+          normal = perturbNormal2Arb( -vViewPosition, normal, mapN, faceDirection );`)
+        .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+          float fres = pow(1.0 - saturate(dot(normalize(normal), normalize(vViewPosition))), 8.0);
+          totalEmissiveRadiance += uHorizon * fres * 0.35;`)
+        // Ambient-Anteil aufs Meer halbieren: nimmt den Pastell-Schleier,
+        // Sonnen-Schattierung/Glitzer/Schaum bleiben voll erhalten
+        .replace("#include <aomap_fragment>", `#include <aomap_fragment>
+          reflectedLight.indirectDiffuse *= 0.5;`);
+    };
+    this.groundSea = new THREE.Mesh(new THREE.CircleGeometry(41000, 64), seaMat);
     this.groundSea.rotation.x = -Math.PI/2;
     this.groundSea.position.set(44300, 4, 0);
+    // Küstensaum am Rand des Meer-Kreises: Flachwasser als 3-Stufen-Verlauf
+    // (tief→türkis) + Gischtlinie. Nur die West-Kante ist je sichtbar.
+    this.shallowRings = [];
+    for(const [r0,r1,op] of [[40280,40650,.22],[40650,40880,.42],[40880,41004,.62]]){
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(r0, r1, 96, 1),
+        new THREE.MeshStandardMaterial({color:0x4fc3cf, roughness:.4, transparent:true, opacity:op, depthWrite:false}));
+      ring.rotation.x = -Math.PI/2;
+      ring.position.set(44300, 5, 0);
+      this.shallowRings.push(ring);
+    }
+    this.groundFoam = new THREE.Mesh(
+      new THREE.RingGeometry(40958, 41022, 96, 1),
+      new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:.7, depthWrite:false}));
+    this.groundFoam.rotation.x = -Math.PI/2;
+    this.groundFoam.position.set(44300, 6, 0);
+    // Wald: 2 InstancedMeshes (alle Stämme + alle Kronen) = nur 2 Draw-Calls
+    const tRnd = seededRand(99), NT = 170;
+    this.treeTrunks = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.8, 1.2, 7, 5),
+      new THREE.MeshStandardMaterial({color:0x6b4a2f, roughness:.9}), NT);
+    this.treeCrowns = new THREE.InstancedMesh(
+      new THREE.ConeGeometry(6, 18, 7),
+      new THREE.MeshStandardMaterial({color:0x2e7d3f, roughness:.85}), NT);
+    const tm = new THREE.Matrix4();
+    let placed = 0, guard = 0;
+    while(placed < NT && guard++ < 5000){
+      // 60 % der Bäume nahe der Rampe (dort spielt sich alles ab), Rest weit verstreut
+      let ex, nz;
+      if(tRnd() < 0.6){ const a = tRnd()*6.283, d = 560+tRnd()*1900; ex = Math.cos(a)*d; nz = Math.sin(a)*d; }
+      else { ex = -7000 + tRnd()*9200; nz = (tRnd()-0.5)*14000; }
+      if(Math.hypot(ex, nz) < 540) continue;   // Rampe, Gebäude & Landezone frei halten
+      if(ex > 2300) continue;                  // nicht in Strand/Meer
+      const s = 1.0 + tRnd()*1.2;
+      tm.makeScale(s,s,s).setPosition(ex, 3.5*s, nz);
+      this.treeTrunks.setMatrixAt(placed, tm);
+      tm.makeScale(s,s,s).setPosition(ex, 16*s, nz);
+      this.treeCrowns.setMatrixAt(placed, tm);
+      placed++;
+    }
+    // WICHTIG: count kappen – nicht belegte Instanzen stünden sonst als
+    // Identity-Matrix-Bäume mitten auf der Startrampe!
+    this.treeTrunks.count = this.treeCrowns.count = placed;
+    this.treeTrunks.instanceMatrix.needsUpdate = true;
+    this.treeCrowns.instanceMatrix.needsUpdate = true;
     // Gruppe: lokales X = Ost, Y = hoch, Z = Nord (Basis wird in start() gesetzt)
     this.groundGroup = new THREE.Group();
-    this.groundGroup.add(this.groundPlane, this.groundBeach, this.groundSea);
+    this.groundGroup.add(this.groundPlane, this.groundBeach, this.groundSea,
+      ...this.shallowRings, this.groundFoam, this.treeTrunks, this.treeCrowns);
     this.world.add(this.groundGroup);
     // Startrampe
     this.padGroup = this.buildPad();
@@ -4155,7 +4326,11 @@ const Flight = {
     const polar = this.pad.id==="polar";
     this.groundPlane.material.color.set(polar ? 0xdfe9f2 : 0x3f8d4e);
     this.groundBeach.material.color.set(polar ? 0xb9c2cc : 0xd9c893);   // Kies statt Sand
-    this.groundSea.material.color.set(polar ? 0x27506e : 0x1d5d9e);     // Polarmeer dunkler
+    this.groundSea.material.color.set(polar ? 0x24506e : 0x175a9e);     // Polarmeer dunkler
+    this.seaHorizonBase.set(polar ? 0x9fc4d4 : 0xbfe6f5);               // Horizont-Schimmer
+    for(const ring of this.shallowRings)
+      ring.material.color.set(polar ? 0x7fa8b8 : 0x4fc3cf);             // Flachwasser eisiger
+    this.treeCrowns.material.color.set(polar ? 0xc9dcd2 : 0x2e7d3f);    // verschneite Kronen
     // Rampe & Boden mit EXPLIZITER Basis ausrichten: X=Ost, Y=hoch, Z=SÜD.
     // ⚠️ {Ost, hoch, Nord} wäre LINKSHÄNDIG (Spiegelmatrix, keine Rotation) –
     // setFromRotationMatrix kippt die Rampe dann um 90°! X×Y muss Z ergeben.
@@ -6443,6 +6618,11 @@ const Flight = {
     const gb = Math.max(0, Math.min(1, 1 - alt/40000));       // Boden-Blend (0 ab 40 km)
     this.dayLight = 1 - gb*(1 - dayL);                        // 1 = voller Tag
     this.sunLight.intensity = 1.3*(0.08 + 0.92*this.dayLight);
+    // Bodennah hellt Streulicht vom Himmel die Szene auf und wird WARM (sonst
+    // entsättigt das blaugraue All-Ambient z. B. den Sandstrand zu Grau);
+    // im Orbit (gb=0) bleibt alles wie gehabt
+    this.ambLight.intensity = 0.55 + 0.5*gb*this.dayLight;
+    this.ambLight.color.copy(this.ambSpace).lerp(this.ambDay, gb*this.dayLight);
     this.sunGlow.material.opacity = this.dayLight;   // Sonne "geht unter" (bodennah)
     const fEff = f*this.dayLight;
     const sky = new THREE.Color(0x04060e).lerp(new THREE.Color(0x87b6ea), this.map?0:fEff*fEff);
@@ -6452,6 +6632,16 @@ const Flight = {
     for(const neb of this.nebulae)
       neb.material.opacity = (this.map ? 1 : 1-fEff) * neb.userData.base;
     this.groundGroup.visible = !this.map && alt<16000;
+    if(this.groundGroup.visible){
+      // Meer: uTime treibt die Wellen-Layer im Shader (Wrap bei 1000 s ist
+      // unsichtbar, weil Speed×1000 ganzzahlig = exakt eine Kachel-Periode).
+      // Horizont-Glow (Emissive!) und Gischt nachts über dayLight abdunkeln.
+      this.seaUniforms.uTime.value = this.t % 1000;
+      this.seaUniforms.uHorizon.value.copy(this.seaHorizonBase)
+        .multiplyScalar(0.10 + 0.90*this.dayLight);
+      this.groundFoam.material.opacity =
+        (0.45 + 0.3*(0.5+0.5*Math.sin(this.t*0.7))) * (0.15+0.85*this.dayLight);
+    }
     this.padGroup.visible = !this.map && alt<25000;
     for(const [,ring] of this.moonRings) ring.visible = this.map;
     this.shipMarker.visible = this.map && !this.crashed;
