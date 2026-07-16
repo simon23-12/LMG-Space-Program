@@ -349,6 +349,25 @@ input[type=file]{display:none;}
 </div>
 
 <!-- HINWEIS-DIALOG -->
+<!-- CFD-Windkanal: Vollbild-Overlay aus der Montagehalle (rechtes Panel) -->
+<div id="cfd" style="display:none;position:fixed;inset:0;background:#04060c;z-index:60;">
+  <div id="cfd3d" style="position:absolute;inset:0;cursor:grab;"></div>
+  <div style="position:absolute;top:14px;left:14px;display:flex;flex-direction:column;gap:8px;max-width:250px;">
+    <div style="background:rgba(10,16,30,.88);border:1px solid var(--blue-dark);border-radius:10px;padding:12px;">
+      <b style="color:var(--orange)">🌬️ CFD-Windkanal</b><br>
+      <small style="color:var(--muted)">Numerische Strömungsanalyse der aktuellen Rakete</small>
+      <div style="display:flex;gap:6px;margin-top:10px;">
+        <button class="btn" id="cfdModeA" onclick="CFD.setMode('ascent')">🚀 Aufstieg</button>
+        <button class="btn" id="cfdModeR" onclick="CFD.setMode('reentry')">🔥 Wiedereintritt</button>
+      </div>
+      <button class="btn" style="width:100%;margin-top:6px;" onclick="CFD.restart()">↻ Neu berechnen</button>
+      <button class="btn orange" style="width:100%;margin-top:6px;" onclick="CFD.close()">✕ Windkanal schließen</button>
+      <small style="color:var(--muted);display:block;margin-top:8px;">Ziehen = drehen · Mausrad = Zoom</small>
+    </div>
+    <div id="cfdTips" style="background:rgba(10,16,30,.88);border:1px solid var(--blue-dark);border-radius:10px;padding:10px;font-size:13px;line-height:1.45;"></div>
+  </div>
+  <div id="cfdRight" style="position:absolute;top:14px;right:14px;width:265px;background:rgba(10,16,30,.9);border:1px solid var(--blue-dark);border-radius:10px;padding:12px;font-size:13px;"></div>
+</div>
 <div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:50;align-items:center;justify-content:center;">
   <div style="background:var(--panel);border:2px solid var(--orange);border-radius:14px;max-width:480px;margin:20px;padding:24px;">
     <h2 id="modalTitle" style="color:var(--orange);margin-bottom:12px;"></h2>
@@ -3070,6 +3089,451 @@ function makeSeaNormalTexture(){
 }
 
 /* =================================================================
+   CFD-Windkanal (Gadget, Zugang übers rechte VAB-Panel)
+   Ehrliche Ingenieurs-Näherung statt Navier-Stokes: Cd aus der ECHTEN
+   Stack-Geometrie (Bugform, Querschnittssprünge, Heckfläche, Reibung,
+   Anbauten), Stromlinien als axialsymmetrische Stromröhren um das
+   Rumpfprofil r(x): r_Linie = sqrt(r_Profil² + z0²). Oberflächen-Druck
+   über Shader (rot = Stau, blau = Lee) – reagiert automatisch korrekt
+   auf Fairing vs. nackte Spitze. Die "Konvergenz" (Iterationszähler,
+   Momentan-Cd-Rauschen) ist Solver-Theater, die Zahlen dahinter nicht.
+   ================================================================= */
+const CFD = {
+  renderer:null, scene:null, camera:null, host:null, mode:"ascent",
+  camAz:2.45, camEl:0.28, camDist:150, raf:null, t:0, iter:0, samples:[],
+  world:null, tracers:[], blobs:[], stag:[], paths:[], aeroData:null,
+  /* Bugform-Stumpfheit 0 (spitz) … 1 (flache Stirnfläche) je Bauteiltyp */
+  bluntOf(seg){
+    if(seg.type==="ogive") return 0.06;                 // Fairing-Ogive
+    if(seg.id==="probePod") return 0.30;                // Kuppel-Kapsel
+    const byType = {starship:0.12, pod:0.32, shield:0.25, chute:0.5, dock:0.8,
+      probe:0.9, sat:0.9, lab:0.9, battery:0.95};
+    return byType[seg.type] ?? 0.95;                    // Tank & Co: flache Stirn
+  },
+  /* Rumpfprofil von der SPITZE nach unten; Fairing ersetzt Verkleidetes durch Ogive */
+  profile(stack){
+    const vis = [];
+    for(const id of stack){
+      const p = PARTS[id];
+      if(isRadial(id) || satInStarship(stack, id)) continue;
+      vis.push({id, type:p.type, r:p.w/2, h:p.h});
+    }
+    const fi = vis.findIndex(v=>v.type==="fairing");
+    if(fi >= 0){
+      const covH = vis.slice(0, fi+1).reduce((a,v)=>a+v.h, 0);
+      return [{id:"fairing", type:"ogive", r:vis[fi].r, h:covH}, ...vis.slice(fi+1)];
+    }
+    return vis;
+  },
+  /* Aerodynamik-Kennzahlen aus der Geometrie (Modus dreht die Anströmung um) */
+  aero(stack, mode){
+    const segsTop = this.profile(stack);
+    if(!segsTop.length) return null;
+    const segs = mode==="ascent" ? segsTop : [...segsTop].reverse();
+    const rmax = Math.max(...segs.map(s=>s.r));
+    const A = Math.PI*rmax*rmax;
+    const L = segs.reduce((a,s)=>a+s.h, 0);
+    const lead = segs[0], tail = segs[segs.length-1];
+    const b = this.bluntOf(lead);
+    const parts = {nose:0, steps:0, base:0, fric:0, fins:0, boost:0};
+    parts.nose = (0.03 + 0.78*b*b) * (lead.r*lead.r)/(rmax*rmax);
+    for(let i=0;i<segs.length-1;i++){
+      const r0 = segs[i].r, r1 = segs[i+1].r;
+      if(r1 > r0+0.01) parts.steps += 0.55*(r1*r1 - r0*r0)/(rmax*rmax);   // Frontal-Ring
+      else if(r0 > r1+0.01) parts.steps += 0.16*(r0*r0 - r1*r1)/(rmax*rmax); // Rückstufe
+    }
+    const tailEngine = ["engine","srb","superheavy","starship"].includes(tail.type);
+    const tb = mode==="ascent" ? (tailEngine ? 0.45 : 1.0) : this.bluntOf(tail);
+    parts.base = (0.10 + 0.16*tb) * (tail.r*tail.r)/(rmax*rmax);
+    parts.fric = 0.028*Math.pow(Math.max(1, L/(2*rmax)), 0.7);
+    parts.fins = 0.02*stack.filter(id=>PARTS[id].type==="fin").length +
+                 0.05*stack.filter(id=>PARTS[id].type==="gridfin").length;
+    let Aext = A;
+    for(const id of stack) if(PARTS[id].type==="sideboost"){
+      const p = PARTS[id], rb = p.w/2;
+      Aext += p.n*Math.PI*rb*rb*0.9;
+      parts.boost += p.n*0.30*(rb*rb)/(rmax*rmax);      // Stirn + Interferenz
+    }
+    let Cd = parts.nose+parts.steps+parts.base+parts.fric+parts.fins+parts.boost;
+    Cd = THREE.MathUtils.clamp(Cd, 0.12, 2.2);
+    // Referenzbedingungen je Modus + abgeleitete Größen
+    const cond = mode==="ascent"
+      ? {v:250, alt:5000, name:"Aufstieg (Max-Q)"}
+      : {v:2300, alt:40000, name:"Wiedereintritt (retrograde)"};
+    const rho = LEIBNIZ.rho0*Math.exp(-cond.alt/LEIBNIZ.scaleH);
+    const q = 0.5*rho*cond.v*cond.v;
+    const drag = q*Cd*Aext;
+    const mach = cond.v/(mode==="ascent" ? 320 : 300);
+    const Re = rho*cond.v*L/1.7e-5;
+    let heat = null;
+    if(mode==="reentry"){
+      const Rn = Math.max(0.25, rmax*(0.25 + 1.6*b));   // stumpf = großer Nasenradius = GUT
+      const qdot = 1.74e-4*Math.sqrt(rho/Rn)*Math.pow(cond.v,3);      // Sutton-Graves, W/m²
+      const Teq = Math.pow(qdot/(0.85*5.67e-8), 0.25) - 273;          // Strahlungs-Gleichgewicht
+      const m = Math.max(500, VAB.totalMass());
+      const gLoad = drag/(m*G0);
+      const shielded = stack.some(id=>PARTS[id].type==="shield" || PARTS[id].type==="starship");
+      heat = {Rn, qdot, Teq, gLoad, shielded};
+    }
+    // Didaktische Tipps aus der Zerlegung
+    const tips = [];
+    if(mode==="ascent"){
+      if(b > 0.4 && !segsTop.some(s=>s.type==="ogive")){
+        const noseF = (0.03 + 0.78*0.06*0.06)*(lead.r*lead.r)/(rmax*rmax);
+        const save = Math.round((parts.nose-noseF)/Cd*100);
+        if(save >= 3) tips.push("💡 Ein <b>Fairing</b> auf der Spitze würde den Cd um ~<b>"+save+" %</b> senken – die flache Stirnfläche ist der größte Bremser!");
+      }
+      if(parts.steps > 0.10) tips.push("📐 <b>Durchmessersprünge</b> im Stack kosten ~"+Math.round(parts.steps/Cd*100)+" % – Stufenadapter glätten die Form.");
+      if(parts.boost > 0.12) tips.push("🚀 Die Seitenbooster erhöhen Stirnfläche UND Interferenz-Widerstand – nach dem Abwurf fliegt es sich deutlich sauberer.");
+      if(!tips.length) tips.push("✅ Saubere Form! Bug "+Math.round(parts.nose/Cd*100)+" % · Heck "+Math.round(parts.base/Cd*100)+" % · Reibung "+Math.round(parts.fric/Cd*100)+" % des Widerstands.");
+    } else {
+      tips.push("ℹ️ Anströmung <b>Heck voran</b> (retrograde Bremslage wie in echt).");
+      if(heat.shielded) tips.push("🛡️ Hitzeschutz an Bord – die Staupunkt-Temperatur von "+Math.round(heat.Teq)+" °C hält der Schild aus.");
+      else tips.push("☠️ <b>KEIN Hitzeschutz!</b> "+Math.round(heat.Teq)+" °C am Staupunkt überlebt die Struktur nicht – Hitzeschild einplanen!");
+      if(b < 0.35) tips.push("⚠️ Das führende Ende ist ziemlich SPITZ – kleiner Nasenradius = hoher Wärmestrom. Stumpf bremst besser und bleibt kühler!");
+    }
+    return {segs, rmax, A, Aext, L, Cd, parts, cond, rho, q, drag, mach, Re, heat, tips, b};
+  },
+  open(){
+    if(!VAB.stack.length){ alert("Erst eine Rakete bauen – dann ab in den Windkanal! 🏗️"); return; }
+    document.getElementById("cfd").style.display = "block";
+    if(!this.renderer){
+      this.host = document.getElementById("cfd3d");
+      this.renderer = new THREE.WebGLRenderer({antialias:true});
+      this.host.appendChild(this.renderer.domElement);
+      this.scene = new THREE.Scene();
+      this.scene.background = new THREE.Color(0x04060c);
+      this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 6000);
+      // Glow-Textur für Wirbel/Staupunkt/Tracer
+      const c = document.createElement("canvas"); c.width = c.height = 64;
+      const x = c.getContext("2d");
+      const g = x.createRadialGradient(32,32,2,32,32,30);
+      g.addColorStop(0,"rgba(255,255,255,1)"); g.addColorStop(0.4,"rgba(255,255,255,.5)");
+      g.addColorStop(1,"rgba(255,255,255,0)");
+      x.fillStyle = g; x.fillRect(0,0,64,64);
+      this.glowTex = new THREE.CanvasTexture(c);
+      // Druck-Shader: rot = Staufläche, grün = neutral, blau = Lee/Nachlauf
+      this.cpMat = new THREE.ShaderMaterial({
+        vertexShader:`varying vec3 vN; varying vec3 vW;
+          void main(){ vN = normalize(mat3(modelMatrix)*normal);
+            vec4 wp = modelMatrix*vec4(position,1.0); vW = wp.xyz;
+            gl_Position = projectionMatrix*viewMatrix*wp; }`,
+        fragmentShader:`varying vec3 vN; varying vec3 vW;
+          vec3 ramp(float t){
+            vec3 c1=vec3(.13,.28,.95), c2=vec3(.10,.78,.86), c3=vec3(.22,.85,.32),
+                 c4=vec3(.95,.86,.20), c5=vec3(1.,.26,.10);
+            return t<.25 ? mix(c1,c2,t*4.) : t<.5 ? mix(c2,c3,(t-.25)*4.)
+                 : t<.75 ? mix(c3,c4,(t-.5)*4.) : mix(c4,c5,(t-.75)*4.); }
+          void main(){
+            vec3 n = normalize(vN);
+            float face = dot(n, vec3(-1.,0.,0.));   // Anströmung fließt +X
+            float t = face>0. ? .5+.5*face*face : .5+.35*face;
+            vec3 col = ramp(clamp(t,0.,1.));
+            col *= .55+.45*abs(dot(n, normalize(cameraPosition-vW)));
+            gl_FragColor = vec4(col,1.); }`
+      });
+      this.initPointer();
+      addEventListener("resize", ()=>{ if(this.renderer) this.resize(); });
+    }
+    this.resize();
+    this.buildScene();
+    this.t = 0;
+    if(!this.raf) this.loop();
+  },
+  close(){
+    document.getElementById("cfd").style.display = "none";
+    if(this.raf){ cancelAnimationFrame(this.raf); this.raf = null; }
+  },
+  resize(){
+    const w = this.host.clientWidth, h = this.host.clientHeight;
+    this.renderer.setSize(w, h);
+    this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
+  },
+  setMode(m){ this.mode = m; this.buildScene(); },
+  restart(){ this.iter = 0; this.samples = []; },
+  initPointer(){
+    let drag = null;
+    this.host.addEventListener("pointerdown", e=>{ drag = {x:e.clientX, y:e.clientY}; });
+    addEventListener("pointermove", e=>{
+      if(!drag || document.getElementById("cfd").style.display==="none") return;
+      this.camAz += (e.clientX-drag.x)*0.007;
+      this.camEl = THREE.MathUtils.clamp(this.camEl+(e.clientY-drag.y)*0.005, -1.4, 1.4);
+      drag = {x:e.clientX, y:e.clientY};
+    });
+    addEventListener("pointerup", ()=>drag=null);
+    this.host.addEventListener("wheel", e=>{
+      this.camDist = THREE.MathUtils.clamp(this.camDist*(e.deltaY>0?1.12:1/1.12), 25, 900);
+    }, {passive:true});
+  },
+  buildScene(){
+    if(this.world) this.scene.remove(this.world);
+    this.world = new THREE.Group(); this.scene.add(this.world);
+    this.tracers = []; this.blobs = []; this.stag = []; this.paths = [];
+    this.smoke = []; this.seps = []; this.nearPaths = []; this.bow = [];
+    this.iter = 0; this.samples = [];
+    const aero = this.aeroData = this.aero(VAB.stack, this.mode);
+    if(!aero) return;
+    const L = aero.L, H = stackHeight(VAB.stack);
+    // Rakete liegend, führendes Ende bei x = −L/2 (deckungsgleich mit dem Profil)
+    const rocket = buildRocketGroup(VAB.stack, true);
+    rocket.rotation.z = this.mode==="ascent" ? Math.PI/2 : -Math.PI/2;
+    rocket.position.x = (this.mode==="ascent" ? 1 : -1) * H/2;
+    rocket.traverse(o=>{ if(o.isMesh && o.visible) o.material = this.cpMat; });
+    this.world.add(rocket);
+    this.camDist = Math.max(60, L*2.3);
+    // --- Rumpfprofil r(x) inkl. Nasenrundung + Totwasserkegel hinterm Heck ---
+    const xs=[], rs=[]; let xc = -L/2;
+    for(const s of aero.segs){ xs.push(xc, xc+s.h); rs.push(s.r, s.r); xc += s.h; }
+    const rp = xq=>{
+      if(xq < -L/2 || xq > L/2) return 0;
+      for(let i=0;i<xs.length;i+=2) if(xq>=xs[i] && xq<=xs[i+1]) return rs[i];
+      return 0;
+    };
+    const rBase = aero.segs[aero.segs.length-1].r, lead = aero.segs[0];
+    const rpEff = xq=>{
+      let r = rp(xq);
+      if(xq > L/2) r = rBase*Math.exp(-(xq-L/2)/(rBase*3.2));   // Totwasser
+      if(xq >= -L/2 && xq < -L/2+lead.h){                        // Bug anspitzen
+        const f = (xq+L/2)/lead.h;
+        r *= Math.sqrt(Math.min(1, aero.b + f*(2.2-aero.b)));
+      }
+      return r;
+    };
+    // --- Stromlinien: Stromröhren-Näherung, 6 Radien × 8 Azimute (dezent –
+    // die Hauptrolle spielen die Rauchfahnen) ---
+    const lineMat = new THREE.LineBasicMaterial({color:0xd9d98c, transparent:true, opacity:0.20});
+    for(const z0f of [0.18, 0.45, 0.8, 1.25, 1.8, 2.5]){
+      const z0 = aero.rmax*z0f;
+      for(let a=0;a<8;a++){
+        const phi = a/8*Math.PI*2 + z0f;
+        const pts = [], path = [];
+        for(let k=0;k<=110;k++){
+          const xq = -L*1.4 + k*(L*3.4)/110;
+          const rl = Math.sqrt(rpEff(xq)**2 + z0*z0) + 0.35;
+          const p = V3(xq, Math.cos(phi)*rl, Math.sin(phi)*rl);
+          pts.push(p); path.push(p);
+        }
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        this.world.add(new THREE.Line(geo, lineMat));
+        this.paths.push(path);
+      }
+    }
+    // --- Rauchfahnen: große weiche Puffs strömen die körpernahen Linien
+    // entlang und quellen im Nachlauf turbulent auf (volumetrischer Look) ---
+    this.nearPaths = this.paths.slice(0, 24);   // die 3 körpernächsten Ringe
+    this.smoke = [];
+    for(let i=0;i<260;i++){
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:this.glowTex,
+        color:Math.random()<0.7 ? 0x46e08c : 0x38c8d8, transparent:true, opacity:0,
+        depthWrite:false, blending:THREE.AdditiveBlending}));
+      sp.userData = {path:this.nearPaths[(Math.random()*this.nearPaths.length)|0],
+        u:Math.random(), sp:0.09+Math.random()*0.07, ph:Math.random()*7,
+        sz:aero.rmax*(0.9+Math.random()*1.3)};
+      this.world.add(sp); this.smoke.push(sp);
+    }
+    // --- Grünes Staukissen VOR der Stirnfläche (komprimierte Zone) ---
+    this.bow = [];
+    for(let i=0;i<5;i++){
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:this.glowTex,
+        color:0x52e896, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
+      sp.position.set(-L/2 - lead.r*(0.5+i*0.22), (Math.random()-0.5)*lead.r*0.5, (Math.random()-0.5)*lead.r*0.5);
+      sp.userData = {ph:Math.random()*7, f:1-i*0.16};
+      this.world.add(sp); this.bow.push(sp);
+    }
+    // --- Rote Ablöse-Zonen: Ringe an Bugkante + großen Stufenkanten ---
+    this.seps = [];
+    const addSepRing = (x, r, w)=>{
+      for(let k=0;k<10;k++){
+        const ang = k/10*Math.PI*2;
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:this.glowTex,
+          color:0xff4526, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
+        sp.position.set(x, Math.cos(ang)*r, Math.sin(ang)*r);
+        sp.userData = {ph:Math.random()*7, w};
+        this.world.add(sp); this.seps.push(sp);
+      }
+    };
+    if(aero.b > 0.25) addSepRing(-L/2 + lead.h*0.15, lead.r*0.95, Math.min(1, aero.b));
+    let xsep = -L/2;
+    for(let i=0;i<aero.segs.length-1;i++){
+      xsep += aero.segs[i].h;
+      const r0 = aero.segs[i].r, r1 = aero.segs[i+1].r;
+      if(r1 > r0+0.4) addSepRing(xsep + (r1-r0)*0.4, r1*0.98, Math.min(1, (r1-r0)/aero.rmax*2));
+    }
+    // --- Tracer-Partikel laufen die Stromlinien entlang ---
+    for(let i=0;i<36;i++){
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:this.glowTex,
+        color:0xfff7c8, transparent:true, opacity:0.85, depthWrite:false,
+        blending:THREE.AdditiveBlending}));
+      const s = aero.rmax*0.14;
+      sp.scale.set(s, s, 1);
+      sp.userData = {path:this.paths[(Math.random()*this.paths.length)|0],
+        u:Math.random(), sp:0.10+Math.random()*0.08};
+      this.world.add(sp); this.tracers.push(sp);
+    }
+    // --- Wirbel-Wolken (volumetrischer Look): Emitter aus der Geometrie ---
+    const emitters = [{x:L/2, len:rBase*7, r:rBase*0.95, w:aero.parts.base, hue:0}];
+    let xw = -L/2;
+    for(let i=0;i<aero.segs.length-1;i++){
+      xw += aero.segs[i].h;
+      const r0 = aero.segs[i].r, r1 = aero.segs[i+1].r;
+      if(Math.abs(r1-r0) > 0.3)
+        emitters.push({x:xw, len:Math.abs(r1-r0)*6, r:Math.max(r0,r1)*1.05,
+          w:0.4*Math.abs(r1*r1-r0*r0)/(aero.rmax*aero.rmax), hue:1});
+    }
+    const wSum = emitters.reduce((a,e)=>a+e.w, 0) || 1;
+    for(let i=0;i<180;i++){
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:this.glowTex,
+        transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending,
+        color:Math.random()<0.55 ? 0x3fe0a0 : 0x35b8e8}));
+      sp.userData = {em:null, life:Math.random()*1.6};   // gestaffelt starten
+      this.world.add(sp); this.blobs.push(sp);
+    }
+    this.blobEmitters = emitters; this.blobWSum = wSum;
+    // --- Staupunkt-Glühen an der Stirnfläche (bei Fairing fast unsichtbar) ---
+    for(let i=0;i<7;i++){
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:this.glowTex,
+        color:0xff5030, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
+      sp.position.set(-L/2 - lead.r*0.15, (Math.random()-0.5)*lead.r*1.2, (Math.random()-0.5)*lead.r*1.2);
+      sp.userData = {ph:Math.random()*7};
+      this.world.add(sp); this.stag.push(sp);
+    }
+    // Mode-Buttons highlighten + Tipps rendern
+    document.getElementById("cfdModeA").className = "btn"+(this.mode==="ascent"?" orange":"");
+    document.getElementById("cfdModeR").className = "btn"+(this.mode==="reentry"?" orange":"");
+    document.getElementById("cfdTips").innerHTML = aero.tips.map(t=>"<div style='margin:3px 0'>"+t+"</div>").join("");
+  },
+  respawnBlob(sp){
+    const a = this.aeroData;
+    let pick = Math.random()*this.blobWSum, em = this.blobEmitters[0];
+    for(const e of this.blobEmitters){ pick -= e.w; if(pick<=0){ em = e; break; } }
+    const ang = Math.random()*Math.PI*2, rr = Math.random()*em.r;
+    sp.position.set(em.x + Math.random()*em.len*0.3,
+      Math.cos(ang)*rr, Math.sin(ang)*rr);
+    sp.userData = {life:0, maxLife:1.3+Math.random()*1.3,
+      baseS:a.rmax*(0.7+Math.random()*1.2),
+      vx:(5+Math.random()*6)*a.rmax*0.14, ph:Math.random()*7,
+      peak:0.30*Math.min(1, em.w*4+0.25)};
+  },
+  loop(){
+    this.raf = requestAnimationFrame(()=>this.loop());
+    const dt = 1/60; this.t += dt;
+    const a = this.aeroData; if(!a) return;
+    // Kamera-Orbit
+    const ce = Math.cos(this.camEl);
+    this.camera.position.set(Math.cos(this.camAz)*ce, Math.sin(this.camEl),
+      Math.sin(this.camAz)*ce).multiplyScalar(this.camDist);
+    this.camera.lookAt(0, 0, 0);
+    // Tracer entlang der Stromlinien
+    for(const tr of this.tracers){
+      const d = tr.userData;
+      d.u = (d.u + d.sp*dt) % 1;
+      const f = d.u*(d.path.length-1), i0 = f|0, ff = f-i0;
+      tr.position.lerpVectors(d.path[i0], d.path[Math.min(i0+1, d.path.length-1)], ff);
+    }
+    // Rauchfahnen: den Pfaden folgen, im Nachlauf turbulent aufquellen
+    for(const sm of this.smoke){
+      const d = sm.userData;
+      d.u += d.sp*dt;
+      if(d.u >= 1){   // hinten raus → vorn neu einströmen (frischer Pfad)
+        d.u = 0;
+        d.path = this.nearPaths[(Math.random()*this.nearPaths.length)|0];
+      }
+      const f = d.u*(d.path.length-1), i0 = f|0, ff = f-i0;
+      sm.position.lerpVectors(d.path[i0], d.path[Math.min(i0+1, d.path.length-1)], ff);
+      // Turbulenz wächst hinter dem Körper: Puffs wabern + blähen sich auf
+      const turb = THREE.MathUtils.clamp((sm.position.x - a.L*0.15)/(a.L*0.8), 0, 1);
+      sm.position.y += turb*a.rmax*0.5*Math.sin(this.t*3.1 + d.ph);
+      sm.position.z += turb*a.rmax*0.5*Math.cos(this.t*2.6 + d.ph*1.3);
+      const s = d.sz*(1 + turb*1.7);
+      sm.scale.set(s, s, 1);
+      const env = Math.sin(Math.PI*Math.min(1, Math.max(0, (d.u-0.02)/0.96)));
+      sm.material.opacity = (0.13 + 0.13*turb)*env*(0.8 + 0.2*Math.sin(this.t*5 + d.ph));
+    }
+    // Staukissen pulsiert vor der Stirnfläche (Stärke = Stumpfheit)
+    for(const sp of this.bow){
+      const d = sp.userData;
+      const s = a.segs[0].r*(1.9 + 0.5*Math.sin(this.t*4 + d.ph))*d.f*Math.max(0.3, a.b);
+      sp.scale.set(s, s, 1);
+      sp.material.opacity = 0.13*d.f*Math.max(0.25, a.b)*(0.8 + 0.2*Math.sin(this.t*6 + d.ph));
+    }
+    // Ablöse-Ringe pulsieren an den Kanten
+    for(const sp of this.seps){
+      const d = sp.userData;
+      const s = a.rmax*(0.55 + 0.25*Math.sin(this.t*7 + d.ph))*d.w;
+      sp.scale.set(s, s, 1);
+      sp.material.opacity = 0.28*d.w*(0.7 + 0.3*Math.sin(this.t*11 + d.ph));
+    }
+    // Wirbel-Wolken: driften stromab, wabern, Opacity-Hüllkurve
+    for(const bl of this.blobs){
+      const d = bl.userData;
+      if(!d.maxLife || d.life >= d.maxLife){ this.respawnBlob(bl); continue; }
+      d.life += dt;
+      bl.position.x += d.vx*dt;
+      bl.position.y += Math.sin(this.t*5 + d.ph)*a.rmax*0.02;
+      bl.position.z += Math.cos(this.t*4.3 + d.ph)*a.rmax*0.02;
+      const gs = d.baseS*(1 + d.life*0.7);   // Wirbel blähen sich stromab auf
+      bl.scale.set(gs, gs, 1);
+      bl.material.opacity = d.peak*Math.sin(Math.PI*d.life/d.maxLife);
+    }
+    // Staupunkt-Puls (Stärke = Stumpfheit des Bugs)
+    for(const st of this.stag){
+      const s = a.segs[0].r*(0.7+0.5*Math.sin(this.t*9+st.userData.ph))*Math.max(0.25, a.b*1.4);
+      st.scale.set(s, s, 1);
+      st.material.opacity = 0.45*a.b*(0.75+0.25*Math.sin(this.t*13+st.userData.ph));
+    }
+    // Solver-Theater: Konvergenz + Panel (Zahlen dahinter sind Geometrie-echt)
+    if(this.iter < 20000) this.iter = Math.min(20000, this.iter+145);
+    const noise = 0.16*Math.exp(-this.iter/4200);
+    const inst = a.Cd*(1 + noise*(Math.random()*2-1));
+    this.samples.push(inst); if(this.samples.length > 240) this.samples.shift();
+    if(!this._pn) this._pn = 0;
+    if(++this._pn % 6 === 0) this.renderPanel(inst);
+    this.renderer.render(this.scene, this.camera);
+  },
+  renderPanel(inst){
+    const a = this.aeroData;
+    const mean = this.samples.reduce((x,y)=>x+y,0)/this.samples.length;
+    const sd = Math.sqrt(this.samples.reduce((x,y)=>x+(y-mean)**2,0)/this.samples.length);
+    const row = (k,v)=>`<div style="display:flex;justify-content:space-between;padding:1px 0"><span style="color:var(--muted)">${k}</span><span style="color:var(--orange);font-weight:600">${v}</span></div>`;
+    const done = this.iter >= 20000;
+    const fmtN = n=> n>=1000 ? (n/1000).toFixed(1)+" kN" : n.toFixed(0)+" N";
+    let html = `<b style="color:var(--orange)">📊 Ergebnisse</b>`;
+    html += row("Momentan-C<sub>d</sub>", inst.toFixed(4));
+    html += row("Mittel-C<sub>d</sub>", mean.toFixed(4)+" ± "+sd.toFixed(4));
+    html += row("C<sub>d</sub>·A", (a.Cd*a.Aext).toFixed(1)+" m²");
+    html += row("Frontfläche", a.Aext.toFixed(1)+" m²");
+    html += row("Widerstand", fmtN(a.drag)+" @ "+a.cond.v+" m/s");
+    html += row("Staudruck q", (a.q/1000).toFixed(1)+" kPa");
+    html += row("Mach", a.mach.toFixed(2));
+    html += row("Re-Zahl", a.Re.toExponential(2));
+    if(a.heat){
+      html += `<div style="border-top:1px solid var(--blue-dark);margin:6px 0 4px"></div><b style="color:var(--orange)">🔥 Thermik</b>`;
+      html += row("Nasenradius R<sub>n</sub>", a.heat.Rn.toFixed(1)+" m");
+      html += row("Wärmestrom", (a.heat.qdot/1e4).toFixed(1)+" W/cm²");
+      html += row("Staupunkt-Temp.", Math.round(a.heat.Teq)+" °C");
+      html += row("Brems-g", a.heat.gLoad.toFixed(1)+" g");
+      html += row("Hitzeschutz", a.heat.shielded ? "✅ ja" : "☠️ FEHLT");
+    }
+    html += `<div style="border-top:1px solid var(--blue-dark);margin:6px 0 4px"></div><b style="color:var(--orange)">🧮 Cd-Zerlegung</b>`;
+    for(const [k,name] of [["nose","Bug"],["steps","Stufen"],["base","Heck"],["fric","Reibung"],["fins","Flossen"],["boost","Booster"]]){
+      if(a.parts[k] < 0.005) continue;
+      const pc = a.parts[k]/a.Cd*100;
+      html += `<div style="display:flex;align-items:center;gap:6px;padding:1px 0"><span style="color:var(--muted);width:64px">${name}</span>
+        <div style="flex:1;height:7px;background:#141d33;border-radius:4px"><div style="width:${Math.min(100,pc).toFixed(0)}%;height:100%;border-radius:4px;background:linear-gradient(90deg,#2e9e5b,#f7941d)"></div></div>
+        <span style="width:36px;text-align:right">${pc.toFixed(0)} %</span></div>`;
+    }
+    html += `<div style="border-top:1px solid var(--blue-dark);margin:6px 0 4px"></div><b style="color:var(--orange)">⚙️ Analysebedingungen</b>`;
+    html += row("Modus", a.cond.name);
+    html += row("Anströmung", a.cond.v+" m/s in "+(a.cond.alt/1000)+" km");
+    html += row("Luftdichte ρ", a.rho.toFixed(4)+" kg/m³");
+    html += row("Gitter", "384 × 192 × 192");
+    html += row("Iteration", this.iter+" / 20000");
+    html += `<div style="margin-top:6px;font-weight:700;color:${done?"var(--green,#41d97e)":"var(--orange)"}">${done?"✅ Analyse abgeschlossen":"⏳ Löser konvergiert …"}</div>`;
+    document.getElementById("cfdRight").innerHTML = html;
+  }
+};
+
+/* =================================================================
    VAB (3D-Montagehalle)
    ================================================================= */
 const VAB = {
@@ -3452,6 +3916,10 @@ const VAB = {
     padHtml += `<small style="color:var(--muted)">${pad.short}</small>`;
     if(total > pad.maxMass)
       padHtml += `<div style="color:var(--red);font-weight:700;margin-top:4px">⚠ ${(total/1000).toFixed(1)} t – zu schwer für diese Rampe!</div>`;
+    // CFD-Windkanal (Gadget): Umströmung der aktuellen Rakete analysieren
+    padHtml += `<h3>Windkanal</h3>
+      <button class="btn" style="width:100%" onclick="CFD.open()">🌬️ CFD-Analyse starten</button>
+      <small style="color:var(--muted)">Strömungssimulation der aktuellen Rakete: Aufstieg & Wiedereintritt, C<sub>d</sub>, Widerstand, Hitzelast.</small>`;
     // Booster-Landeplatz: nur relevant, wenn die 1. Stufe landen kann (Gitterflossen)
     if(this.stack.some(id=>PARTS[id].type==="gridfin")){
       const has = t => Game.sandbox || Game.unlocked.includes(t);
