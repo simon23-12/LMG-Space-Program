@@ -2914,18 +2914,54 @@ function buildRingMesh(b){
   }
   return g;
 }
+/* Wolkendecke des Planeten (Äquirektangular, aus dem Orbit sichtbar):
+   FBM-Wertrauschen statt gemalter Ellipsen – ergibt Wirbel und ausgefranste
+   Ränder statt Konfetti. Die Zonen-Maske (Sinus über den Breitengrad) macht
+   die typischen Wolkenbänder: Wolkenstraßen am Äquator und in mittleren
+   Breiten, klare Streifen in den Subtropen. In X periodisch, sonst klafft
+   an der Datumsgrenze eine Naht. */
 function makeCloudTexture(){
-  const c = document.createElement("canvas"); c.width=1024; c.height=512;
-  const x = c.getContext("2d");
-  x.clearRect(0,0,1024,512);
-  const rnd = seededRand(31);
-  x.fillStyle="rgba(255,255,255,.85)";
-  for(let k=0;k<90;k++){
-    const cx=rnd()*1024, cy=40+rnd()*430, s=12+rnd()*46;
-    for(let i=0;i<4;i++)
-      x.ellipse ? (x.beginPath(), x.ellipse(cx+(rnd()-0.5)*s*2, cy+(rnd()-0.5)*s*0.6, s*(0.4+rnd()*0.4), s*(0.2+rnd()*0.2), 0,0,7), x.fill()) : 0;
+  const W = 1024, H = 512, rnd = seededRand(31);
+  const oct = [];
+  for(let o=0;o<6;o++){
+    const nx = 6<<o, ny = Math.max(3, nx>>1), g = new Float32Array(nx*ny);
+    for(let i=0;i<nx*ny;i++) g[i] = rnd();
+    oct.push({nx, ny, g});
   }
-  return new THREE.CanvasTexture(c);
+  const sm = t=>t*t*(3-2*t);
+  const nz = (o, u, v)=>{
+    const x = u*o.nx, y = v*o.ny;
+    const x0 = Math.floor(x), y0 = Math.floor(y);
+    const fx = sm(x-x0), fy = sm(y-y0);
+    const at = (a,b)=>o.g[(((b%o.ny)+o.ny)%o.ny)*o.nx + (((a%o.nx)+o.nx)%o.nx)];
+    return (at(x0,y0)*(1-fx) + at(x0+1,y0)*fx)*(1-fy)
+         + (at(x0,y0+1)*(1-fx) + at(x0+1,y0+1)*fx)*fy;
+  };
+  const img = new ImageData(W, H), d = img.data;
+  for(let y=0;y<H;y++){
+    const v = (y+0.5)/H, lat = (v-0.5)*Math.PI;
+    // Zonen: viel Bewölkung am Äquator und um ±50°, wenig in den Subtropen
+    const band = 0.42 + 0.58*Math.abs(Math.cos(lat*3.1));
+    for(let x=0;x<W;x++){
+      const u = (x+0.5)/W;
+      let f = 0, amp = 0.5, sum = 0;
+      for(const o of oct){ f += amp*nz(o, u, v); sum += amp; amp *= 0.55; }
+      f /= sum;
+      // Schwelle bestimmt den Bedeckungsgrad – hoch genug, dass Kontinente
+      // und Ozeane durchschauen (sonst ist der Planet ein Wattebausch)
+      const t = (f*band - 0.455)/0.17;
+      const a = Math.max(0, Math.min(1, t))**1.25;
+      const o4 = (y*W+x)*4;
+      d[o4] = d[o4+1] = d[o4+2] = 255;
+      d[o4+3] = a*235;
+    }
+  }
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  c.getContext("2d").putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
+  return tex;
 }
 /* NASA-Style Fallschirmkappe: rot-weiße Längsstreifen */
 function makeChuteTexture(){
@@ -2991,18 +3027,140 @@ function buildAstronaut(){
   pack.position.set(0,0.75,-0.42); g.add(pack);
   return g;
 }
-function makeCloudSpriteTexture(){
-  const c = document.createElement("canvas"); c.width=128; c.height=64;
-  const x = c.getContext("2d");
-  const rnd = seededRand(5);
-  x.fillStyle="rgba(255,255,255,.9)";
-  for(let i=0;i<6;i++){
-    x.beginPath();
-    x.ellipse(30+rnd()*70, 28+rnd()*12, 14+rnd()*18, 8+rnd()*7, 0, 0, 7);
-    x.fill();
+/* =================================================================
+   WOLKEN – Impostor-Puffs mit volumetrischer Beleuchtung
+   (Ansatz wie github.com/leoawen/volumetric_cloud_atmosphere_scattering,
+   nur ohne Raymarching – dafür in EINEM Draw-Call und auf Schulrechnern
+   flüssig)
+
+   Statt eines echten 3D-Raymarch pro Pixel wird jede Wolke aus ~8 Puff-
+   Billboards zusammengesetzt (InstancedMesh, ein Draw-Call für ALLE).
+   Die eigentliche Optik steckt im Fragment-Shader und benutzt dieselbe
+   Physik wie die großen Volumen-Renderer:
+   · Beer-Lambert:  T = e^(−σ·d)  → Deckkraft aus der optischen Dicke
+   · Powder-Effekt: 1 − e^(−2σ·d) → dunkle Kerne, helle Ränder
+                    (in dünnen Randbereichen wird weniger MEHRFACH gestreut)
+   · Henyey-Greenstein-Phasenfunktion (g = 0,62) → starke Vorwärtsstreuung,
+     also der »Silberrand«, wenn man gegen die Sonne schaut
+   · Impostor-Normale: die Billboard-Scheibe wird als KUGEL interpretiert
+     (n_z = √(1−r²)) und mit dem Dichte-Gradienten aus der Textur
+     verbeult → Sonnen- und Schattenseite pro Pixel, Blumenkohl-Struktur.
+   Zusammen mit dem Sonnenstand der Spieluhr (s. groundSunDir) werden die
+   Wolken morgens/abends von der Seite golden angestrahlt.
+   ================================================================= */
+/* Puff-Textur: A = Dichte (radialer Abfall × Billow-Turbulenz),
+   RG = Dichte-Gradient für die Normalen-Verbeulung. */
+function makeCloudPuffTexture(){
+  const S = 128, rnd = seededRand(913);
+  // Wert-Rauschen in 4 Oktaven; "billow" = |2n−1| ergibt Blumenkohl-Wülste
+  const oct = [];
+  for(let o=0;o<4;o++){
+    const n = 4<<o, g = new Float32Array(n*n);
+    for(let i=0;i<n*n;i++) g[i] = rnd();
+    oct.push({n, g});
   }
-  return new THREE.CanvasTexture(c);
+  const smoothT = t=>t*t*(3-2*t);
+  const noise = (o, u, v)=>{
+    const n = o.n, x = u*n, y = v*n;
+    const x0 = Math.floor(x), y0 = Math.floor(y);
+    const fx = smoothT(x - x0), fy = smoothT(y - y0);
+    const i = (a,b)=>o.g[((b%n)+n)%n*n + ((a%n)+n)%n];
+    return (i(x0,y0)*(1-fx) + i(x0+1,y0)*fx)*(1-fy)
+         + (i(x0,y0+1)*(1-fx) + i(x0+1,y0+1)*fx)*fy;
+  };
+  const dens = (u,v)=>{
+    const r = Math.hypot(u-0.5, v-0.5)*2;                  // 0 Mitte … 1 Rand
+    let t = 0, amp = 0.5, sum = 0;
+    for(const o of oct){ t += amp*Math.abs(2*noise(o,u,v)-1); sum += amp; amp *= 0.5; }
+    t /= sum;
+    const s = Math.max(0, Math.min(1, (1.0 - r)/0.85));       // weicher Rand
+    const rad = s*s*(3 - 2*s);
+    return Math.max(0, Math.min(1, rad*(0.5 + 1.2*t)*1.25 - 0.13));
+  };
+  const img = new ImageData(S, S), d = img.data, e = 1/S;
+  for(let y=0;y<S;y++) for(let x=0;x<S;x++){
+    const u = (x+0.5)/S, v = (y+0.5)/S, o4 = (y*S+x)*4;
+    const gx = (dens(u+e,v) - dens(u-e,v))*2.2;
+    const gy = (dens(u,v+e) - dens(u,v-e))*2.2;
+    d[o4]   = Math.max(0, Math.min(255, 128 + gx*127));
+    d[o4+1] = Math.max(0, Math.min(255, 128 + gy*127));
+    d[o4+2] = 255;
+    d[o4+3] = dens(u,v)*255;
+  }
+  const c = document.createElement("canvas"); c.width = c.height = S;
+  c.getContext("2d").putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
 }
+/* Wie "warm" ist das Sonnenlicht? Je tiefer die Sonne steht, desto länger
+   ist ihr Weg durch die Lufthülle und desto mehr Blau streut Rayleigh heraus
+   – übrig bleibt Orange. sunUp = Sinus der Sonnenhöhe (0 = Horizont). */
+function sunWarmth(sunUp){
+  const t = 1 - Math.max(0, Math.min(1, sunUp));
+  return t*t*t*0.8;
+}
+/* Objektraum der Wolken = der der Bodengruppe: x = Ost, y = HOCH, z = Süd */
+const CLOUD_VERT = `
+#include <common>
+attribute vec3 iPos;      // Puff-Mittelpunkt
+attribute vec3 iParam;    // x = Größe, y = UV-Drehung, z = Höhe in der Wolke
+uniform vec3 uCamRight, uCamUp, uEye;
+varying vec2 vUv, vQ;
+varying vec3 vView;
+varying float vShade;
+#include <logdepthbuf_pars_vertex>
+void main(){
+  vQ = position.xy;                                  // −0,5 … +0,5
+  float s = sin(iParam.y), c = cos(iParam.y);
+  vUv = vec2(vQ.x*c - vQ.y*s, vQ.x*s + vQ.y*c) + 0.5;   // gedrehte Textur = Vielfalt
+  vView  = normalize(uEye - iPos);
+  vShade = iParam.z;
+  vec3 wp = iPos + (uCamRight*vQ.x + uCamUp*vQ.y)*iParam.x;
+  gl_Position = projectionMatrix*modelViewMatrix*vec4(wp, 1.0);
+#include <logdepthbuf_vertex>
+}`;
+const CLOUD_FRAG = `
+#include <common>
+uniform sampler2D uPuff;
+uniform vec3  uCamRight, uCamUp, uSunDir, uSunCol, uSkyCol, uGroundCol;
+uniform float uSunI, uThick, uFade;
+varying vec2 vUv, vQ;
+varying vec3 vView;
+varying float vShade;
+#include <logdepthbuf_pars_fragment>
+void main(){
+#include <logdepthbuf_fragment>
+  vec4 t = texture2D(uPuff, vUv);
+  float dens = t.a*uFade;
+  if(dens < 0.004) discard;
+  // Impostor: die Scheibe wird als Kugel gelesen, der Dichte-Gradient
+  // verbeult sie zur Blumenkohl-Struktur
+  float r2 = min(1.0, dot(vQ, vQ)*4.0);
+  vec3 nB = vec3(vQ*2.0 + (t.rg*2.0 - 1.0)*0.9, sqrt(1.0 - r2)*1.1);
+  vec3 N  = normalize(uCamRight*nB.x + uCamUp*nB.y + vView*nB.z);
+
+  float thick  = dens*uThick;
+  float alpha  = 1.0 - exp(-thick*2.2);              // Beer-Lambert
+  float powder = 1.0 - exp(-thick*5.0);              // dünne Ränder streuen weniger
+
+  // Weglänge des Sonnenlichts IM Puff (0 = Sonnenseite, 1 = Rückseite)
+  float lightD = 0.5 - 0.5*dot(N, uSunDir);
+  // Extinktion nur MINIMAL wellenlängenabhängig – Wolkentropfen streuen
+  // fast farbneutral (Mie). Die Schattenseite wird trotzdem blau, weil dort
+  // das Himmelslicht überwiegt (uSkyCol-Term unten).
+  vec3 sunT = exp(-vec3(0.88, 0.92, 0.98)*lightD*uThick*0.95);
+  // Henyey-Greenstein: Vorwärtsstreuung = Silberrand gegen die Sonne
+  float mu = -dot(vView, uSunDir);
+  float g  = 0.62;
+  float hg = (1.0 - g*g)/pow(1.0 + g*g - 2.0*g*mu, 1.5)*0.0796;
+
+  vec3 col = uSunCol*uSunI*(1.05 + 1.7*hg)*sunT*mix(0.55, 1.0, powder)
+           + uSkyCol*(0.58 + 0.34*N.y)                 // Himmelslicht von oben
+           + uGroundCol*(0.10 - 0.10*N.y);             // Bodenlicht von unten
+  col *= mix(0.74, 1.05, vShade);                      // Wolkenboden dunkler
+  gl_FragColor = vec4(col, alpha);
+}`;
 /* Boden-Kacheln für Gras/Sand/Meer: einmalig erzeugte 256er-Canvas-Texturen,
    danach 0 Laufzeitkosten (Mipmaps machen die Ferne automatisch ruhig).
    Bewusst fast WEISS gemalt – material.color tönt sie ein, dadurch funktioniert
@@ -3057,15 +3215,18 @@ function makeSeaNormalTexture(){
   const S = 512, rnd = seededRand(4711), waves = [];
   const windAng = 0.6;
   for(let i=0;i<36;i++){
-    const wl  = 7*Math.pow(16, rnd());                   // Wellenlänge 7..112 px
-    const ang = windAng + (rnd()-0.5)*2.4;
+    const wl  = 14*Math.pow(11, rnd());                  // Wellenlänge 14..154 px
+    const ang = windAng + (rnd()-0.5)*3.0;               // breiter gestreut = weniger "Kratzer"
     const nx  = Math.round(S/wl*Math.cos(ang)), ny = Math.round(S/wl*Math.sin(ang));
     if(!nx && !ny) continue;
-    waves.push({nx, ny, amp:Math.pow(wl,1.15), ph:rnd()*6.283});
+    // Amplitude ∝ λ^1.8: viel Energie in den LANGEN Komponenten. Ein flacheres
+    // Spektrum (λ^1.15) sieht aus der Nähe zwar knackiger aus, produziert aber
+    // Sub-Pixel-Normalen → aliasendes Glitzer-Gegriesel im Glanzlicht.
+    waves.push({nx, ny, amp:Math.pow(wl,1.8), ph:rnd()*6.283});
   }
   const ampSum = waves.reduce((a,w)=>a+w.amp, 0);
   const img = new ImageData(S, S), d = img.data, K = 2*Math.PI/S;
-  const steep = 260/ampSum;                              // Normalen-Stärke
+  const steep = 150/ampSum;                              // Normalen-Stärke
   for(let y=0;y<S;y++) for(let x=0;x<S;x++){
     let h=0, gx=0, gy=0;
     for(const w of waves){
@@ -3084,9 +3245,262 @@ function makeSeaNormalTexture(){
   c.getContext("2d").putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.anisotropy = 8;
+  // ⚠️ BEWUSST fast keine anisotrope Filterung! Bei Farbtexturen bringt sie
+  // Schärfe, bei einer NORMALMAP mit scharfem Glanzlicht ist sie Gift: sie
+  // holt entlang der Blickachse Sub-Pixel-Normalen zurück, die das Specular
+  // dann als regelmäßiges Moiré-Gitter aliast (sah aus wie Maschendraht auf
+  // dem Meer). Weichzeichnen ist hier die richtige Antwort – die Ferne wird
+  // ohnehin über das Wellen-LOD im Shader ausgeblendet.
+  tex.anisotropy = 2;
   return tex;
 }
+
+/* =================================================================
+   OZEAN – ein Shader für beide Meshes
+   (Ansatz wie github.com/achrefelouafi/WaterThreeJS)
+
+   Fern-Meer (flache Scheibe, 41 km) und Küsten-Patch (tesselliert,
+   echte Vertex-Verschiebung) teilen sich EINE Fragment-Beleuchtung und
+   DIESELBE Wellensumme über denselben Ost/Nord-Koordinaten – dadurch
+   ist der Übergang zwischen beiden unsichtbar.
+
+   Bausteine:
+   · Dünung: OCEAN_WAVES analytische Gerstner-Wellen, Tiefwasser-
+     Dispersion ω=√(g·k) (lange Wellen laufen schneller – echte Physik).
+   · Drei Detail-Kaskaden derselben Normalmap in 120/31/8 m – nicht-
+     harmonische Maßstäbe + eigene Driftrichtungen = kein Kachelraster.
+   · ⚠️ WELLEN-LOD (das Wichtigste!): Jede Welle – auch jede Kaskade –
+     wird ausgeblendet, sobald ihre Wellenlänge unter den Pixel-
+     Fußabdruck fällt; die verlorene Steigungs-VARIANZ wandert in die
+     Rauheit des Glanzlichts. Das ist analytisches Mipmapping und der
+     Grund, warum der Horizont ruhig bleibt statt zu grieseln (genau
+     dieses Moiré-Rauschen hatte die alte Normalmap-Lösung).
+   · Schlick-Fresnel mit F0 = 0.02: senkrecht nach unten sieht man das
+     dunkle Wasser, flach zum Horizont fast nur noch Himmel.
+   · Beer-Lambert-Tiefenfarbe: türkise Flachwasserzone am Ufer, tiefes
+     Blau draußen.
+   · GGX-Sonnenglitzer + Rückstreuung (SSS) an den Kämmen + Schaum aus
+     Kammhöhe × Steilheit + animierte Brandungslinie am Ufer.
+   ⚠️ NIEMALS worldPosition benutzen: das Meer hängt über den Floating
+   Origin an einer ~1e10-Matrix. Alles rechnet im OBJEKTRAUM des Meshes
+   (x = Ost, y = Nord, z = hoch); die Kamera kommt als uEye herein
+   (CPU-seitig in Float64 umgerechnet).
+   ================================================================= */
+const OCEAN_WAVES = 6;
+// GLSL-Literale (als String, damit im Shader kein int-Literal landet!)
+const SEA_C = "vec2(42500.0, 0.0)";   // Mittelpunkt der Meeres-Scheibe (Ost/Nord)
+const SEA_R = "41000.0";              // Radius = Uferlinie bei 1500 m Ost
+
+const OCEAN_T = 1200;   // uTime-Wrap in Sekunden (s. Frequenz-Quantisierung)
+
+/* Dünungs-Spektrum: ~40–380 m Wellenlänge, alle grob Richtung Küste (−Ost).
+   ⚠️ Die Wellenzahl k wird so gerundet, dass ω = √(g·k) ein GANZZAHLIGES
+   Vielfaches von 2π/OCEAN_T ist. Dadurch ist das ganze Wellenfeld exakt
+   periodisch und der uTime-Wrap in frame() bleibt unsichtbar – sonst würde
+   das Meer bei Zeitraffer auf der Rampe im Sekundentakt springen. */
+function makeSwellWaves(){
+  const rnd = seededRand(2024), out = [], W = 2*Math.PI/OCEAN_T;
+  for(let i=0;i<OCEAN_WAVES;i++){
+    const lam0 = 28*Math.pow(13.6, i/(OCEAN_WAVES-1));   // 28 … 380 m
+    const n    = Math.round(Math.sqrt(9.81*2*Math.PI/lam0)/W);
+    const k    = (n*W)*(n*W)/9.81;              // exakt periodisch
+    const ang  = Math.PI + (rnd()-0.5)*1.25;
+    // Amplitude über die STEILHEIT k·A definiert (≈ 3 %, ruhige See): jede
+    // Wellenlänge trägt gleich viel Neigung bei. Über eine feste Gesamt-
+    // Amplitude verteilt wäre die lange Dünung fast eben (< 1° Neigung) und
+    // das Meer sähe aus wie eine gestreifte Tapete.
+    out.push(new THREE.Vector4(Math.cos(ang), Math.sin(ang), k,
+                               0.030*(0.8+rnd()*0.4)/k));
+  }
+  return out;
+}
+/* Hub des Küsten-Patches über der Fern-Meer-Ebene: etwas mehr als die Summe
+   der wirklich VERSCHOBENEN Amplituden (kurze Wellen bleiben Normal-Mapping,
+   s. Geometrie-LOD im Vertex-Shader). Damit taucht kein Wellental unter die
+   Fern-Meer-Scheibe – sonst blitzte dort flaches Wasser durch. */
+function swellLift(waves){
+  let s = 0;
+  for(const w of waves){
+    const lam = 2*Math.PI/w.z, t = Math.min(1, Math.max(0, (lam-75)/55));
+    s += w.w*t*t*(3-2*t);
+  }
+  return s*1.05 + 0.35;
+}
+
+/* gemeinsame Deklarationen + Wellensumme (Vertex UND Fragment) */
+const OCEAN_PARS = `
+uniform float uTime;
+uniform vec4  uSwell[${OCEAN_WAVES}];
+uniform vec2  uOrigin;        // Ost/Nord-Versatz dieses Meshes
+uniform vec3  uEye;           // Kameraposition im Objektraum
+varying vec2  vXw;            // Ost/Nord (UNverschoben) = Wellenkoordinate
+varying vec3  vToEye;         // zur Kamera, von der VERSCHOBENEN Fläche
+varying vec3  vFlat;          // UNverschobene Fläche – nur fürs Wellen-LOD!
+varying float vFade;          // Amplituden-Hüllkurve (Patch-Rand, Flachwasser)
+`;
+
+function oceanVertex(patch){
+  return `
+#include <common>
+${OCEAN_PARS}
+${patch ? "uniform float uLift;" : ""}
+#include <logdepthbuf_pars_vertex>
+void main(){
+  vXw = uOrigin + position.xy;
+  float distC = length(vXw - ${SEA_C});
+  // Flachwasser: die Dünung läuft am Ufer aus (dort übernimmt die Brandung).
+  // vFade steuert NUR die Schattierung und ist in BEIDEN Meshes identisch –
+  // dadurch sieht der Übergang Patch↔Fern-Meer überall gleich aus.
+  vFade = 1.0 - 0.72*smoothstep(${SEA_R} - 700.0, ${SEA_R} - 40.0, distC);
+  vec3 tp = position;
+${patch ? `
+  // Geometrie-Hüllkurve (nur die Verschiebung, NICHT die Schattierung):
+  // fährt am Patchrand und an der Uferlinie auf 0 – dort liegt der Patch
+  // dann exakt auf der Fern-Meer-Ebene und der Übergang verschwindet.
+  float E = (1.0 - smoothstep(1260.0, 1990.0, abs(position.x)))
+          * (1.0 - smoothstep(2950.0, 3580.0, abs(position.y)))
+          * smoothstep(0.0, 320.0, ${SEA_R} - distC);
+  vec2 hor = vec2(0.0);
+  float hh = 0.0;
+  for(int i=0;i<${OCEAN_WAVES};i++){
+    vec4 wv = uSwell[i];
+    // ⚠️ Geometrie-LOD: Das Gitter hat ~28-m-Quads. Wellen unter ~130 m
+    // Länge werden NICHT verschoben (sonst aliasen sie im Vertex), sondern
+    // erscheinen nur in der Fragment-Normale – klassisches Normal-Mapping.
+    float k = wv.z, A = wv.w*E*smoothstep(75.0, 130.0, 6.2831853/k);
+    float ph = dot(wv.xy, vXw)*k - sqrt(9.81*k)*uTime + float(i)*2.399;
+    hh  += A*cos(ph);
+    hor -= wv.xy*(0.55*A*sin(ph));       // Gerstner-Chop: spitze Kämme
+  }
+  // Hub ≥ Wellenamplitude → kein Tal taucht unter die Fern-Meer-Ebene
+  tp = vec3(position.x + hor.x, position.y + hor.y, uLift*E + 0.35 + hh);
+  // hinter der Uferlinie unter den Strand abtauchen (nahtloser Anschluss)
+  tp.z -= max(0.0, distC - (${SEA_R} - 20.0))*0.35;
+` : ``}
+  vToEye = uEye - tp;
+  // ⚠️ Fürs Wellen-LOD wird die FLACHE Ebene genutzt. Aus der verschobenen
+  // Fläche gerechnet, springt der Pixel-Fußabdruck an jeder Quad-Kante –
+  // die LOD-Stufe springt mit und das Gitter des Patches wird als
+  // Moiré-Raster sichtbar.
+  vFlat = uEye - vec3(position.xy, 0.0);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(tp, 1.0);
+#include <logdepthbuf_vertex>
+}`;
+}
+
+const OCEAN_FRAGMENT = `
+#include <common>
+${OCEAN_PARS}
+uniform sampler2D uDetail;
+uniform vec3  uSunDir, uSunCol, uSkyCol, uHorizonCol, uDeepCol, uShallowCol, uFoamCol;
+uniform float uSunI, uAmb, uPixel, uHaze, uChop;
+#include <logdepthbuf_pars_fragment>
+
+/* Eine Detail-Kaskade: Tangenten-Normale + Steigungs-Varianz (→ Rauheit).
+   lod blendet die Kaskade aus, sobald ihre Struktur unter Pixelgröße fällt.
+   ⚠️ Auch bei vollem lod wandert ein Sockel (25 %) der Varianz in die
+   Rauheit: die Kachel enthält immer Sub-Pixel-Struktur, die das scharfe
+   Glanzlicht sonst als flackerndes Punktrauschen aliasen würde. */
+vec3 cascade(vec2 X, float scale, vec2 drift, float amp, float fp){
+  float lod = smoothstep(0.34, 0.08, fp/scale);
+  float varL = amp*amp*(0.45 + 0.55*(1.0 - lod))*0.5;
+  if(lod <= 0.001) return vec3(0.0, 0.0, varL);
+  vec3 n = texture2D(uDetail, X/scale + drift*uTime).xyz*2.0 - 1.0;
+  return vec3(n.xy*amp*lod, varL);
+}
+
+void main(){
+#include <logdepthbuf_fragment>
+  vec3  V    = normalize(vToEye);
+  float dist = length(vToEye);
+  // Pixel-Fußabdruck auf dem Wasser: wächst mit der Entfernung und
+  // explodiert bei flachem Blickwinkel (Horizont) – genau dort, wo die
+  // ungefilterte Normalmap sonst zu grieseln beginnt.
+  // ⚠️ Sicherheitsfaktor 3 auf die Pixelgröße: Das Glanzlicht ist eine stark
+  // NICHTLINEARE Funktion der Neigung und erzeugt Oberwellen weit über der
+  // Wellenfrequenz. Mit reinem Nyquist (2 Pixel pro Welle) flimmert das Meer
+  // trotzdem – erst ab ~7 Pixeln pro Wellenlänge ist Ruhe im Mittelfeld.
+  vec3  Vf = normalize(vFlat);
+  float fp = length(vFlat)*uPixel*3.0/max(0.05, abs(Vf.z));
+
+  // ---- Dünung: Höhe, Gradient, verlorene Varianz -------------------
+  float h = 0.0, varLost = 0.0;
+  vec2  g = vec2(0.0);
+  for(int i=0;i<${OCEAN_WAVES};i++){
+    vec4 wv = uSwell[i];
+    float k = wv.z, A = wv.w*vFade;
+    // Nyquist: unter ~2,5 Pixeln pro Wellenlänge muss die Welle weg
+    float lod = smoothstep(0.40, 0.10, fp*k*0.15915494);   // fp/λ
+    float ph  = dot(wv.xy, vXw)*k - sqrt(9.81*k)*uTime + float(i)*2.399;
+    h += A*cos(ph)*lod;
+    g -= wv.xy*(k*A*sin(ph)*lod);
+    varLost += (1.0-lod)*A*A*k*k*0.5;
+  }
+  // ---- drei Detail-Kaskaden (Wind- und Kapillarwellen) -------------
+  // Die Kaskaden decken NUR das Feine unter ~18 m ab – alles darüber macht
+  // die analytische Dünung. ⚠️ Jede Kaskade bekommt ihre EIGENE Drehung:
+  // dieselbe Kachel dreimal gleich orientiert erzeugt sonst ein deutliches
+  // "Cordhosen"-Streifenmuster in der Mitteldistanz.
+  // ⚠️ Alle Driftgeschwindigkeiten sind n/OCEAN_T → nach dem uTime-Wrap
+  //    steht die Kachel exakt wieder am Anfang (kein Sprung).
+  vec2 X2 = vec2(vXw.x*0.825 - vXw.y*0.565, vXw.x*0.565 + vXw.y*0.825);
+  vec2 X3 = vec2(vXw.x*0.620 + vXw.y*0.785, vXw.y*0.620 - vXw.x*0.785);
+  vec3 c1 = cascade(vXw, 62.0, vec2( 25.0, 16.0)/${OCEAN_T}.0, 0.27, fp);
+  vec3 c2 = cascade(X2,  17.0, vec2(-20.0, 31.0)/${OCEAN_T}.0, 0.19, fp);
+  vec3 c3 = cascade(X3,   4.6, vec2( 40.0,-13.0)/${OCEAN_T}.0, 0.12, fp);
+  vec2 dn = (c1.xy + c2.xy + c3.xy)*uChop;
+  varLost += c1.z + c2.z + c3.z;
+  vec3 N = normalize(vec3(-g + dn, 1.0));
+
+  // ---- Wassertiefe: Beer-Lambert (flach türkis, tief dunkelblau) ---
+  float dShore = ${SEA_R} - length(vXw - ${SEA_C});
+  float depthK = smoothstep(0.0, 900.0, dShore);
+  vec3  water  = mix(uShallowCol, uDeepCol, depthK);
+
+  // ---- Fresnel (Schlick, F0 = 0.02) + Himmelsspiegelung ------------
+  float NdotV = max(dot(N, V), 0.0);
+  float F     = 0.02 + 0.98*pow(1.0 - NdotV, 5.0);
+  vec3  R     = reflect(-V, N);
+  vec3  sky   = mix(uHorizonCol, uSkyCol, pow(clamp(R.z, 0.0, 1.0), 0.55));
+
+  // ---- Körperfarbe: Streuung + Rückstreuung an den Kämmen ---------
+  float NdotL = max(dot(N, uSunDir), 0.0);
+  vec3  body  = water*(uAmb + 0.55*NdotL*uSunI);
+  float sss   = pow(max(dot(V, -uSunDir), 0.0), 3.0)*max(0.0, h)*0.42;
+  body += uShallowCol*sss*uSunI;
+
+  // ---- GGX-Sonnenglitzer; die weggeblendeten Wellen wirken als
+  //      Rauheit weiter → breiter Glitzerpfad statt Einzel-Funkeln ---
+  float rough = clamp(0.09 + sqrt(varLost)*1.5, 0.07, 0.6);
+  vec3  Hv    = normalize(uSunDir + V);
+  float NdotH = max(dot(N, Hv), 0.0);
+  float a2    = pow(rough, 4.0);
+  float dd    = NdotH*NdotH*(a2 - 1.0) + 1.0;
+  float Dv    = a2/(3.14159265*dd*dd);
+  // Fresnel am Halbvektor (nicht an der Normale) – und statt eines harten
+  // Clamps eine WEICHE Sättigung: ohne HDR/Tonemapping würde die GGX-Spitze
+  // (Faktor >1000) sonst als flache, kreidig-weiße Fläche ausbrennen.
+  float FH    = 0.02 + 0.98*pow(1.0 - max(dot(V, Hv), 0.0), 5.0);
+  float spec  = Dv/(1.0 + Dv*0.30)*FH
+              * clamp(uSunDir.z*4.0, 0.0, 1.0);   // Sonne unterm Horizont: kein Glitzern
+
+  // ---- Schaum: Kammhöhe × Steilheit, plus Brandung am Ufer --------
+  // (Brandungs-Frequenz 286·2π/OCEAN_T = ebenfalls exakt periodisch)
+  float foam = smoothstep(0.90, 1.60, h)*smoothstep(0.05, 0.20, length(g));
+  float surf = (1.0 - smoothstep(0.0, 150.0, dShore))
+             * (0.45 + 0.55*sin(dShore*0.085 - uTime*1.49747 + h*1.8));
+  foam = clamp(foam + surf*1.2, 0.0, 1.0)
+       * (0.55 + 0.45*texture2D(uDetail, vXw/23.0 + uTime*vec2(0.02,-0.01)).a)
+       * smoothstep(-30.0, 12.0, dShore);        // nicht auf dem Strand
+
+  // ---- Komposit ---------------------------------------------------
+  vec3 col = mix(body, sky, F) + uSunCol*spec*uSunI;
+  col = mix(col, uFoamCol*(uAmb + 0.75*uSunI), foam);
+  // Luftperspektive: wirkt entlang des flachen Sichtwegs, nicht beim
+  // Blick senkrecht nach unten (sonst matscht das Meer aus 10 km Höhe zu)
+  col = mix(col, uHorizonCol, (1.0 - exp(-dist*uHaze))*0.85*(1.0 - 0.75*abs(V.z)));
+  gl_FragColor = vec4(col, 1.0);
+}`;
 
 /* =================================================================
    CFD-Windkanal (Gadget, Zugang übers rechte VAB-Panel)
@@ -4076,7 +4490,7 @@ const Flight = {
   renderer:null, scene:null, camera:null,
   leibnizMesh:null, montiMesh:null, cloudShell:null, atmoShell:null,
   groundPlane:null, padGroup:null, rocketGroup:null, trajLine:null,
-  starField:null, cloudSprites:[],
+  starField:null, cloudField:null,
   v:null, pos:V3(), vel:V3(), q:new THREE.Quaternion(),
   t:0, throttle:1, warpI:0, map:false,
   landed:true, crashed:false, ended:false, flew:false,
@@ -4104,6 +4518,12 @@ const Flight = {
     this.scene.add(this.ambLight);
     this.sunLight = new THREE.DirectionalLight(0xfff2dd, 1.3);
     this.sunLight.position.set(1e7, 4e6, 6e6); this.scene.add(this.sunLight);
+    // Himmels-Fülllicht: NUR bodennah (im All gibt es kein Streulicht!).
+    // Seit die Sonne bodennah wirklich am Himmel steht, liegt die von ihr
+    // abgewandte Seite im Schatten – ohne diese kühle Aufhellung wäre die
+    // Rakete beim Blick Richtung Sonne fast schwarz.
+    this.fillLight = new THREE.DirectionalLight(0x9dbde4, 0);
+    this.scene.add(this.fillLight);
     // Die Sonne selbst (im Welt-Ursprung)
     const sunMesh = new THREE.Mesh(
       new THREE.SphereGeometry(SUN.R, 48, 24),
@@ -4174,7 +4594,7 @@ const Flight = {
     // kommt nach ~2,8 km Sandstrand und ab ~3,3 km der offene Ozean.
     const grassTex = makeGroundTexture("grass"); grassTex.repeat.set(220,220);
     const sandTex  = makeGroundTexture("sand");  sandTex.repeat.set(220,220);
-    const seaNorm  = makeSeaNormalTexture();     seaNorm.repeat.set(520,520);
+    const seaNorm  = makeSeaNormalTexture();   // UVs rechnet der Ozean-Shader selbst
     this.groundPlane = new THREE.Mesh(
       new THREE.CircleGeometry(40000, 48),
       new THREE.MeshStandardMaterial({color:0x3f8d4e, roughness:.95, map:grassTex}));
@@ -4184,128 +4604,48 @@ const Flight = {
       new THREE.MeshStandardMaterial({color:0xd9c893, roughness:.95, map:sandTex}));
     this.groundBeach.rotation.x = -Math.PI/2;
     this.groundBeach.position.set(41000, 2, 0);   // Strand ab ~1 km Ost – Meerblick von der Rampe!
-    // Meer mit Shader-Patch (onBeforeCompile): zwei gegenläufig driftende
-    // Normalmap-Layer (Wellen), Schaumkronen aus der Höhe (Alpha-Kanal) und
-    // Fresnel-Aufhellung zum Horizont. Pro Frame ändert sich NUR uTime.
-    this.seaUniforms = {uTime:{value:0}, uHorizon:{value:new THREE.Color(0xbfe6f5)}};
+    // --- Ozean: EIN Shader, zwei Meshes (Details am Kopf der Datei) ------
+    // Fern-Meer  = flache 41-km-Scheibe, Wellen nur in der Normale.
+    // Küsten-Patch = tesselliert, echte Gerstner-Verschiebung im Vertex.
+    // Beide werten dieselbe Wellensumme über denselben Ost/Nord-Koordinaten
+    // aus → der Übergang ist unsichtbar.
     this.seaHorizonBase = new THREE.Color(0xbfe6f5);
-    const seaMat = new THREE.MeshStandardMaterial({color:0x114f9c, roughness:.34,
-      metalness:0, normalMap:seaNorm, normalScale:new THREE.Vector2(1.7,1.7)});
-    seaMat.onBeforeCompile = sh=>{
-      Object.assign(sh.uniforms, this.seaUniforms);
-      sh.fragmentShader = "uniform float uTime;\nuniform vec3 uHorizon;\n" + sh.fragmentShader
-        // Scroll-UVs + Schaumkronen: Geschwindigkeiten ×1000 sind GANZZAHLIG,
-        // damit der uTime-Wrap (t % 1000 in frame()) unsichtbar bleibt!
-        .replace("#include <color_fragment>", `#include <color_fragment>
-          vec2 sUv1 = vUv + uTime*vec2(0.020, 0.012);
-          vec2 sUv2 = vUv.yx*2.83 - uTime*vec2(0.017, 0.031);   // 90° gedreht → kein sichtbares Kachel-Raster
-          float h1 = texture2D( normalMap, sUv1 ).a, h2 = texture2D( normalMap, sUv2 ).a;
-          // Detail mit der Entfernung ausblenden – die hochfrequente Kachel
-          // erzeugt sonst Moiré-Raster in der Mitteldistanz
-          float seaFade = 1.0/(1.0 + length(vViewPosition)*0.00035);
-          diffuseColor.rgb *= mix(0.94, 0.45 + 0.5*(h1+h2), seaFade);  // Täler dunkel, Kämme hell
-          float crest = smoothstep(0.74, 0.88, 0.35*h1 + 0.65*h2) * (0.35+0.65*seaFade);
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 1.0), crest*0.75);`)
-        .replace("#include <normal_fragment_maps>", `
-          vec3 mapN1 = texture2D( normalMap, sUv1 ).xyz*2.0-1.0;
-          vec3 mapN2 = texture2D( normalMap, sUv2 ).xyz*2.0-1.0;
-          mapN2.xy = mapN2.yx;   // Drehung der UVs auch auf die Normale anwenden
-          vec3 mapN = normalize(vec3(mapN1.xy + mapN2.xy*0.8, mapN1.z*mapN2.z));
-          mapN.xy *= normalScale * seaFade;
-          normal = perturbNormal2Arb( -vViewPosition, normal, mapN, faceDirection );`)
-        .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
-          float fres = pow(1.0 - saturate(dot(normalize(normal), normalize(vViewPosition))), 8.0);
-          totalEmissiveRadiance += uHorizon * fres * 0.35;`)
-        // Ambient-Anteil aufs Meer halbieren: nimmt den Pastell-Schleier,
-        // Sonnen-Schattierung/Glitzer/Schaum bleiben voll erhalten
-        .replace("#include <aomap_fragment>", `#include <aomap_fragment>
-          reflectedLight.indirectDiffuse *= 0.5;`);
+    this.oceanU = {
+      uTime:      {value:0},
+      uSwell:     {value:makeSwellWaves()},
+      uDetail:    {value:seaNorm},
+      uSunDir:    {value:new THREE.Vector3(0.3, 0.2, 0.93)},
+      uSunCol:    {value:new THREE.Color(0xfff2df)},
+      uSunI:      {value:1},
+      uSkyCol:    {value:new THREE.Color(0x87b6ea)},
+      uHorizonCol:{value:new THREE.Color(0xbfe6f5)},
+      uDeepCol:   {value:new THREE.Color(0x06305e)},
+      uShallowCol:{value:new THREE.Color(0x2ba7ad)},
+      uFoamCol:   {value:new THREE.Color(0xeff7ff)},
+      uAmb:       {value:0.34},
+      uPixel:     {value:0.0013},   // Winkelgröße eines Pixels (Wellen-LOD)
+      uHaze:      {value:6.5e-5},   // Luftperspektive zum Horizont
+      uChop:      {value:1.0}
     };
-    this.groundSea = new THREE.Mesh(new THREE.CircleGeometry(41000, 64), seaMat);
+    const oceanMat = patch=>new THREE.ShaderMaterial({
+      uniforms: Object.assign({uOrigin:{value:new THREE.Vector2()},
+                               uEye:{value:new THREE.Vector3()}}, this.oceanU),
+      vertexShader: oceanVertex(patch), fragmentShader: OCEAN_FRAGMENT
+    });
+    const seaMat = oceanMat(false);
+    seaMat.uniforms.uOrigin.value.set(42500, 0);
+    this.groundSea = new THREE.Mesh(new THREE.CircleGeometry(41000, 96), seaMat);
     this.groundSea.rotation.x = -Math.PI/2;
     this.groundSea.position.set(42500, 4, 0);     // Ozean ab ~1,5 km Ost
-    // Küstensaum am Rand des Meer-Kreises: Flachwasser als 3-Stufen-Verlauf
-    // (tief→türkis) + Gischtlinie. Nur die West-Kante ist je sichtbar.
-    this.shallowRings = [];
-    for(const [r0,r1,op] of [[40280,40650,.22],[40650,40880,.42],[40880,41004,.62]]){
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(r0, r1, 96, 1),
-        new THREE.MeshStandardMaterial({color:0x4fc3cf, roughness:.4, transparent:true, opacity:op, depthWrite:false}));
-      ring.rotation.x = -Math.PI/2;
-      ring.position.set(42500, 7.2, 0);
-      this.shallowRings.push(ring);
-    }
-    this.groundFoam = new THREE.Mesh(
-      new THREE.RingGeometry(40958, 41022, 96, 1),
-      new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:.7, depthWrite:false}));
-    this.groundFoam.rotation.x = -Math.PI/2;
-    this.groundFoam.position.set(42500, 7.5, 0);
-    // --- Gerstner-Wellen-Patch (Ansatz wie WaterThreeJS): tessellierter
-    // Küstenstreifen 1,6–4,7 km Ost, ECHTE bewegte Wellen im Vertex-Shader.
-    // 12 analytische Gerstner-Wellen mit Tiefwasser-Dispersion ω=√(g·k) –
-    // lange Wellen laufen schneller (physikalisch korrekt!), Normalen
-    // analytisch aus der Ableitung, Kamm-Schaum aus der Wellenhöhe.
-    // Pro Frame ändert sich nur uTime; alles andere rechnet die GPU.
-    {
-      const wrnd = seededRand(77), WAVES = [];
-      let ampSum = 0;
-      for(let i=0;i<12;i++){
-        const lam = 45*Math.pow(5, wrnd());               // Wellenlänge 45–225 m
-        const ang = Math.PI + (wrnd()-0.5)*1.5;           // laufen Richtung Küste (−x)
-        const A = lam*0.011*(0.75+wrnd()*0.5);
-        WAVES.push(new THREE.Vector4(Math.cos(ang), Math.sin(ang), 2*Math.PI/lam, A));
-        ampSum += A;
-      }
-      const aScale = 2.1/ampSum;                          // Gesamt-Amplitude ≤ 2,1 m
-      WAVES.forEach(w=>w.w *= aScale);
-      const seaNormP = seaNorm.clone();                   // feine Ripple obendrauf
-      seaNormP.repeat.set(70, 140); seaNormP.needsUpdate = true;
-      this.seaPatchU = {uTime:{value:0}};
-      const patchMat = new THREE.MeshStandardMaterial({color:0x175a9e, roughness:.34,
-        metalness:0, normalMap:seaNormP, normalScale:new THREE.Vector2(.45,.45)});
-      patchMat.onBeforeCompile = sh=>{
-        Object.assign(sh.uniforms, this.seaPatchU);
-        sh.uniforms.uWaves = {value:WAVES};
-        sh.uniforms.uHorizon = this.seaUniforms.uHorizon;   // GETEILT mit Fern-Meer
-        sh.vertexShader = `uniform float uTime;\nuniform vec4 uWaves[12];\nvarying float vCrest;\n` +
-          sh.vertexShader
-          .replace("#include <beginnormal_vertex>", `
-            // Gerstner-Summe: Höhe h, Horizontalversatz hor, Gradient dh
-            vec2 Xw = position.xy;
-            float distC = length(vec2(Xw.x - 39400.0, Xw.y));   // Abstand Meeres-Zentrum
-            float fade = (1.0 - 0.75*smoothstep(40350.0, 40970.0, distC))  // Ufer: flacher
-              * (1.0 - smoothstep(900.0, 1560.0, abs(Xw.x)))               // Ost/West-Rand (weich!)
-              * (1.0 - smoothstep(2500.0, 3150.0, abs(Xw.y)));             // Nord/Süd-Rand
-            float h = 0.0; vec2 hor = vec2(0.0); vec2 dh = vec2(0.0);
-            for(int i=0;i<12;i++){
-              vec2 D = uWaves[i].xy; float k = uWaves[i].z, A = uWaves[i].w*fade;
-              float w = sqrt(9.81*k);                     // Tiefwasser-Dispersion
-              float ph = dot(D, Xw)*k - w*uTime + float(i)*2.399;
-              float s = sin(ph), c = cos(ph);
-              h += A*c; hor -= D*(0.55*A*s); dh -= D*(k*A*s);
-            }
-            vCrest = h/2.1;
-            vec3 objectNormal = normalize(vec3(-dh, 1.0));`)
-          .replace("#include <begin_vertex>", `
-            vec3 transformed = vec3(position.x + hor.x, position.y + hor.y, position.z + h);
-            // hinter der Uferlinie unter den Strand abtauchen (nahtloser Übergang)
-            transformed.z -= max(0.0, distC - 40990.0)*0.35;`);
-        sh.fragmentShader = "varying float vCrest;\nuniform vec3 uHorizon;\n" + sh.fragmentShader
-          .replace("#include <color_fragment>", `#include <color_fragment>
-            diffuseColor.rgb *= 0.95 + 0.22*clamp(vCrest, -1.0, 1.0);   // Täler dunkler (um 1 zentriert!)
-            float gCrest = smoothstep(0.45, 0.80, vCrest);
-            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.94,0.97,1.0), gCrest*0.5);`)
-          .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
-            float fresP = pow(1.0 - saturate(dot(normalize(normal), normalize(vViewPosition))), 8.0);
-            totalEmissiveRadiance += uHorizon * fresP * 0.35;`)
-          .replace("#include <aomap_fragment>", `#include <aomap_fragment>
-            reflectedLight.indirectDiffuse *= 0.5;`);   // exakt wie Fern-Meer: kein Pastell-Schleier
-      };
-      this.seaPatch = new THREE.Mesh(new THREE.PlaneGeometry(3200, 6400, 160, 320), patchMat);
-      this.seaPatch.rotation.x = -Math.PI/2;
-      this.seaPatch.position.set(3100, 6.8, 0);
-      this.seaPatch.frustumCulled = false;   // Vertex-Displacement sprengt die Bounding-Box
-    }
+    // Küsten-Patch: 4,0 × 7,2 km über dem Streifen 1,4–5,4 km Ost, ~28-m-Raster
+    // (verschoben werden nur Wellen ab ~130 m – das sind ≥ 4,7 Stützstellen).
+    const patchMat = oceanMat(true);
+    patchMat.uniforms.uOrigin.value.set(3400, 0);
+    patchMat.uniforms.uLift = {value:swellLift(this.oceanU.uSwell.value)};
+    this.seaPatch = new THREE.Mesh(new THREE.PlaneGeometry(4000, 7200, 145, 260), patchMat);
+    this.seaPatch.rotation.x = -Math.PI/2;
+    this.seaPatch.position.set(3400, 4, 0);   // gleiche Ebene wie das Fern-Meer
+    this.seaPatch.frustumCulled = false;   // Vertex-Displacement sprengt die Bounding-Box
     // Wald: 2 InstancedMeshes (alle Stämme + alle Kronen) = nur 2 Draw-Calls
     const tRnd = seededRand(99), NT = 170;
     this.treeTrunks = new THREE.InstancedMesh(
@@ -4338,21 +4678,64 @@ const Flight = {
     // Gruppe: lokales X = Ost, Y = hoch, Z = Nord (Basis wird in start() gesetzt)
     this.groundGroup = new THREE.Group();
     this.groundGroup.add(this.groundPlane, this.groundBeach, this.groundSea, this.seaPatch,
-      ...this.shallowRings, this.groundFoam, this.treeTrunks, this.treeCrowns);
+      this.treeTrunks, this.treeCrowns);
     this.world.add(this.groundGroup);
     // Startrampe
     this.padGroup = this.buildPad();
     this.world.add(this.padGroup);
-    // Wolken-Sprites
-    const ctex = makeCloudSpriteTexture();
-    const crnd = seededRand(55);
-    for(let i=0;i<45;i++){
-      const spm = new THREE.SpriteMaterial({map:ctex, transparent:true, opacity:.5+crnd()*0.3, depthWrite:false});
-      const spr = new THREE.Sprite(spm);
-      const s = 250+crnd()*600;
-      spr.scale.set(s, s*0.5, 1);
-      spr.userData = {east:(crnd()-0.5)*40000, north:(crnd()-0.5)*40000, alt:1500+crnd()*8500};
-      this.cloudSprites.push(spr); this.world.add(spr);
+    // --- Wolkenfeld: CLOUDS Haufenwolken à PUFFS Impostor-Puffs, alles in
+    // EINEM InstancedMesh (1 Draw-Call). Der Objektraum ist der der
+    // Bodengruppe (x = Ost, y = hoch, z = Süd), Beleuchtung s. CLOUD_FRAG.
+    {
+      const CLOUDS = 40, PUFFS = 8, N = CLOUDS*PUFFS;
+      const crnd = seededRand(55);
+      const geo = new THREE.InstancedBufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(
+        [-.5,-.5,0,  .5,-.5,0,  .5,.5,0,  -.5,.5,0]), 3));
+      geo.setIndex([0,1,2, 0,2,3]);
+      const iPos = new Float32Array(N*3), iPar = new Float32Array(N*3);
+      let k = 0;
+      for(let c=0;c<CLOUDS;c++){
+        // 3 von 4 Wolken sind tiefe Haufenwolken (Startphase!), der Rest hoch
+        const low  = crnd() < 0.75;
+        const alt  = low ? 1300 + crnd()*1500 : 5500 + crnd()*3800;
+        const east = (crnd()-0.5)*46000, north = (crnd()-0.5)*46000;
+        const wide = low ? 420 + crnd()*620 : 900 + crnd()*900;
+        const tall = low ? 0.55 : 0.20;                 // Haufenwolke = hoch aufgetürmt
+        const base = low ? 620 + crnd()*380 : 520 + crnd()*320;
+        for(let p=0;p<PUFFS;p++){
+          // unten breit, oben schmaler und kleiner = Blumenkohl-Silhouette
+          const f = p/(PUFFS-1);
+          const rad = wide*(1 - 0.55*f)*Math.sqrt(crnd())*0.8;   // Puffs überlappen
+          const a   = crnd()*6.283;
+          iPos[k*3]   = east  + Math.cos(a)*rad;
+          iPos[k*3+1] = alt   + wide*tall*(f*0.9 + (crnd()-0.5)*0.25);
+          iPos[k*3+2] = north + Math.sin(a)*rad*0.85;
+          iPar[k*3]   = base*(1.15 - 0.4*f)*(0.8 + crnd()*0.45);
+          iPar[k*3+1] = crnd()*6.283;                   // UV-Drehung
+          iPar[k*3+2] = f;                              // Höhe in der Wolke (Boden dunkler)
+          k++;
+        }
+      }
+      geo.setAttribute("iPos", new THREE.InstancedBufferAttribute(iPos, 3));
+      geo.setAttribute("iParam", new THREE.InstancedBufferAttribute(iPar, 3));
+      geo.instanceCount = N;
+      this.cloudU = {
+        uPuff:{value:makeCloudPuffTexture()},
+        uCamRight:{value:new THREE.Vector3(1,0,0)}, uCamUp:{value:new THREE.Vector3(0,1,0)},
+        uEye:{value:new THREE.Vector3()}, uSunDir:{value:new THREE.Vector3(0,1,0)},
+        uSunCol:{value:new THREE.Color(0xfff3e2)}, uSkyCol:{value:new THREE.Color(0x87b6ea)},
+        uGroundCol:{value:new THREE.Color(0x5f7f6a)},
+        uSunI:{value:1}, uThick:{value:1.6}, uFade:{value:1}
+      };
+      this.cloudField = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+        uniforms:this.cloudU, vertexShader:CLOUD_VERT, fragmentShader:CLOUD_FRAG,
+        transparent:true, depthWrite:false, side:THREE.DoubleSide}));
+      this.cloudField.frustumCulled = false;   // Billboards sprengen die Bounding-Box
+      this.cloudField.renderOrder = 2;
+      this.cloudGroup = new THREE.Group();
+      this.cloudGroup.add(this.cloudField);
+      this.world.add(this.cloudGroup);
     }
     // Partikel-Pool (Abgase, Explosionen)
     this.particles = [];
@@ -4837,7 +5220,7 @@ const Flight = {
     this.groundLocal = pd.clone().multiplyScalar(LEIBNIZ.R*0.999995);
     // Anker für Booster-Landeplätze: Ost/Nord der Rampe, Landing Zone,
     // Droneship (Position wird erst im Flug gesetzt – es fährt zum Ziel!)
-    this.padEastV = east.clone(); this.padNorthV = north.clone();
+    this.padEastV = east.clone(); this.padNorthV = north.clone(); this.padUpV = up.clone();
     this.lzLocal = (Game.sandbox || Game.unlocked.includes("landZone"))
       ? this.padLocal.clone().addScaledVector(east, 10).addScaledVector(north, 260) : null;
     this.dsLocal = null;
@@ -4860,11 +5243,11 @@ const Flight = {
     const polar = this.pad.id==="polar";
     this.groundPlane.material.color.set(polar ? 0xdfe9f2 : 0x3f8d4e);
     this.groundBeach.material.color.set(polar ? 0xb9c2cc : 0xd9c893);   // Kies statt Sand
-    this.groundSea.material.color.set(polar ? 0x24506e : 0x175a9e);     // Polarmeer dunkler
-    this.seaPatch.material.color.set(polar ? 0x24506e : 0x175a9e);      // Wellen-Patch = Fern-Meer
+    // Meer: Tiefen-/Flachwasserfarbe + Horizontschimmer (der Rest steckt im Shader)
+    this.oceanU.uDeepCol.value.set(polar ? 0x08243c : 0x06305e);
+    this.oceanU.uShallowCol.value.set(polar ? 0x4e93a4 : 0x2ba7ad);     // Polarmeer eisiger
+    this.oceanU.uChop.value = polar ? 0.75 : 1.0;                       // Packeis-ruhiger
     this.seaHorizonBase.set(polar ? 0x9fc4d4 : 0xbfe6f5);               // Horizont-Schimmer
-    for(const ring of this.shallowRings)
-      ring.material.color.set(polar ? 0x7fa8b8 : 0x4fc3cf);             // Flachwasser eisiger
     this.treeCrowns.material.color.set(polar ? 0xc9dcd2 : 0x2e7d3f);    // verschneite Kronen
     // Rampe & Boden mit EXPLIZITER Basis ausrichten: X=Ost, Y=hoch, Z=SÜD.
     // ⚠️ {Ost, hoch, Nord} wäre LINKSHÄNDIG (Spiegelmatrix, keine Rotation) –
@@ -4874,13 +5257,8 @@ const Flight = {
       new THREE.Matrix4().makeBasis(east, up, south));
     this.padGroup.quaternion.copy(padQ);
     this.groundGroup.quaternion.copy(padQ);
-    for(const spr of this.cloudSprites){
-      const d = spr.userData;
-      d.local = this.padLocal.clone()
-        .addScaledVector(up, d.alt)
-        .addScaledVector(east, d.east)
-        .addScaledVector(north, d.north);
-    }
+    this._padQInv = padQ.clone().conjugate();   // Welt → Bodenraum (für uEye)
+    this.cloudGroup.quaternion.copy(padQ);      // Wolken teilen den Bodenraum
     this.showMsg(this.pad.icon+" "+this.pad.name+" – bereit zum Start! [Leertaste] zündet die erste Stufe.", 5);
   },
   height(){ return stackHeight(this.v.stack); },
@@ -5261,6 +5639,7 @@ const Flight = {
       .addScaledVector(up, b.height*0.5 + dist*upFac);
     this.pipCam.up.copy(up);
     this.pipCam.lookAt(bRel.clone().addScaledVector(up, b.height*0.5));
+    this.setViewUniforms(this.pipCam, 230);   // Meer & Wolken auf die PiP-Kamera
     this.pipRenderer.render(this.scene, this.pipCam);
   },
   /* Effektiver Booster-Landeplatz: "rtls" (Landing Zone), "ship" (Droneship)
@@ -7081,6 +7460,78 @@ const Flight = {
       this.nodeTrajLine.visible = false;
     }
   },
+  /* ---------- Ozean-Uniforms (einmal pro Frame, ~20 Zuweisungen) ----------
+     Alles, was der Wasser-Shader über die Welt wissen muss: Zeit, Kamera
+     und Sonne im OBJEKTRAUM des Meeres (x=Ost, y=Nord, z=hoch), Himmel-
+     farben aus dem Tag/Nacht-Zyklus und die Pixel-Winkelgröße fürs
+     Wellen-LOD. ⚠️ Die Kamera wird CPU-seitig in Float64 umgerechnet –
+     im Shader wäre die ~1e10-Matrix des Floating Origin nicht darstellbar. */
+  updateOcean(sky){
+    const U = this.oceanU;
+    U.uTime.value = ((this.t % OCEAN_T) + OCEAN_T) % OCEAN_T;   // exakt periodisch
+    // Sonnenrichtung (bodennah = Spieluhr, s. frame()) in Ost/Nord/Hoch zerlegt
+    const sun = this.groundSunDir || this.pos.clone().negate().normalize();
+    U.uSunDir.value.set(sun.dot(this.padEastV), sun.dot(this.padNorthV),
+                        sun.dot(this.padUpV));
+    const dl = this.dayLight;
+    U.uSunI.value = 0.05 + 0.95*dl;
+    U.uAmb.value  = 0.22 + 0.26*dl;
+    U.uSkyCol.value.copy(sky);
+    U.uHorizonCol.value.copy(sky).lerp(this.seaHorizonBase, 0.38*dl);
+    // tiefstehende Sonne färbt den Glitzerpfad golden (langer Luftweg!)
+    U.uSunCol.value.setHex(0xfff2df)
+      .lerp(new THREE.Color(0xff9640), sunWarmth(U.uSunDir.value.z));
+  },
+  /* ---------- Kamera-abhängige Uniforms von Meer & Wolken ----------
+     ⚠️ MUSS direkt vor JEDEM render() mit der jeweils benutzten Kamera
+     gesetzt werden: Die Booster-PiP rendert DIESELBE Szene aus einer
+     anderen Perspektive – mit den Werten der Hauptkamera säße dort das
+     Sonnenglitzern an der falschen Stelle und die Wolken-Billboards
+     stünden schräg im Bild. */
+  setViewUniforms(cam, h){
+    if(!this._padQInv) return;
+    cam.updateMatrixWorld();
+    const qi = this._padQInv;
+    if(this.groundGroup.visible){
+      // Winkelgröße eines Pixels – Basis des Wellen-LOD
+      this.oceanU.uPixel.value = 2*Math.tan(cam.fov*Math.PI/360)/Math.max(1, h);
+      // Kamera: Welt → Bodengruppe (Ost, hoch, Süd) → Mesh-Objektraum
+      const eye = cam.position.clone()
+        .sub(this.world.position).sub(this.groundGroup.position).applyQuaternion(qi);
+      for(const m of [this.groundSea, this.seaPatch])
+        m.material.uniforms.uEye.value.set(
+          eye.x - m.position.x, -(eye.z - m.position.z), eye.y - m.position.y);
+    }
+    if(this.cloudGroup.visible){
+      const U = this.cloudU, e = cam.matrixWorld.elements;
+      U.uEye.value.copy(cam.position)
+        .sub(this.world.position).sub(this.cloudGroup.position).applyQuaternion(qi);
+      U.uCamRight.value.set(e[0], e[1], e[2]).applyQuaternion(qi);
+      U.uCamUp.value.set(e[4], e[5], e[6]).applyQuaternion(qi);
+    }
+  },
+  /* ---------- Wolken-Uniforms (einmal pro Frame) ----------
+     Wie beim Meer läuft alles im OBJEKTRAUM der Bodengruppe (x=Ost,
+     y=hoch, z=Süd) – die ~1e10-Matrix des Floating Origin wäre im Shader
+     nicht darstellbar. uCamRight/uCamUp richten die Billboards aus. */
+  updateClouds(alt){
+    const U = this.cloudU;
+    if(!this._padQInv) return;
+    const sun = this.groundSunDir || this.pos.clone().negate().normalize();
+    U.uSunDir.value.set(sun.dot(this.padEastV), sun.dot(this.padUpV),
+                        -sun.dot(this.padNorthV));
+    const dl = this.dayLight, sz = U.uSunDir.value.y;
+    // Direktlicht stirbt, sobald die Sonne unter den Horizont sinkt – die
+    // Wolken hängen hoch und leuchten deshalb noch, wenn der Boden schon
+    // dunkel ist (genau wie in echt).
+    U.uSunI.value = (0.06 + 0.94*dl)*THREE.MathUtils.smoothstep(sz, -0.14, 0.05);
+    U.uSunCol.value.setHex(0xfffaf2).lerp(new THREE.Color(0xffb173), sunWarmth(sz));
+    U.uSkyCol.value.copy(this.scene.background).multiplyScalar(0.72);
+    U.uGroundCol.value.setHex(this.pad && this.pad.id==="polar" ? 0x9fb4c4 : 0x5d7a58)
+      .multiplyScalar(0.25 + 0.75*dl);
+    // Über den Wolken ausblenden, statt sie hart verschwinden zu lassen
+    U.uFade.value = 1 - Math.max(0, Math.min(1, (alt - 22000)/12000));
+  },
   /* ---------- Frame ---------- */
   frame(){
     const host = document.getElementById("flight3d");
@@ -7132,11 +7583,11 @@ const Flight = {
         this.droneMesh.quaternion.setFromUnitVectors(V3(0,1,0), this.dsLocal.clone().normalize());
       } else this.droneMesh.visible = false;
     }
-    for(const spr of this.cloudSprites)
-      if(spr.userData.local) spr.position.copy(lp).add(spr.userData.local);
+    this.cloudGroup.position.copy(lp).add(this.padLocal||V3(LEIBNIZ.R,0,0));
     for(const [m, ring] of this.moonRings) ring.position.copy(bodyPos(m.parent, this.t));
-    // Sonnenlicht kommt aus Richtung der (echten) Sonne
-    this.sunLight.position.copy(this.pos.clone().negate().normalize().multiplyScalar(1e7));
+    // Sonnenlicht: Richtung wird weiter unten (Tag/Nacht-Block) gesetzt –
+    // im Orbit die echte Geometrie, bodennah der Stand der Spieluhr.
+    const sunReal = this.pos.clone().negate().normalize();
     this.sunGlow.position.set(0,0,0);  // Sonne steht im Welt-Ursprung
     this.cloudShell.rotation.y = this.t*2*Math.PI/14000;
     const alt = leibnizAlt(this.pos, this.t);
@@ -7152,33 +7603,50 @@ const Flight = {
     const dayL = Math.max(0, Math.min(1, elev*1.7 + 0.12));   // Dämmerung ~06/18 Uhr
     const gb = Math.max(0, Math.min(1, 1 - alt/40000));       // Boden-Blend (0 ab 40 km)
     this.dayLight = 1 - gb*(1 - dayL);                        // 1 = voller Tag
+    // ⚠️ Sonnen-RICHTUNG bodennah aus derselben Uhr: Die Rampen liegen
+    // inertial fest, dadurch stand die echte Sonne beim Start unter dem
+    // Horizont – das Licht kam von UNTEN durch den Planeten und die ganze
+    // Bodenszene war reines Ambient-Grau (kein Glitzern auf dem Meer, keine
+    // Sonnenseite an den Wolken). Jetzt geht die Sonne im OSTEN auf, steht
+    // mittags im Zenit und im Westen unter; die Höhe ist exakt `elev` von
+    // oben, also passen Richtung und Helligkeit zusammen. Ab 40 km (gb=0)
+    // zählt wieder die echte Sonnengeometrie.
+    this.groundSunDir = sunReal.clone();
+    if(gb > 0.001 && this.padUpV){
+      const phi = 2*Math.PI*(dayFrac - 0.25);
+      const clockSun = this.padEastV.clone().multiplyScalar(Math.cos(phi))
+        .addScaledVector(this.padUpV, Math.sin(phi))
+        .addScaledVector(this.padNorthV, 0.18).normalize();
+      this.groundSunDir.lerp(clockSun, gb).normalize();
+    }
+    this.sunLight.position.copy(this.groundSunDir).multiplyScalar(1e7);
     this.sunLight.intensity = 1.3*(0.08 + 0.92*this.dayLight);
-    // Bodennah hellt Streulicht vom Himmel die Szene auf und wird WARM (sonst
-    // entsättigt das blaugraue All-Ambient z. B. den Sandstrand zu Grau);
-    // im Orbit (gb=0) bleibt alles wie gehabt
-    this.ambLight.intensity = 0.55 + 0.5*gb*this.dayLight;
+    // Fülllicht aus der Gegenrichtung, leicht von oben (Himmelskuppel)
+    this.fillLight.position.copy(this.groundSunDir).negate()
+      .addScaledVector(this.padUpV || V3(0,1,0), 0.9).normalize().multiplyScalar(1e7);
+    this.fillLight.intensity = 0.42*gb*this.dayLight;
+    // Bodennah wird das Streulicht WARM (sonst entsättigt das blaugraue
+    // All-Ambient z. B. den Sandstrand zu Grau) und zugleich SCHWÄCHER:
+    // seit die Sonne bodennah wirklich am Himmel steht (s. groundSunDir)
+    // trägt sie den Löwenanteil – mit dem alten Ambient-Boost brannten
+    // Strand und Wiese aus. Im Orbit (gb=0) bleibt alles wie gehabt.
+    this.ambLight.intensity = 0.55 - 0.25*gb*this.dayLight;
     this.ambLight.color.copy(this.ambSpace).lerp(this.ambDay, gb*this.dayLight);
     this.sunGlow.material.opacity = this.dayLight;   // Sonne "geht unter" (bodennah)
+    // Himmelsfarbe: HÖHE quadratisch (das Blau verschwindet zum All hin
+    // schnell), TAGESZEIT linear – quadriert man beides gemeinsam, ist der
+    // Himmel schon um 16 Uhr nachtschwarz, während Boden, Meer und Wolken
+    // noch in der Sonne stehen.
     const fEff = f*this.dayLight;
-    const sky = new THREE.Color(0x04060e).lerp(new THREE.Color(0x87b6ea), this.map?0:fEff*fEff);
+    const sky = new THREE.Color(0x04060e).lerp(new THREE.Color(0x87b6ea),
+      this.map ? 0 : f*f*this.dayLight);
     this.scene.background = sky;
     this.starField.material.opacity = this.map ? 1 : 1-fEff;
     // Nebel-Kulisse: wie die Sterne in der Atmosphäre ausblenden
     for(const neb of this.nebulae)
       neb.material.opacity = (this.map ? 1 : 1-fEff) * neb.userData.base;
     this.groundGroup.visible = !this.map && alt<16000;
-    if(this.groundGroup.visible){
-      // Meer: uTime treibt die Wellen-Layer im Shader (Wrap bei 1000 s ist
-      // unsichtbar, weil Speed×1000 ganzzahlig = exakt eine Kachel-Periode).
-      // Horizont-Glow (Emissive!) und Gischt nachts über dayLight abdunkeln.
-      this.seaUniforms.uTime.value = this.t % 1000;
-      // Gerstner-Patch: Wrap bei 1 h Spielzeit (Float32-Präzision im Shader)
-      this.seaPatchU.uTime.value = this.t % 3600;
-      this.seaUniforms.uHorizon.value.copy(this.seaHorizonBase)
-        .multiplyScalar(0.10 + 0.90*this.dayLight);
-      this.groundFoam.material.opacity =
-        (0.45 + 0.3*(0.5+0.5*Math.sin(this.t*0.7))) * (0.15+0.85*this.dayLight);
-    }
+    if(this.groundGroup.visible) this.updateOcean(sky);
     this.padGroup.visible = !this.map && alt<25000;
     for(const [,ring] of this.moonRings) ring.visible = this.map;
     this.shipMarker.visible = this.map && !this.crashed;
@@ -7186,7 +7654,8 @@ const Flight = {
       const ss = this._cd*0.035;
       this.shipMarker.scale.set(ss, ss, 1);
     }
-    for(const spr of this.cloudSprites) spr.visible = !this.map && alt<30000;
+    this.cloudGroup.visible = !this.map && alt<34000;
+    if(this.cloudGroup.visible) this.updateClouds(alt);
     // Rakete (am Ursprung, Welt bewegt sich drumherum)
     const s = this.activeSeg();
     const burning = s && s.ignited && warp<=2 &&
@@ -7484,6 +7953,7 @@ const Flight = {
     this.camera.lookAt(focus);
     this.renderer.setSize(w,h,false);
     this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
+    this.setViewUniforms(this.camera, h);   // Meer & Wolken auf die Hauptkamera
     this.renderer.render(this.scene, this.camera);
     this.drawLensflare(w, h);
     this.drawNavball();
