@@ -4183,7 +4183,7 @@ const Flight = {
       new THREE.CircleGeometry(40000, 64),
       new THREE.MeshStandardMaterial({color:0xd9c893, roughness:.95, map:sandTex}));
     this.groundBeach.rotation.x = -Math.PI/2;
-    this.groundBeach.position.set(42800, 2, 0);
+    this.groundBeach.position.set(41000, 2, 0);   // Strand ab ~1 km Ost – Meerblick von der Rampe!
     // Meer mit Shader-Patch (onBeforeCompile): zwei gegenläufig driftende
     // Normalmap-Layer (Wellen), Schaumkronen aus der Höhe (Alpha-Kanal) und
     // Fresnel-Aufhellung zum Horizont. Pro Frame ändert sich NUR uTime.
@@ -4223,7 +4223,7 @@ const Flight = {
     };
     this.groundSea = new THREE.Mesh(new THREE.CircleGeometry(41000, 64), seaMat);
     this.groundSea.rotation.x = -Math.PI/2;
-    this.groundSea.position.set(44300, 4, 0);
+    this.groundSea.position.set(42500, 4, 0);     // Ozean ab ~1,5 km Ost
     // Küstensaum am Rand des Meer-Kreises: Flachwasser als 3-Stufen-Verlauf
     // (tief→türkis) + Gischtlinie. Nur die West-Kante ist je sichtbar.
     this.shallowRings = [];
@@ -4232,14 +4232,80 @@ const Flight = {
         new THREE.RingGeometry(r0, r1, 96, 1),
         new THREE.MeshStandardMaterial({color:0x4fc3cf, roughness:.4, transparent:true, opacity:op, depthWrite:false}));
       ring.rotation.x = -Math.PI/2;
-      ring.position.set(44300, 5, 0);
+      ring.position.set(42500, 7.2, 0);
       this.shallowRings.push(ring);
     }
     this.groundFoam = new THREE.Mesh(
       new THREE.RingGeometry(40958, 41022, 96, 1),
       new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:.7, depthWrite:false}));
     this.groundFoam.rotation.x = -Math.PI/2;
-    this.groundFoam.position.set(44300, 6, 0);
+    this.groundFoam.position.set(42500, 7.5, 0);
+    // --- Gerstner-Wellen-Patch (Ansatz wie WaterThreeJS): tessellierter
+    // Küstenstreifen 1,6–4,7 km Ost, ECHTE bewegte Wellen im Vertex-Shader.
+    // 12 analytische Gerstner-Wellen mit Tiefwasser-Dispersion ω=√(g·k) –
+    // lange Wellen laufen schneller (physikalisch korrekt!), Normalen
+    // analytisch aus der Ableitung, Kamm-Schaum aus der Wellenhöhe.
+    // Pro Frame ändert sich nur uTime; alles andere rechnet die GPU.
+    {
+      const wrnd = seededRand(77), WAVES = [];
+      let ampSum = 0;
+      for(let i=0;i<12;i++){
+        const lam = 45*Math.pow(5, wrnd());               // Wellenlänge 45–225 m
+        const ang = Math.PI + (wrnd()-0.5)*1.5;           // laufen Richtung Küste (−x)
+        const A = lam*0.011*(0.75+wrnd()*0.5);
+        WAVES.push(new THREE.Vector4(Math.cos(ang), Math.sin(ang), 2*Math.PI/lam, A));
+        ampSum += A;
+      }
+      const aScale = 2.1/ampSum;                          // Gesamt-Amplitude ≤ 2,1 m
+      WAVES.forEach(w=>w.w *= aScale);
+      const seaNormP = seaNorm.clone();                   // feine Ripple obendrauf
+      seaNormP.repeat.set(70, 140); seaNormP.needsUpdate = true;
+      this.seaPatchU = {uTime:{value:0}};
+      const patchMat = new THREE.MeshStandardMaterial({color:0x175a9e, roughness:.34,
+        metalness:0, normalMap:seaNormP, normalScale:new THREE.Vector2(.45,.45)});
+      patchMat.onBeforeCompile = sh=>{
+        Object.assign(sh.uniforms, this.seaPatchU);
+        sh.uniforms.uWaves = {value:WAVES};
+        sh.uniforms.uHorizon = this.seaUniforms.uHorizon;   // GETEILT mit Fern-Meer
+        sh.vertexShader = `uniform float uTime;\nuniform vec4 uWaves[12];\nvarying float vCrest;\n` +
+          sh.vertexShader
+          .replace("#include <beginnormal_vertex>", `
+            // Gerstner-Summe: Höhe h, Horizontalversatz hor, Gradient dh
+            vec2 Xw = position.xy;
+            float distC = length(vec2(Xw.x - 39400.0, Xw.y));   // Abstand Meeres-Zentrum
+            float fade = (1.0 - 0.75*smoothstep(40350.0, 40970.0, distC))  // Ufer: flacher
+              * (1.0 - smoothstep(900.0, 1560.0, abs(Xw.x)))               // Ost/West-Rand (weich!)
+              * (1.0 - smoothstep(2500.0, 3150.0, abs(Xw.y)));             // Nord/Süd-Rand
+            float h = 0.0; vec2 hor = vec2(0.0); vec2 dh = vec2(0.0);
+            for(int i=0;i<12;i++){
+              vec2 D = uWaves[i].xy; float k = uWaves[i].z, A = uWaves[i].w*fade;
+              float w = sqrt(9.81*k);                     // Tiefwasser-Dispersion
+              float ph = dot(D, Xw)*k - w*uTime + float(i)*2.399;
+              float s = sin(ph), c = cos(ph);
+              h += A*c; hor -= D*(0.55*A*s); dh -= D*(k*A*s);
+            }
+            vCrest = h/2.1;
+            vec3 objectNormal = normalize(vec3(-dh, 1.0));`)
+          .replace("#include <begin_vertex>", `
+            vec3 transformed = vec3(position.x + hor.x, position.y + hor.y, position.z + h);
+            // hinter der Uferlinie unter den Strand abtauchen (nahtloser Übergang)
+            transformed.z -= max(0.0, distC - 40990.0)*0.35;`);
+        sh.fragmentShader = "varying float vCrest;\nuniform vec3 uHorizon;\n" + sh.fragmentShader
+          .replace("#include <color_fragment>", `#include <color_fragment>
+            diffuseColor.rgb *= 0.95 + 0.22*clamp(vCrest, -1.0, 1.0);   // Täler dunkler (um 1 zentriert!)
+            float gCrest = smoothstep(0.45, 0.80, vCrest);
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.94,0.97,1.0), gCrest*0.5);`)
+          .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
+            float fresP = pow(1.0 - saturate(dot(normalize(normal), normalize(vViewPosition))), 8.0);
+            totalEmissiveRadiance += uHorizon * fresP * 0.35;`)
+          .replace("#include <aomap_fragment>", `#include <aomap_fragment>
+            reflectedLight.indirectDiffuse *= 0.5;`);   // exakt wie Fern-Meer: kein Pastell-Schleier
+      };
+      this.seaPatch = new THREE.Mesh(new THREE.PlaneGeometry(3200, 6400, 160, 320), patchMat);
+      this.seaPatch.rotation.x = -Math.PI/2;
+      this.seaPatch.position.set(3100, 6.8, 0);
+      this.seaPatch.frustumCulled = false;   // Vertex-Displacement sprengt die Bounding-Box
+    }
     // Wald: 2 InstancedMeshes (alle Stämme + alle Kronen) = nur 2 Draw-Calls
     const tRnd = seededRand(99), NT = 170;
     this.treeTrunks = new THREE.InstancedMesh(
@@ -4256,7 +4322,7 @@ const Flight = {
       if(tRnd() < 0.6){ const a = tRnd()*6.283, d = 560+tRnd()*1900; ex = Math.cos(a)*d; nz = Math.sin(a)*d; }
       else { ex = -7000 + tRnd()*9200; nz = (tRnd()-0.5)*14000; }
       if(Math.hypot(ex, nz) < 540) continue;   // Rampe, Gebäude & Landezone frei halten
-      if(ex > 2300) continue;                  // nicht in Strand/Meer
+      if(ex > 700) continue;                   // nicht in Strand/Meer (Küste ab ~1 km)
       const s = 1.0 + tRnd()*1.2;
       tm.makeScale(s,s,s).setPosition(ex, 3.5*s, nz);
       this.treeTrunks.setMatrixAt(placed, tm);
@@ -4271,7 +4337,7 @@ const Flight = {
     this.treeCrowns.instanceMatrix.needsUpdate = true;
     // Gruppe: lokales X = Ost, Y = hoch, Z = Nord (Basis wird in start() gesetzt)
     this.groundGroup = new THREE.Group();
-    this.groundGroup.add(this.groundPlane, this.groundBeach, this.groundSea,
+    this.groundGroup.add(this.groundPlane, this.groundBeach, this.groundSea, this.seaPatch,
       ...this.shallowRings, this.groundFoam, this.treeTrunks, this.treeCrowns);
     this.world.add(this.groundGroup);
     // Startrampe
@@ -4795,6 +4861,7 @@ const Flight = {
     this.groundPlane.material.color.set(polar ? 0xdfe9f2 : 0x3f8d4e);
     this.groundBeach.material.color.set(polar ? 0xb9c2cc : 0xd9c893);   // Kies statt Sand
     this.groundSea.material.color.set(polar ? 0x24506e : 0x175a9e);     // Polarmeer dunkler
+    this.seaPatch.material.color.set(polar ? 0x24506e : 0x175a9e);      // Wellen-Patch = Fern-Meer
     this.seaHorizonBase.set(polar ? 0x9fc4d4 : 0xbfe6f5);               // Horizont-Schimmer
     for(const ring of this.shallowRings)
       ring.material.color.set(polar ? 0x7fa8b8 : 0x4fc3cf);             // Flachwasser eisiger
@@ -5427,7 +5494,7 @@ const Flight = {
           const dLZ = this.lzLocal ? b.local.distanceTo(this.lzLocal) : 1e9;
           const dDS = this.dsLocal ? b.local.distanceTo(this.dsLocal) : 1e9;
           const dPad = b.local.clone().sub(this.padLocal || b.local);
-          const inWater = dPad.dot(this.padEastV||V3(0,0,-1)) > 3300 && dPad.length() < 85000;
+          const inWater = dPad.dot(this.padEastV||V3(0,0,-1)) > 1500 && dPad.length() < 85000;
           let fac, wo;
           if(dDS < 130){
             fac = 0.9; wo = "🚢 AUF DEM DRONESHIP"; this.statShipLanded = true;
@@ -7105,6 +7172,8 @@ const Flight = {
       // unsichtbar, weil Speed×1000 ganzzahlig = exakt eine Kachel-Periode).
       // Horizont-Glow (Emissive!) und Gischt nachts über dayLight abdunkeln.
       this.seaUniforms.uTime.value = this.t % 1000;
+      // Gerstner-Patch: Wrap bei 1 h Spielzeit (Float32-Präzision im Shader)
+      this.seaPatchU.uTime.value = this.t % 3600;
       this.seaUniforms.uHorizon.value.copy(this.seaHorizonBase)
         .multiplyScalar(0.10 + 0.90*this.dayLight);
       this.groundFoam.material.opacity =
