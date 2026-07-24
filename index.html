@@ -5194,7 +5194,9 @@ const Flight = {
     this.vel = bodyVel(LEIBNIZ, 0);
     this.landedBody = LEIBNIZ;
     this.landedRel = this.launchLocal.clone();
-    // Rakete: lokale +Y-Achse → "up" (radial nach außen)
+    // Rakete: lokale +Y-Achse → "up" (radial nach außen). Der ROLLWINKEL
+    // wird weiter unten aus `padQ` gesetzt (Ost/hoch/Süd) – sonst zeigt die
+    // Steuerung in eine willkürliche Himmelsrichtung, s. Kommentar dort.
     this.q = new THREE.Quaternion().setFromUnitVectors(V3(0,1,0), pd);
     this.t = 0; this.throttle = 1; this.warpI = 0; this.map = false;
     this.landed = true; this.crashed=false; this.ended=false; this.flew=false;
@@ -5331,6 +5333,13 @@ const Flight = {
       new THREE.Matrix4().makeBasis(east, up, south));
     this.padGroup.quaternion.copy(padQ);
     this.groundGroup.quaternion.copy(padQ);
+    // ⚠️ Die RAKETE kriegt exakt dieselbe Basis. Vorher kam ihre Lage aus
+    // `setFromUnitVectors(+Y, up)` – das ist die MINIMAL-Drehung und legt den
+    // Rollwinkel damit willkürlich fest. Ergebnis: [D] neigte nach SÜDEN und
+    // [S] nach Osten, obwohl Tutorials und Hilfetexte "[D] nach Osten" sagen.
+    // Mit X=Ost, Y=hoch (Nase), Z=Süd stimmt die Steuerung an JEDER Rampe:
+    //   [D] → Osten (90°) · [A] → Westen · [W] → Süden · [S] → Norden.
+    this.q.copy(padQ);
     this._padQInv = padQ.clone().conjugate();   // Welt → Bodenraum (für uEye)
     this.cloudGroup.quaternion.copy(padQ);      // Wolken teilen den Bodenraum
     this.showMsg(this.pad.icon+" "+this.pad.name+" – bereit zum Start! [Leertaste] zündet die erste Stufe.", 5);
