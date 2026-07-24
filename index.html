@@ -3286,10 +3286,34 @@ function makeSeaNormalTexture(){
    (x = Ost, y = Nord, z = hoch); die Kamera kommt als uEye herein
    (CPU-seitig in Float64 umgerechnet).
    ================================================================= */
-const OCEAN_WAVES = 6;
+const OCEAN_WAVES = 8;
 // GLSL-Literale (als String, damit im Shader kein int-Literal landet!)
 const SEA_C = "vec2(42500.0, 0.0)";   // Mittelpunkt der Meeres-Scheibe (Ost/Nord)
-const SEA_R = "41000.0";              // Radius = Uferlinie bei 1500 m Ost
+const SEA_R = "41000.0";              // Radius = Uferlinie im Mittel bei 1500 m Ost
+
+/* ---- Geschwungene Küstenlinie ----------------------------------------
+   Die Uferlinie ist KEINE Kreislinie, sondern schwingt in Buchten und
+   Landzungen. Parametrisiert über die NORD-Koordinate, weil die Küste bei
+   allen Rampen von Nord nach Süd verläuft (Meer im Osten).
+   ⚠️ Dieselbe Funktion muss in JS (Randgeometrie von groundSea/groundBeach)
+   UND im Shader (Flachwasser-Verlauf, Brandung, Abtauchen unter den Strand)
+   laufen – deshalb wird der GLSL-Code aus derselben Tabelle GENERIERT.
+   Positives Wobble = Uferlinie weiter landeinwärts (weniger Strand). */
+const SHORE_WAVES = [[2600, 0.0, 120], [1100, 2.1, 55], [520, 4.3, 24]];  // λ, Phase, Amplitude
+const BEACH_WAVES = [[3300, 1.2, 150], [1450, 3.6, 70], [610, 0.4, 26]];  // Sand/Wiese-Grenze
+const wobbleOf = tab => north =>
+  tab.reduce((s,[lam,ph,a]) => s + a*Math.sin(north*2*Math.PI/lam + ph), 0);
+const shoreWobble = wobbleOf(SHORE_WAVES);
+const beachWobble = wobbleOf(BEACH_WAVES);
+const SHORE_GLSL = "float shoreWob(float n){ return " + SHORE_WAVES
+  .map(([lam,ph,a])=>`${a.toFixed(1)}*sin(n*${(2*Math.PI/lam).toFixed(8)} + ${ph.toFixed(3)})`)
+  .join("\n    + ") + "; }";
+/* Abstand eines Punktes (Ost/Nord relativ zur Rampe) zur Wasserkante;
+   > 0 = im Wasser. Muss dieselbe Zahl liefern wie `dShore` im Shader –
+   sonst „wassert" ein Booster optisch am Strand (oder umgekehrt). */
+function shoreDist(east, north){
+  return 41000 + shoreWobble(north) - Math.hypot(east - 42500, north);
+}
 
 const OCEAN_T = 1200;   // uTime-Wrap in Sekunden (s. Frequenz-Quantisierung)
 
@@ -3301,16 +3325,18 @@ const OCEAN_T = 1200;   // uTime-Wrap in Sekunden (s. Frequenz-Quantisierung)
 function makeSwellWaves(){
   const rnd = seededRand(2024), out = [], W = 2*Math.PI/OCEAN_T;
   for(let i=0;i<OCEAN_WAVES;i++){
-    const lam0 = 28*Math.pow(13.6, i/(OCEAN_WAVES-1));   // 28 … 380 m
+    const lam0 = 22*Math.pow(19.5, i/(OCEAN_WAVES-1));   // 22 … 430 m
     const n    = Math.round(Math.sqrt(9.81*2*Math.PI/lam0)/W);
     const k    = (n*W)*(n*W)/9.81;              // exakt periodisch
-    const ang  = Math.PI + (rnd()-0.5)*1.25;
-    // Amplitude über die STEILHEIT k·A definiert (≈ 3 %, ruhige See): jede
-    // Wellenlänge trägt gleich viel Neigung bei. Über eine feste Gesamt-
-    // Amplitude verteilt wäre die lange Dünung fast eben (< 1° Neigung) und
-    // das Meer sähe aus wie eine gestreifte Tapete.
+    // Breite Richtungsstreuung (±55°): die Wellenzüge KREUZEN sich dadurch
+    // und erzeugen wandernde Buckel statt paralleler „Wellblech"-Rillen.
+    const ang  = Math.PI + (rnd()-0.5)*1.95;
+    // Amplitude über die STEILHEIT k·A definiert (≈ 4,5 %, lebhafte See):
+    // jede Wellenlänge trägt gleich viel Neigung bei. Über eine feste
+    // Gesamt-Amplitude verteilt wäre die lange Dünung fast eben (< 1°
+    // Neigung) und das Meer sähe aus wie eine gestreifte Tapete.
     out.push(new THREE.Vector4(Math.cos(ang), Math.sin(ang), k,
-                               0.030*(0.8+rnd()*0.4)/k));
+                               0.045*(0.8+rnd()*0.4)/k));
   }
   return out;
 }
@@ -3321,7 +3347,7 @@ function makeSwellWaves(){
 function swellLift(waves){
   let s = 0;
   for(const w of waves){
-    const lam = 2*Math.PI/w.z, t = Math.min(1, Math.max(0, (lam-75)/55));
+    const lam = 2*Math.PI/w.z, t = Math.min(1, Math.max(0, (lam-55)/30));
     s += w.w*t*t*(3-2*t);
   }
   return s*1.05 + 0.35;
@@ -3344,30 +3370,38 @@ function oceanVertex(patch){
 #include <common>
 ${OCEAN_PARS}
 ${patch ? "uniform float uLift;" : ""}
+${SHORE_GLSL}
 #include <logdepthbuf_pars_vertex>
 void main(){
   vXw = uOrigin + position.xy;
-  float distC = length(vXw - ${SEA_C});
+  // Abstand zur (geschwungenen!) Uferlinie – positiv = seewärts
+  float dShore = ${SEA_R} + shoreWob(vXw.y) - length(vXw - ${SEA_C});
   // Flachwasser: die Dünung läuft am Ufer aus (dort übernimmt die Brandung).
   // vFade steuert NUR die Schattierung und ist in BEIDEN Meshes identisch –
   // dadurch sieht der Übergang Patch↔Fern-Meer überall gleich aus.
-  vFade = 1.0 - 0.72*smoothstep(${SEA_R} - 700.0, ${SEA_R} - 40.0, distC);
+  vFade = 0.28 + 0.72*smoothstep(40.0, 700.0, dShore);
   vec3 tp = position;
 ${patch ? `
   // Geometrie-Hüllkurve (nur die Verschiebung, NICHT die Schattierung):
   // fährt am Patchrand und an der Uferlinie auf 0 – dort liegt der Patch
   // dann exakt auf der Fern-Meer-Ebene und der Übergang verschwindet.
-  float E = (1.0 - smoothstep(1260.0, 1990.0, abs(position.x)))
-          * (1.0 - smoothstep(2950.0, 3580.0, abs(position.y)))
-          * smoothstep(0.0, 320.0, ${SEA_R} - distC);
+  // Lange Ausläufe: über die Fade-Zone sinkt der Hub uLift auf 0 und die
+  // Wellen laufen aus, bis der Patch exakt auf der Fern-Meer-Ebene liegt.
+  // Kurze Fades = sichtbare Kante im Bild, deshalb >1 km Überblendung.
+  // (⚠️ In diesem GLSL-Block NIEMALS Backticks benutzen – er steckt in
+  //  einem JS-Template-Literal und ein Backtick beendet es vorzeitig!)
+  float E = (1.0 - smoothstep(1150.0, 2480.0, abs(position.x)))
+          * (1.0 - smoothstep(2280.0, 3580.0, abs(position.y)))
+          * smoothstep(0.0, 320.0, dShore);
   vec2 hor = vec2(0.0);
   float hh = 0.0;
   for(int i=0;i<${OCEAN_WAVES};i++){
     vec4 wv = uSwell[i];
-    // ⚠️ Geometrie-LOD: Das Gitter hat ~28-m-Quads. Wellen unter ~130 m
+    // ⚠️ Geometrie-LOD: Das Gitter hat ~23-m-Quads. Wellen unter ~85 m
     // Länge werden NICHT verschoben (sonst aliasen sie im Vertex), sondern
     // erscheinen nur in der Fragment-Normale – klassisches Normal-Mapping.
-    float k = wv.z, A = wv.w*E*smoothstep(75.0, 130.0, 6.2831853/k);
+    // 85 m ≈ 3,7 Stützstellen pro Welle; darunter wird der Kamm eckig.
+    float k = wv.z, A = wv.w*E*smoothstep(55.0, 85.0, 6.2831853/k);
     float ph = dot(wv.xy, vXw)*k - sqrt(9.81*k)*uTime + float(i)*2.399;
     hh  += A*cos(ph);
     hor -= wv.xy*(0.55*A*sin(ph));       // Gerstner-Chop: spitze Kämme
@@ -3375,7 +3409,7 @@ ${patch ? `
   // Hub ≥ Wellenamplitude → kein Tal taucht unter die Fern-Meer-Ebene
   tp = vec3(position.x + hor.x, position.y + hor.y, uLift*E + 0.35 + hh);
   // hinter der Uferlinie unter den Strand abtauchen (nahtloser Anschluss)
-  tp.z -= max(0.0, distC - (${SEA_R} - 20.0))*0.35;
+  tp.z -= max(0.0, 20.0 - dShore)*0.35;
 ` : ``}
   vToEye = uEye - tp;
   // ⚠️ Fürs Wellen-LOD wird die FLACHE Ebene genutzt. Aus der verschobenen
@@ -3393,7 +3427,8 @@ const OCEAN_FRAGMENT = `
 ${OCEAN_PARS}
 uniform sampler2D uDetail;
 uniform vec3  uSunDir, uSunCol, uSkyCol, uHorizonCol, uDeepCol, uShallowCol, uFoamCol;
-uniform float uSunI, uAmb, uPixel, uHaze, uChop;
+uniform float uSunI, uAmb, uPixel, uHaze, uChop, uAmpSum;
+${SHORE_GLSL}
 #include <logdepthbuf_pars_fragment>
 
 /* Eine Detail-Kaskade: Tangenten-Normale + Steigungs-Varianz (→ Rauheit).
@@ -3453,7 +3488,7 @@ void main(){
   vec3 N = normalize(vec3(-g + dn, 1.0));
 
   // ---- Wassertiefe: Beer-Lambert (flach türkis, tief dunkelblau) ---
-  float dShore = ${SEA_R} - length(vXw - ${SEA_C});
+  float dShore = ${SEA_R} + shoreWob(vXw.y) - length(vXw - ${SEA_C});
   float depthK = smoothstep(0.0, 900.0, dShore);
   vec3  water  = mix(uShallowCol, uDeepCol, depthK);
 
@@ -3466,7 +3501,8 @@ void main(){
   // ---- Körperfarbe: Streuung + Rückstreuung an den Kämmen ---------
   float NdotL = max(dot(N, uSunDir), 0.0);
   vec3  body  = water*(uAmb + 0.55*NdotL*uSunI);
-  float sss   = pow(max(dot(V, -uSunDir), 0.0), 3.0)*max(0.0, h)*0.42;
+  float hN    = h/uAmpSum;                             // Kammhöhe, auf ±1 normiert
+  float sss   = pow(max(dot(V, -uSunDir), 0.0), 3.0)*max(0.0, hN)*1.1;
   body += uShallowCol*sss*uSunI;
 
   // ---- GGX-Sonnenglitzer; die weggeblendeten Wellen wirken als
@@ -3486,9 +3522,9 @@ void main(){
 
   // ---- Schaum: Kammhöhe × Steilheit, plus Brandung am Ufer --------
   // (Brandungs-Frequenz 286·2π/OCEAN_T = ebenfalls exakt periodisch)
-  float foam = smoothstep(0.90, 1.60, h)*smoothstep(0.05, 0.20, length(g));
+  float foam = smoothstep(0.30, 0.62, hN)*smoothstep(0.06, 0.24, length(g));
   float surf = (1.0 - smoothstep(0.0, 150.0, dShore))
-             * (0.45 + 0.55*sin(dShore*0.085 - uTime*1.49747 + h*1.8));
+             * (0.45 + 0.55*sin(dShore*0.085 - uTime*1.49747 + hN*4.5));
   foam = clamp(foam + surf*1.2, 0.0, 1.0)
        * (0.55 + 0.45*texture2D(uDetail, vXw/23.0 + uTime*vec2(0.02,-0.01)).a)
        * smoothstep(-30.0, 12.0, dShore);        // nicht auf dem Strand
@@ -4599,8 +4635,37 @@ const Flight = {
       new THREE.CircleGeometry(40000, 48),
       new THREE.MeshStandardMaterial({color:0x3f8d4e, roughness:.95, map:grassTex}));
     this.groundPlane.rotation.x = -Math.PI/2;
+    /* Randscheitel einer CircleGeometry radial verschieben – so wird aus der
+       lineal-geraden Kreiskante eine geschwungene Küste mit Buchten und
+       Landzungen. `wob` bekommt die NORD-Koordinate des Scheitels; ein
+       positiver Wert schiebt die Kante weiter landeinwärts (nach Westen).
+       ⚠️ Die Segmentzahl muss die kürzeste Wobble-Welle GUT auflösen:
+       bei r = 40 km sind 4000 Segmente ~63 m Scheitelabstand, also ≈ 8
+       Stützstellen auf die kürzeste Welle (520 m). Mit 1200 Segmenten
+       (209 m) sieht die Küste sichtbar eckig/facettiert aus. Kostet nur
+       je ein Dreieck pro Segment – der Fächer ist spottbillig. */
+    const wobbleRim = (geo, R, wob, extra)=>{
+      const p = geo.attributes.position;
+      for(let i=0;i<p.count;i++){
+        const x = p.getX(i), y = p.getY(i), r = Math.hypot(x, y);
+        if(r < 1) continue;                        // Mittelpunkt der Fächer-Geometrie
+        // ⚠️ Die Wobble-Phase hängt von der VERSCHOBENEN Nord-Koordinate ab
+        // (so liest sie der Shader). Einmal naiv mit y gerechnet, wandert der
+        // Scheitel weit draußen um mehr als eine halbe Wobble-Wellenlänge –
+        // Geometrie und Shader-Uferlinie liefen dann auseinander. Deshalb
+        // Fixpunkt-Iteration: s = (R + wob(y·s) + extra)/r. Konvergiert in
+        // wenigen Schritten. Am fernen Rand (|y| ≈ R) ist die Kontraktion
+        // aber nur ~0,8 pro Schritt, deshalb großzügig iterieren – der
+        // Aufbau läuft genau einmal und kostet nichts.
+        let f = 1;
+        for(let k=0;k<24;k++) f = (R + wob(y*f) + (extra||0))/r;
+        p.setXY(i, x*f, y*f);
+      }
+      geo.computeBoundingSphere();
+      return geo;
+    };
     this.groundBeach = new THREE.Mesh(
-      new THREE.CircleGeometry(40000, 64),
+      wobbleRim(new THREE.CircleGeometry(40000, 4000), 40000, beachWobble),
       new THREE.MeshStandardMaterial({color:0xd9c893, roughness:.95, map:sandTex}));
     this.groundBeach.rotation.x = -Math.PI/2;
     this.groundBeach.position.set(41000, 2, 0);   // Strand ab ~1 km Ost – Meerblick von der Rampe!
@@ -4625,8 +4690,11 @@ const Flight = {
       uAmb:       {value:0.34},
       uPixel:     {value:0.0013},   // Winkelgröße eines Pixels (Wellen-LOD)
       uHaze:      {value:6.5e-5},   // Luftperspektive zum Horizont
-      uChop:      {value:1.0}
+      uChop:      {value:1.0},
+      uAmpSum:    {value:1}         // Σ Wellenamplituden (normiert Schaum & SSS)
     };
+    this.oceanU.uAmpSum.value =
+      this.oceanU.uSwell.value.reduce((s,w)=>s+w.w, 0);
     const oceanMat = patch=>new THREE.ShaderMaterial({
       uniforms: Object.assign({uOrigin:{value:new THREE.Vector2()},
                                uEye:{value:new THREE.Vector3()}}, this.oceanU),
@@ -4634,15 +4702,21 @@ const Flight = {
     });
     const seaMat = oceanMat(false);
     seaMat.uniforms.uOrigin.value.set(42500, 0);
-    this.groundSea = new THREE.Mesh(new THREE.CircleGeometry(41000, 96), seaMat);
+    // Rand mit DERSELBEN Wobble-Funktion wie der Shader, aber 30 m seewärts:
+    // so endet das Fern-Meer immer VOR der Uferlinie und der fein aufgelöste
+    // Küsten-Patch (28-m-Quads) zeichnet die Wasserkante allein.
+    this.groundSea = new THREE.Mesh(
+      wobbleRim(new THREE.CircleGeometry(41000, 4000), 41000, shoreWobble, -30), seaMat);
     this.groundSea.rotation.x = -Math.PI/2;
     this.groundSea.position.set(42500, 4, 0);     // Ozean ab ~1,5 km Ost
-    // Küsten-Patch: 4,0 × 7,2 km über dem Streifen 1,4–5,4 km Ost, ~28-m-Raster
-    // (verschoben werden nur Wellen ab ~130 m – das sind ≥ 4,7 Stützstellen).
+    // Küsten-Patch: 5,0 × 7,2 km über dem Streifen 0,9–5,9 km Ost, ~23-m-Raster
+    // (verschoben werden nur Wellen ab ~85 m – das sind ≥ 3,7 Stützstellen).
+    // Reicht bewusst weit nach Westen: die geschwungene Uferlinie wandert
+    // bis ~1,3 km Ost, und sie soll komplett vom Patch gezeichnet werden.
     const patchMat = oceanMat(true);
     patchMat.uniforms.uOrigin.value.set(3400, 0);
     patchMat.uniforms.uLift = {value:swellLift(this.oceanU.uSwell.value)};
-    this.seaPatch = new THREE.Mesh(new THREE.PlaneGeometry(4000, 7200, 145, 260), patchMat);
+    this.seaPatch = new THREE.Mesh(new THREE.PlaneGeometry(5000, 7200, 218, 314), patchMat);
     this.seaPatch.rotation.x = -Math.PI/2;
     this.seaPatch.position.set(3400, 4, 0);   // gleiche Ebene wie das Fern-Meer
     this.seaPatch.frustumCulled = false;   // Vertex-Displacement sprengt die Bounding-Box
@@ -5873,7 +5947,11 @@ const Flight = {
           const dLZ = this.lzLocal ? b.local.distanceTo(this.lzLocal) : 1e9;
           const dDS = this.dsLocal ? b.local.distanceTo(this.dsLocal) : 1e9;
           const dPad = b.local.clone().sub(this.padLocal || b.local);
-          const inWater = dPad.dot(this.padEastV||V3(0,0,-1)) > 1500 && dPad.length() < 85000;
+          // Wasserung? Gegen die GESCHWUNGENE Uferlinie prüfen (shoreDist),
+          // damit sich das Urteil mit dem deckt, was man auf dem Bild sieht.
+          const inWater = shoreDist(dPad.dot(this.padEastV||V3(1,0,0)),
+                                    dPad.dot(this.padNorthV||V3(0,0,1))) > 0
+                          && dPad.length() < 85000;
           let fac, wo;
           if(dDS < 130){
             fac = 0.9; wo = "🚢 AUF DEM DRONESHIP"; this.statShipLanded = true;
@@ -7588,7 +7666,6 @@ const Flight = {
     // Sonnenlicht: Richtung wird weiter unten (Tag/Nacht-Block) gesetzt –
     // im Orbit die echte Geometrie, bodennah der Stand der Spieluhr.
     const sunReal = this.pos.clone().negate().normalize();
-    this.sunGlow.position.set(0,0,0);  // Sonne steht im Welt-Ursprung
     this.cloudShell.rotation.y = this.t*2*Math.PI/14000;
     const alt = leibnizAlt(this.pos, this.t);
     // Musikwechsel beim Erreichen/Verlassen des Weltraums
@@ -7630,8 +7707,21 @@ const Flight = {
     // seit die Sonne bodennah wirklich am Himmel steht (s. groundSunDir)
     // trägt sie den Löwenanteil – mit dem alten Ambient-Boost brannten
     // Strand und Wiese aus. Im Orbit (gb=0) bleibt alles wie gehabt.
-    this.ambLight.intensity = 0.55 - 0.25*gb*this.dayLight;
+    // ...und NACHTS fällt es weitgehend weg – sonst leuchten Strand und
+    // Wiese unter einem sternenklaren Nachthimmel weiter wie am Mittag,
+    // was seit der sichtbaren Sonne besonders auffällt. Rest = Mondlicht
+    // (kühl, weil die Farbe bei dayLight→0 auf ambSpace zurückfällt).
+    this.ambLight.intensity =
+      0.55 - 0.25*gb*this.dayLight - 0.40*gb*(1 - this.dayLight);
     this.ambLight.color.copy(this.ambSpace).lerp(this.ambDay, gb*this.dayLight);
+    // ⚠️ Die SICHTBARE Sonne muss dort stehen, wo ihr LICHT herkommt.
+    // Bodennah ist das nicht mehr der Weltursprung, sondern `groundSunDir`
+    // (Spieluhr) – sonst scheint zwar die Sonne, aber am Himmel ist keine
+    // zu sehen: sie steckte bis 40 km Höhe unter dem Horizont.
+    // `sunScenePos` = Position in SZENEN-Koordinaten (Schiff = Ursprung);
+    // im All (gb=0) ist groundSunDir = sunReal → exakt der Weltursprung.
+    this.sunScenePos = this.groundSunDir.clone().multiplyScalar(this.pos.length());
+    this.sunGlow.position.copy(this.sunScenePos).add(this.pos);   // Szene → world-lokal
     this.sunGlow.material.opacity = this.dayLight;   // Sonne "geht unter" (bodennah)
     // Himmelsfarbe: HÖHE quadratisch (das Blau verschwindet zum All hin
     // schnell), TAGESZEIT linear – quadriert man beides gemeinsam, ist der
@@ -7970,12 +8060,13 @@ const Flight = {
     const x = c.getContext("2d");
     x.clearRect(0, 0, w, h);
     if(this.map || this.crashed || !this.v) return;
-    // Sonne (Weltursprung) liegt in der Szene bei world.position (= -Flight.pos)
-    const sunRel = this.pos.clone().negate();
+    // Sonne dort, wo sie auch WIRKLICH gemalt wird (s. sunScenePos): im All
+    // der Weltursprung, bodennah der Stand der Spieluhr.
+    const sunRel = (this.sunScenePos || this.pos.clone().negate()).clone();
     const camDir = new THREE.Vector3();
     this.camera.getWorldDirection(camDir);
     if(camDir.dot(sunRel) < 0) return;               // Sonne hinter der Kamera
-    const pr = new THREE.Vector3().copy(this.world.position).project(this.camera);
+    const pr = sunRel.clone().project(this.camera);
     const sx = (pr.x*0.5+0.5)*w, sy = (-pr.y*0.5+0.5)*h;
     if(sx < -w*0.3 || sx > w*1.3 || sy < -h*0.3 || sy > h*1.3) return;
     // Verdeckung: steht ein Planet/Mond zwischen Schiff und Sonne?
