@@ -545,6 +545,93 @@ function landH(x, y, z, oct){
   }
   return sum/norm - TERRAIN_SEA;
 }
+/* =================================================================
+   RELIEF: Berge, Täler und Wälder  – EINE Quelle für alles
+   -----------------------------------------------------------------
+   `landH` sagt nur, WO Land ist (Vorzeichen = Küstenlinie). Wie das Land
+   AUSSIEHT, kommt hier dazu, und zwar wieder aus einer einzigen Funktion,
+   die Bodenszene, Planetentextur und 2D-Karte gemeinsam benutzen – sonst
+   springt beim Aufstieg wieder alles um (genau der Fehler, den die
+   Küstenlinie früher hatte).
+   · `_tRidge` = "ridged multifractal": 1 − |2n − 1| statt n. Das Rauschen
+     bekommt dadurch scharfe GRATE statt runder Hügel – der Standardtrick
+     für Gebirgszüge. Höhere Oktaven werden mit der bisherigen Höhe
+     gewichtet (`w`), damit Grate sich verzweigen statt gleichmäßig zu
+     rauschen.
+   · ⚠️ Berge wachsen mit dem Abstand von der KÜSTE (`smoothstep` über
+     landH). Das ist nicht nur geologisch plausibel (Küstenebenen, Gebirge
+     im Landesinneren) – es hält vor allem ALLE Startrampen und jede
+     Wasserung flach. Und das ist Pflicht: Die PHYSIK des Spiels kennt nur
+     die Kugel (`alt = |pos| − R`), Landungen finden also weiter auf
+     Meeresspiegelhöhe statt. Wären die Rampen im Gebirge, stünde die
+     Rakete sichtbar in der Luft oder im Hang.
+   · `forestMask` = eigenes Rauschen × Höhenband: Wälder stehen nicht
+     überall, sondern in Streifen, und oberhalb der Baumgrenze bzw. in den
+     Eiskappen gar nicht.
+   ================================================================= */
+const TERRAIN_MAX_H = 3400;   // höchster Gipfel in Metern
+const TREE_LINE     = 1500;   // darüber wächst nichts mehr
+/* ⚠️ Startfrequenz 8 = Gebirgszüge von ~470 km Länge. Mit 2,6 (Wellenlänge
+   1450 km, also fast ein halber Planetenumfang) gab es global nur zwei, drei
+   riesige Wölbungen – aus der Bodenszene (40 km Sichtweite) sah das aus wie
+   eine leicht gewellte Wiese, weil man immer nur einen Hang davon sah. */
+function _tRidge(x, y, z, oct){
+  let f = 8, a = 1, sum = 0, norm = 0, w = 1;
+  for(let i=0;i<oct;i++){
+    const o = i*29.71 + 5.5;
+    let n = _tNoise(x*f + 3.7 + o, y*f + 19.3 + o*1.3, z*f + 61.1 + o*2.1);
+    n = 1 - Math.abs(2*n - 1);          // Grat statt Hügel
+    n *= n;
+    sum  += a*n*w;
+    norm += a;
+    w = Math.max(0, Math.min(1, n*1.5));  // Grate verzweigen sich
+    f *= 2.07; a *= 0.5;
+  }
+  return sum/norm;
+}
+/* Geländehöhe in METERN über dem Meeresspiegel (0 auf dem Wasser und an
+   jeder Küste). oct steuert die Feinheit wie bei landH.
+   ⚠️ `lh` durchreichen, wenn der Landwert schon bekannt ist! `landH` ist mit
+   8–12 Oktaven der teuerste Teil; die Planetentextur würde ihn sonst pro
+   Texel dreimal rechnen (Farbe, Höhe, Wald) und dreimal so lange laden. */
+function terrainH(x, y, z, oct, lh){
+  if(lh === undefined) lh = landH(x, y, z, oct || TERRAIN_OCT_TEX);
+  if(lh <= 0) return 0;
+  // Küstenebene → Gebirge: erst ab etwas Abstand vom Meer geht es hoch.
+  // ⚠️ Der Nenner ist die BREITE der Küstenebene und damit der wichtigste
+  // Regler: bei 0,115 lagen die ersten echten Berge ~80 km landeinwärts –
+  // von der Rampe aus (Sichtweite 40 km) war der Horizont dann schnurgerade.
+  // Mit 0,055 beginnt das Gebirge ~10 km hinter der Küste und steht sichtbar
+  // am Horizont, während die Rampe selbst (lh ≈ 0,002) weiter flach bleibt.
+  const inland = Math.max(0, Math.min(1, lh/0.036));
+  const cont   = inland*inland*(3 - 2*inland);
+  // Oktaven wie bei landH an die Verwendung koppeln: Planetentextur (oct 8)
+  // bekommt 6 Oktaven = ~15-km-Grate (feiner kann die Textur gar nicht),
+  // die Bodenszene (oct 12) bekommt 9 = ~1,8-km-Grate, also echte Kämme und
+  // Täler innerhalb der 40-km-Scheibe.
+  const ridge  = _tRidge(x, y, z, Math.max(3, Math.min(9, (oct || TERRAIN_OCT_TEX) - 2)));
+  // Sanfte Grundwölbung + scharfe Grate darauf
+  return TERRAIN_MAX_H*cont*(0.30*inland + 0.85*ridge*ridge);
+}
+/* 0 = kein Wald, 1 = dichter Wald. Braucht Land, mäßige Höhe und keine
+   Polkappe – und kommt in Flecken, nicht flächendeckend. */
+function forestMask(x, y, z, h, lh){
+  if(lh === undefined) lh = landH(x, y, z, TERRAIN_OCT_LOCAL);
+  if(lh <= 0.004) return 0;
+  const alt = h===undefined ? terrainH(x, y, z, TERRAIN_OCT_LOCAL, lh) : h;
+  const lat = Math.abs(Math.asin(Math.max(-1, Math.min(1, y))));
+  if(lat > 1.16) return 0;                       // Polarzone: keine Bäume
+  const cold = 1 - Math.max(0, Math.min(1, (lat - 0.95)/0.21));
+  const band = 1 - Math.max(0, Math.min(1, (alt - TREE_LINE*0.55)/(TREE_LINE*0.45)));
+  // ⚠️ Frequenz = WALDGRÖSSE. Bei Frequenz 11 ist eine Rauschzelle 330 km
+  // groß – dann ist eine ganze Weltgegend entweder komplett Wald oder
+  // komplett kahl, und die Bodenszene (40 km Radius) sieht nie einen Rand.
+  // 70 ≈ 54-km-Wälder, die zweite Oktave zerfranst ihre Ränder.
+  const n = _tNoise(x*70 + 71.2, y*70 + 5.9, z*70 + 33.4)*0.7
+          + _tNoise(x*185 + 12.4, y*185 + 61.7, z*185 + 8.2)*0.3;
+  const patch = Math.max(0, Math.min(1, (n - 0.44)/0.16));
+  return patch*band*cold*Math.max(0, Math.min(1, lh/0.006));
+}
 MONTI.craters = (()=>{ const rnd=seededRand(99),c=[];
   for(let i=0;i<16;i++){const a=rnd()*Math.PI*2,d=rnd()*0.85;
     c.push({x:Math.cos(a)*d,y:Math.sin(a)*d,r:0.04+rnd()*0.11});}
@@ -580,10 +667,27 @@ function leibnizDisc(){
       const ex = -sx2, ez = cx;                        // "rechts" auf der Karte
       const dx = cx*w + ex*u, dy = -v, dz = sx2*w + ez*u;
       const l = Math.hypot(dx, dy, dz);
-      const h = landH(dx/l, dy/l, dz/l, TERRAIN_OCT_TEX);
-      const ice = Math.max(0, Math.min(1, (Math.abs(Math.asin(dy/l)) - 1.26)/0.20));
+      const ux = dx/l, uy = dy/l, uz = dz/l;
+      const h = landH(ux, uy, uz, TERRAIN_OCT_TEX);
+      const ice = Math.max(0, Math.min(1, (Math.abs(Math.asin(uy)) - 1.26)/0.20));
       let r, g, bl;
-      if(h > 0){ const t2 = Math.min(1, h/0.16); r = 90 - t2*43; g = 168 - t2*46; bl = 100 - t2*36; }
+      if(h > 0){
+        // Dieselbe Höhen-Einfärbung wie die Kugeltextur (s. makeBodyTexture) –
+        // sonst zeigt die 2D-Karte einen anderen Planeten als das Fenster.
+        const e = terrainH(ux, uy, uz, TERRAIN_OCT_TEX, h)/TERRAIN_MAX_H;
+        const forest = forestMask(ux, uy, uz, e*TERRAIN_MAX_H, h);
+        if(e < 0.34){
+          const t2 = e/0.34;
+          r = 96 - t2*20; g = 142 - t2*18; bl = 74 - t2*14;
+          r += (38-r)*forest*0.8; g += (74-g)*forest*0.8; bl += (36-bl)*forest*0.8;
+        } else if(e < 0.68){
+          const t2 = (e - 0.34)/0.34;
+          r = 76 + t2*58; g = 124 - t2*6; bl = 60 + t2*40;
+        } else {
+          const t2 = Math.min(1, (e - 0.68)/0.24);
+          r = 134 + t2*74; g = 118 + t2*96; bl = 100 + t2*120;
+        }
+      }
       else     { const t2 = Math.min(1, -h/0.18); r = 74 - t2*55; g = 150 - t2*100; bl = 190 - t2*95; }
       if(ice > 0){ r += (238-r)*ice; g += (246-g)*ice; bl += (252-bl)*ice; }
       const sh = 0.55 + 0.45*w;                        // Kugelrand abdunkeln
@@ -2088,9 +2192,11 @@ const AdminCam = {
     this.camera = new THREE.PerspectiveCamera(50, 1, 1000, 4e11);
     this.scene.add(new THREE.AmbientLight(0x8090b0, .45));
     this.scene.add(new THREE.PointLight(0xfff2dd, 1.5, 0, 0));   // die Sonne strahlt
-    const sun = new THREE.Mesh(new THREE.SphereGeometry(SUN.R, 48, 24),
-      new THREE.MeshBasicMaterial({color:0xfff0b0}));
+    // Sonne mit Photosphären-Shader + Korona (s. makeSunMesh): hier darf sie
+    // aufwendig sein – man zoomt in der Admin-Cam bis auf 9 Sonnenradien heran.
+    const sun = makeSunMesh(SUN.R, {corona:true});
     this.scene.add(sun);
+    this.sunMesh = sun;
     this.meshes = new Map([[SUN, sun]]);
     for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON]){
       const m = new THREE.Mesh(new THREE.SphereGeometry(b.R, 96, 48),
@@ -2263,6 +2369,9 @@ const AdminCam = {
     if(w<2 || h<2) return;
     this.t += this.SPEEDS[this.speedI][0]/60;
     document.getElementById("admSpeed").textContent = "⏱ "+this.SPEEDS[this.speedI][1];
+    // Granulation der Photosphäre brodelt. ⚠️ Zeit wrappen – bei 10 Tagen/s
+    // wird `t` sonst so groß, dass float32 die Rauschkoordinaten zerlegt.
+    this.sunMesh.material.uniforms.uTime.value = (this.t/3600) % 4096;
     for(const [b,m] of this.meshes){
       if(b===SUN) continue;
       m.position.copy(bodyPos(b, this.t));
@@ -2984,6 +3093,162 @@ function setFlames(grp, on, scale){
 }
 
 /* =================================================================
+   DIE SONNE  (Photosphäre als Shader statt einfarbiger Kugel)
+   -----------------------------------------------------------------
+   Vier echte Effekte, alle analytisch – kein einziges Texel Speicher:
+   1. RANDVERDUNKELUNG (limb darkening): Am Rand blickt man schräg in die
+      Photosphäre und sieht deshalb nur ihre oberen, KÜHLEREN Schichten.
+      Klassische Näherung I(µ)/I(1) = 1 − u₁(1−µ) − u₂(1−µ)², µ = cos des
+      Winkels zur Blickrichtung. Deshalb ist die echte Sonne in der Mitte
+      hell und außen deutlich dunkler & röter – der wichtigste Effekt.
+   2. GRANULATION: Die Konvektionszellen (~1000 km, heiß aufsteigend) mit
+      dunklen Abkühl-Rändern dazwischen. Wertrauschen in 4 Oktaven, durch
+      smoothstep zu Zellen kontrastiert; darüber die viel größere
+      SUPERgranulation als langsame Helligkeitswelle.
+   3. SONNENFLECKEN: kühle Gebiete (Umbra + hellerer Penumbra-Saum) aus
+      einer groben Rauschoktave – wandern mit der Rotation.
+   4. CHROMOSPHÄRE: der schmale rot-orange Saum GENAU am Rand (pow(1−µ, ~6)).
+   Die Farbe interpoliert zwischen ~4800 K (Zell-Ränder, orange) und
+   ~5900 K (Zell-Mitten, weißgelb) – deshalb wirkt sie glühend statt gemalt.
+   ⚠️ uTime wird gewrappt: mit Zeitraffer wird `Flight.t` sonst so groß,
+   dass die Rauschkoordinaten in float32 zerfallen (Granulation zerfranst).
+   ================================================================= */
+const SUN_FRAG = `
+#include <common>
+uniform float uTime;
+varying vec3 vDir;    // Objektraum-Richtung (= Normale der Kugel)
+varying vec3 vView;   // Richtung zur Kamera
+#include <logdepthbuf_pars_fragment>
+float sHash(vec3 p){
+  p = fract(p*0.3183099 + vec3(0.71, 0.113, 0.419));
+  p *= 17.0;
+  return fract(p.x*p.y*p.z*(p.x + p.y + p.z));
+}
+float sNoise(vec3 x){
+  vec3 i = floor(x), f = fract(x);
+  f = f*f*(3.0 - 2.0*f);
+  return mix(mix(mix(sHash(i), sHash(i + vec3(1,0,0)), f.x),
+                 mix(sHash(i + vec3(0,1,0)), sHash(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(sHash(i + vec3(0,0,1)), sHash(i + vec3(1,0,1)), f.x),
+                 mix(sHash(i + vec3(0,1,1)), sHash(i + vec3(1,1,1)), f.x), f.y), f.z);
+}
+/* ⚠️ Oktaven AUSGESCHRIEBEN statt Schleife mit variabler Grenze: GLSL ES 1.00
+   (WebGL1, alte Schul-Grafiktreiber) erlaubt nur konstante Schleifenbedingungen. */
+float sFbm2(vec3 p){
+  return (sNoise(p)*0.5 + sNoise(p*2.03)*0.25)/0.75;
+}
+float sFbm4(vec3 p){
+  return (sNoise(p)*0.5 + sNoise(p*2.03)*0.25
+        + sNoise(p*4.11)*0.125 + sNoise(p*8.27)*0.0625)/0.9375;
+}
+void main(){
+#include <logdepthbuf_fragment>
+  vec3 N = normalize(vDir);
+  float mu = clamp(dot(N, normalize(vView)), 0.0, 1.0);   // 1 = Mitte, 0 = Rand
+  // --- Granulation: langsam brodelnde Konvektionszellen ---------------
+  // ⚠️ Granulation ist FEIN und KONTRASTARM. Mit groben, hart kontrastierten
+  // Zellen sieht die Sonne aus wie ein Tarnmuster – die echten Konvektions-
+  // zellen sind ~1000 km groß, also nur ~1/260 des Sonnendurchmessers.
+  float t = uTime;
+  vec3 p = N*110.0 + vec3(0.0, t*0.035, 0.0);
+  float g  = sFbm4(p);
+  float cells = smoothstep(0.30, 0.74, g);                // helle Zellmitten
+  float fine  = sNoise(N*300.0 + vec3(t*0.06, 0.0, 0.0)); // feine Struktur
+  float super = sFbm2(N*17.0 + vec3(0.0, 0.0, t*0.012));  // Supergranulation
+  float bright = 0.80 + 0.20*cells + 0.07*fine + 0.10*super;
+  // --- Sonnenflecken: kühle Umbra mit hellerem Penumbra-Saum ----------
+  // Echte Flecken sitzen in den Aktivitätsgürteln ±~30° Breite, nicht an
+  // den Polen – deshalb die Breiten-Maske über N.y.
+  float belt  = 1.0 - smoothstep(0.24, 0.62, abs(N.y));
+  float spotN = sFbm2(N*8.5 + vec3(11.0, 4.0, t*0.004))*belt;
+  float pen   = smoothstep(0.66, 0.73, spotN);            // Saum
+  float umbra = smoothstep(0.73, 0.78, spotN);            // Kern
+  bright *= 1.0 - 0.26*pen - 0.40*umbra;
+  // --- Randverdunklung (u1 = 0.62, u2 = 0.20) ------------------------
+  float limb = 1.0 - 0.62*(1.0 - mu) - 0.20*(1.0 - mu)*(1.0 - mu);
+  limb = max(limb, 0.0);
+  // Farbe: kühle Zellränder orange, heiße Zellmitten weißgelb.
+  // ⚠️ Bewusst NICHT bis ins reine Weiß ausgesteuert – physikalisch wäre die
+  // Scheibe gleißend, aber dann sieht man von Granulation und Flecken nichts
+  // mehr (genau das passiert auf echten Fotos ohne Filter).
+  // ⚠️ Die Randverdunklung trägt vor allem die FARBE (zum Rand hin rot), nicht
+  // die Helligkeit: multipliziert man sie voll auf, wird die Scheibe außen
+  // schmutzig-braun statt glühend.
+  float lum  = bright*limb;
+  vec3 cool = vec3(1.00, 0.45, 0.10), hot = vec3(1.00, 0.96, 0.83);
+  vec3 col = mix(cool, hot, smoothstep(0.30, 0.95, lum));
+  col *= 0.70 + 0.45*lum;
+  // Chromosphäre: schmaler rot-oranger Saum exakt am Rand
+  col += vec3(1.0, 0.32, 0.09)*pow(1.0 - mu, 7.0)*0.9;
+  gl_FragColor = vec4(col, 1.0);
+}`;
+const SUN_VERT = `
+#include <common>
+varying vec3 vDir;
+varying vec3 vView;
+#include <logdepthbuf_pars_vertex>
+void main(){
+  vDir = normalize(position);
+  // Blickrichtung im OBJEKTRAUM. ⚠️ Kein inverse(modelMatrix) – das gibt es
+  // in GLSL ES 1.00 (WebGL1) nicht. Die Sonne wird nie gedreht oder skaliert,
+  // ihre modelMatrix ist also eine reine Verschiebung: Objektraum = Weltraum
+  // minus Kugelmittelpunkt.
+  vec3 originW = (modelMatrix*vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+  vView = cameraPosition - originW - position;
+  gl_Position = projectionMatrix*modelViewMatrix*vec4(position, 1.0);
+#include <logdepthbuf_vertex>
+}`;
+/* Korona: einmalig gezeichnete Canvas-Textur (weicher Abfall + unregelmäßige
+   Strahlen) als additives Billboard. Kostet einen Sprite, sieht aber nach
+   Sonnenfinsternis-Foto aus. */
+let _coronaTex = null;
+function coronaTexture(){
+  if(_coronaTex) return _coronaTex;
+  const S = 256, c = document.createElement("canvas"); c.width = c.height = S;
+  const x = c.getContext("2d"), rnd = seededRand(5100);
+  x.clearRect(0, 0, S, S);
+  x.globalCompositeOperation = "lighter";
+  // Streamer: BREITE, kurze, schwache Keile. ⚠️ Lange schmale Strahlen sehen
+  // aus wie eine Pusteblume, nicht wie eine Korona – die echte Korona ist ein
+  // diffuser Schleier mit ein paar angedeuteten Vorzugsrichtungen.
+  for(let i=0;i<70;i++){
+    const a = rnd()*6.283, len = 0.20 + rnd()*0.26, wid = 0.10 + rnd()*0.20;
+    const g = x.createRadialGradient(S/2, S/2, S*0.15, S/2, S/2, len*S/2 + S*0.15);
+    g.addColorStop(0, "rgba(255,236,196,.09)");
+    g.addColorStop(0.5, "rgba(255,203,132,.04)");
+    g.addColorStop(1, "rgba(255,170,90,0)");
+    x.fillStyle = g;
+    x.beginPath(); x.moveTo(S/2, S/2);
+    x.arc(S/2, S/2, len*S/2 + S*0.15, a - wid, a + wid); x.closePath(); x.fill();
+  }
+  // weicher Grundschimmer direkt über der Scheibe
+  const g2 = x.createRadialGradient(S/2, S/2, S*0.26, S/2, S/2, S*0.5);
+  g2.addColorStop(0, "rgba(255,246,214,.55)");
+  g2.addColorStop(0.18, "rgba(255,216,146,.20)");
+  g2.addColorStop(0.5, "rgba(255,180,96,.05)");
+  g2.addColorStop(1, "rgba(255,150,70,0)");
+  x.fillStyle = g2; x.fillRect(0, 0, S, S);
+  return (_coronaTex = new THREE.CanvasTexture(c));
+}
+/* Sonnenkugel. corona:true hängt das additive Korona-Billboard als KIND an
+   (skaliert relativ zur Kugel mit) – in der Flug-Szene macht das schon
+   `sunGlow` + Lens-Flare, dort bleibt sie aus. */
+function makeSunMesh(R, opt){
+  const mesh = new THREE.Mesh(
+    new THREE.SphereGeometry(R, 64, 32),
+    new THREE.ShaderMaterial({uniforms:{uTime:{value:0}},
+      vertexShader:SUN_VERT, fragmentShader:SUN_FRAG}));
+  if(opt && opt.corona){
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({
+      map:coronaTexture(), transparent:true, depthWrite:false,
+      blending:THREE.AdditiveBlending}));
+    spr.scale.set(R*3.9, R*3.9, 1);
+    mesh.add(spr);
+  }
+  return mesh;
+}
+
+/* =================================================================
    Planeten-Texturen (prozedural)
    ================================================================= */
 let _leibnizTex = null;
@@ -3003,32 +3268,114 @@ function makeBodyTexture(b){
     // Rampe exakt zum Kontinentrand, den man aus dem Orbit sieht.
     // (~230 ms für 2048×1024; das Ergebnis wird in `_leibnizTex` gecacht.)
     const img = x.createImageData(W, HH), d = img.data;
+    // ---- Reliefkarte VORAB in einen Puffer (Höhe + Landwert + Wald) ----
+    // Zwei Gründe: (1) die Schummerung (Hillshading) braucht die NACHBAR-
+    // höhen, die sonst dreimal neu gerechnet würden; (2) die Höhe ist
+    // glatter als die Küstenlinie und kommt deshalb mit halber Auflösung
+    // aus – das ist der Unterschied zwischen +18 % und +120 % Ladezeit.
+    const RW = W>>1, RH = HH>>1;
+    const relH = new Float32Array(RW*RH), relF = new Float32Array(RW*RH);
+    const relS = new Float32Array(RW*RH);         // fertige Schummerung
+    // Durchgang 1: `landH` EINMAL in voller Auflösung. Es ist mit Abstand der
+    // teuerste Teil (8 Oktaven je Texel) und wird von der Farbe UND vom
+    // Relief gebraucht – zweimal gerechnet kostet es ~90 ms extra.
+    const lhBuf = new Float32Array(W*HH);
+    for(let py=0; py<HH; py++){
+      const la = (0.5 - (py+0.5)/HH)*Math.PI, cl = Math.cos(la), sl = Math.sin(la);
+      for(let px=0; px<W; px++){
+        // ⚠️ UV-Konvention von THREE.SphereGeometry EXAKT nachbauen:
+        //   x = −cos(φ)·sin(θ) · y = cos(θ) · z = sin(φ)·sin(θ),  φ = u·2π
+        // Das MINUS bei x ist entscheidend – ohne das liegt der ganze Planet
+        // spiegelverkehrt zur Bodenszene und die Küste, an der man startet,
+        // ist auf der Kugel nirgends zu finden.
+        const ph = (px+0.5)/W*2*Math.PI;
+        lhBuf[py*W+px] = landH(-cl*Math.cos(ph), sl, cl*Math.sin(ph), TERRAIN_OCT_TEX);
+      }
+    }
+    // Durchgang 2: Relief + Wald, aber nur auf LAND und nur in halber
+    // Auflösung – Gebirge sind viel glatter als die Küstenlinie.
+    for(let ry=0; ry<RH; ry++){
+      const la = (0.5 - (ry*2+0.5)/HH)*Math.PI, cl = Math.cos(la), sl = Math.sin(la);
+      for(let rx=0; rx<RW; rx++){
+        const lh = lhBuf[(ry*2)*W + rx*2];
+        if(lh <= 0) continue;                     // Meer: Höhe und Wald bleiben 0
+        const ph = (rx*2+0.5)/W*2*Math.PI;
+        const ax = -cl*Math.cos(ph), ay = sl, az = cl*Math.sin(ph);
+        const h = terrainH(ax, ay, az, TERRAIN_OCT_TEX, lh);
+        relH[ry*RW+rx] = h;
+        relF[ry*RW+rx] = forestMask(ax, ay, az, h, lh);
+      }
+    }
+    const relAt = (rx, ry)=>relH[Math.max(0, Math.min(RH-1, ry))*RW
+                                + ((rx % RW) + RW) % RW];
+    // ---- Schummerung (Hillshading) --------------------------------------
+    // Der eigentliche Grund, warum ein Planet aus dem Orbit plastisch aussieht:
+    // Hänge, die zur (fiktiven) Beleuchtung aus Nordwest zeigen, werden hell,
+    // abgewandte dunkel – Täler und Grate ohne ein einziges Polygon.
+    // ⚠️ Im HALBAUFLÖSUNGS-Raster gerechnet, nicht pro Texel: das sind 4× so
+    // wenige Gradienten (und die Höhe ist ohnehin nur halb so fein).
+    const dyM = Math.PI*LEIBNIZ.R/RH;
+    for(let ry=0; ry<RH; ry++){
+      const la = (0.5 - (ry+0.5)/RH)*Math.PI;
+      // Meter je Zelle in Ost-Richtung; am Pol → 0, deshalb begrenzen,
+      // sonst wird die Schummerung dort wild.
+      const dxM = Math.max(600, 2*Math.PI*LEIBNIZ.R*Math.cos(la)/RW);
+      for(let rx=0; rx<RW; rx++){
+        const i = ry*RW+rx;
+        if(relH[i] <= 0){ relS[i] = 1; continue; }
+        const gx = (relAt(rx+1, ry) - relAt(rx-1, ry))/(2*dxM);
+        const gy = (relAt(rx, ry+1) - relAt(rx, ry-1))/(2*dyM);
+        const g = Math.sqrt(gx*gx + gy*gy);
+        // ⚠️ Nur ±30 %. Die Textur ist ALBEDO – in der Szene kommt noch das
+        // Sonnenlicht drauf. Mit stärkerer Schummerung (vorher bis 1,6)
+        // brannten alle besonnten Hänge zu weißen Flecken aus.
+        relS[i] = Math.max(0.55, Math.min(1.30,
+          (1 + 1.15*(-gx*0.6 + gy*0.8))*(1 - 0.18*Math.min(1, g*3))));
+      }
+    }
     for(let py=0; py<HH; py++){
       const lat = (0.5 - (py+0.5)/HH)*Math.PI;
       const cl = Math.cos(lat), sl = Math.sin(lat);
       // Eiskappen: ab ~72° Breite, weich einblendend
       const ice = Math.max(0, Math.min(1, (Math.abs(lat) - 1.26)/0.20));
+      const ry = Math.min(RH-1, py>>1);
       for(let px=0; px<W; px++){
-        // ⚠️ UV-Konvention von THREE.SphereGeometry EXAKT nachbauen:
-        //   x = −cos(φ)·sin(θ) · y = cos(θ) · z = sin(φ)·sin(θ),  φ = u·2π
-        // Das MINUS bei x ist entscheidend – ohne das liegt der ganze
-        // Planet spiegelverkehrt zur Bodenszene und die Küste, an der man
-        // startet, ist auf der Kugel nirgends zu finden.
-        const phi = (px+0.5)/W*2*Math.PI;
-        const h = landH(-cl*Math.cos(phi), sl, cl*Math.sin(phi), TERRAIN_OCT_TEX);
+        const h = lhBuf[py*W+px];                 // aus Durchgang 1
+        const ri = ry*RW + Math.min(RW-1, px>>1);
+        const elevM = relH[ri];
         let r, g2, bl;
-        if(h > 0){                       // Land: helles Küstengrün → dunkles Hochland
-          const t = Math.min(1, h/0.16);
-          r = 90 - t*43; g2 = 168 - t*46; bl = 100 - t*36;
+        if(h > 0){
+          // Land nach HÖHE einfärben: Küstengrün → Wiese → Fels → Schnee.
+          // (Vorher war die Farbe direkt der Rauschwert – deshalb sah der
+          // Planet aus wie eine Landkarte, nicht wie eine Landschaft.)
+          // ⚠️ Alle Werte bewusst deutlich unter 255: das hier ist die
+          // ALBEDO-Textur, das Sonnenlicht kommt in der Szene noch dazu.
+          const e = elevM/TERRAIN_MAX_H;
+          const forest = relF[ri];
+          if(e < 0.34){                  // Tiefland: Grün, im Wald dunkler
+            const t = e/0.34;
+            r = 96 - t*20; g2 = 142 - t*18; bl = 74 - t*14;
+            r += (38-r)*forest*0.8; g2 += (74-g2)*forest*0.8; bl += (36-bl)*forest*0.8;
+          } else if(e < 0.68){           // Mittelgebirge: Grün → Fels/Geröll
+            const t = (e - 0.34)/0.34;
+            r = 76 + t*58; g2 = 124 - t*6; bl = 60 + t*40;
+          } else {                       // Hochgebirge: Fels → Firn → Schnee
+            const t = Math.min(1, (e - 0.68)/0.24);
+            r = 134 + t*74; g2 = 118 + t*96; bl = 100 + t*120;
+          }
         } else {                         // Meer: Schelf hell → Tiefsee dunkel
           const t = Math.min(1, -h/0.18);
           r = 74 - t*55; g2 = 150 - t*100; bl = 190 - t*95;
         }
+        if(h > 0){ const sh = relS[ri]; r *= sh; g2 *= sh; bl *= sh; }
         if(ice > 0){                     // Schnee/Packeis überblenden
           r += (238-r)*ice; g2 += (246-g2)*ice; bl += (252-bl)*ice;
         }
         const o = (py*W+px)*4;
-        d[o]=r; d[o+1]=g2; d[o+2]=bl; d[o+3]=255;
+        d[o]=Math.max(0, Math.min(255, r));
+        d[o+1]=Math.max(0, Math.min(255, g2));
+        d[o+2]=Math.max(0, Math.min(255, bl));
+        d[o+3]=255;
       }
     }
     x.putImageData(img, 0, 0);
@@ -3260,6 +3607,142 @@ function buildAstronaut(){
    Zusammen mit dem Sonnenstand der Spieluhr (s. groundSunDir) werden die
    Wolken morgens/abends von der Seite golden angestrahlt.
    ================================================================= */
+/* =================================================================
+   HIMMEL: Rayleigh- + Mie-Streuung  (der rote Sonnenuntergang)
+   -----------------------------------------------------------------
+   Vorher war der Himmel EINE Farbe (`scene.background`), von Nachtschwarz
+   nach Tagblau interpoliert – deshalb gab es nie eine Morgen-/Abendröte:
+   ein Sonnenuntergang IST ein Farbverlauf über den Himmel.
+   Jetzt eine echte Einfachstreuungs-Rechnung auf einer Himmelskuppel:
+   · RAYLEIGH (Luftmoleküle): Streuquerschnitt ∝ 1/λ⁴, deshalb β_blau ≈ 5,7×
+     β_rot. Blau wird am stärksten aus dem Sonnenstrahl herausgestreut →
+     der Himmel ist blau, die Sonne selbst leicht gelb.
+   · MIE (Staub/Dunst, Teilchen ≫ λ): fast farbneutral, aber SEHR stark
+     vorwärtsstreuend (Henyey-Greenstein g = 0,76) → der weißliche Hof um
+     die Sonne.
+   Der Sonnenuntergang fällt dabei von selbst heraus: Steht die Sonne am
+   Horizont, läuft ihr Licht durch ~38 Luftmassen statt einer. exp(−τ) frisst
+   Blau (τ_blau ≈ 11) praktisch vollständig weg, Rot (τ_rot ≈ 2,7) überlebt →
+   das, was am Horizont noch ankommt und zu uns gestreut wird, ist rot.
+   Formel für ein homogenes Medium (Integral analytisch lösbar):
+     L = (β_R·ph_R + β_M·ph_M)/(β_R+β_M) · (1 − e^(−τ_Blick)) · e^(−τ_Sonne)
+   ⚠️ Der (1−e^(−τ)) - Term trägt die Himmelsfarbe – wer ihn wegkürzt,
+   bekommt einen grauen Himmel.
+   Dazu ein kleiner MEHRFACHSTREU-Term: reine Einfachstreuung macht den
+   Himmel der Sonne GEGENÜBER bei Sonnenuntergang fast schwarz; in echt ist
+   er dort dämmerblau, weil Licht mehrfach gestreut ankommt.
+   Die Kuppel wird als ERSTES gezeichnet (renderOrder −1000, depthTest aus),
+   alles andere malt darüber. Ihre Deckkraft ist die Atmosphärendichte:
+   auf 70 km Höhe ist sie 0 und es bleibt das schwarze All.
+   ⚠️ JS-Zwilling `skyRadiance()` – Meer, Wolken und Umgebungslicht müssen
+   DIESELBEN Farben benutzen, sonst passt der Himmel nicht zum Boden.
+   ================================================================= */
+// Vertikale optische Tiefe auf Meereshöhe (Erdwerte: β·Skalenhöhe)
+const SKY_BETA_R = [0.0464, 0.1080, 0.2650];   // Rayleigh (blau ≈ 5,7× rot)
+const SKY_BETA_M = 0.0252;                     // Mie (farbneutral)
+const SKY_MIE_G  = 0.76;
+const SKY_EXPOSURE = 46;
+const SKY_MULTI = 0.021;   // Mehrfachstreuung (Dämmerungsblau)
+/* Luftmasse: Wie viele senkrechte Luftsäulen durchquert ein Strahl unter dem
+   Zenitwinkel θ? 1 im Zenit, ~39 am Horizont (Kasten-Young-Näherung). */
+const SKY_AIRMASS_GLSL = `
+float airMass(float cz){
+  cz = clamp(cz, 0.0, 1.0);
+  float th = degrees(acos(cz));
+  return 1.0/(cz + 0.15*pow(93.885 - th, -1.253));
+}
+/* ⚠️ Korrektur, ohne die kein Sonnenuntergang funktioniert (Näherung!):
+   Die obige Formel behandelt die Lufthülle als GLEICHMÄSSIG dicht. Dann
+   liefe das Sonnenlicht auch für den Zenit-Himmel durch die vollen ~13
+   Luftmassen des Horizonts – der ganze Himmel würde abends gleichmäßig
+   olivbraun statt "unten rot, oben dämmerblau".
+   In Wirklichkeit kommt das Licht, das man aus dem ZENIT gestreut sieht,
+   aus 10–30 km Höhe: dort ist die Sonne noch fast unverfinstert, weil ihr
+   Strahl den dichten Bodendunst gar nicht durchquert. Blickt man dagegen
+   flach zum Horizont, streut die Luft dicht über dem Boden – dort gilt der
+   volle Weg, und genau deshalb ist NUR das Horizontband rot.
+   Wir bilden das über den Blickwinkel ab: Zenit = 20 % Sonnenweg,
+   Horizont = 100 %. Ein echter Raymarch entlang des Sehstrahls (wie im
+   Referenz-Repo) wäre exakter, kostet aber pro Pixel ein Vielfaches. */
+float sunPath(float czV){
+  return 1.0 - 0.80*clamp(czV, 0.0, 1.0);
+}`;
+const SKY_VERT = `
+varying vec3 vDir;
+void main(){
+  vDir = position;
+  gl_Position = projectionMatrix*modelViewMatrix*vec4(position, 1.0);
+}`;
+const SKY_FRAG = `
+#include <common>
+uniform vec3  uSunDir, uUp, uBetaR, uSpaceCol;
+uniform float uBetaM, uSunI, uAlpha, uMulti, uExposure, uG;
+varying vec3 vDir;
+${SKY_AIRMASS_GLSL}
+void main(){
+  vec3 V = normalize(vDir);
+  float czV = dot(V, uUp);          // cos(Zenitwinkel) des Blicks
+  float czS = dot(uSunDir, uUp);    // cos(Zenitwinkel) der Sonne
+  float cosG = dot(V, uSunDir);     // Winkel Blick↔Sonne (Phasenfunktionen)
+  float mV = airMass(czV), mS = airMass(czS)*sunPath(czV);
+  // Phasenfunktionen
+  float phR = 0.0596831*(1.0 + cosG*cosG);                 // 3/(16π)(1+cos²)
+  float g2  = uG*uG;
+  float phM = 0.0795775*(1.0 - g2)/pow(1.0 + g2 - 2.0*uG*cosG, 1.5);
+  vec3 bR = uBetaR, bT = uBetaR + uBetaM;
+  vec3 tau  = bT*mV;                       // optische Tiefe des Blickstrahls
+  vec3 Tsun = exp(-bT*mS);                 // was von der Sonne ankommt
+  vec3 col = (bR*phR + uBetaM*phM)/bT*(1.0 - exp(-tau))*Tsun;
+  // Mehrfachstreuung: schwächer gedämpft, isotrop – rettet den Dämmerhimmel.
+  // ⚠️ Muss STARK blaugewichtet sein (β normiert aufs Blau, nicht β/β_gesamt):
+  // Licht, das mehrfach gestreut ankommt, wurde ja gerade deshalb gestreut,
+  // weil es blau ist. Mit β/β_gesamt (≈ 0,65/0,81/0,91) wird die Dämmerung
+  // grau-braun statt dämmerblau.
+  col += bR/uBetaR.b*(1.0 - exp(-tau))*exp(-bT*mS*0.30)*uMulti;
+  col *= uSunI*uExposure;
+  // Weiche Sättigung statt hartem Clamp: sonst brennt der Sonnenuntergang
+  // zu einer weißen Fläche aus (kein HDR-Framebuffer).
+  col = vec3(1.0) - exp(-col);
+  // ⚠️ Die Kuppel ist OPAK und blendet selbst zum All über. Mit
+  // material.transparent würde three.js sie NACH allen opaken Objekten
+  // zeichnen – der Himmel läge dann vor Rakete und Planet.
+  gl_FragColor = vec4(mix(uSpaceCol, col, uAlpha), 1.0);
+}`;
+/* JS-Zwilling der Formel oben – EINE Quelle für Himmel, Meer, Wolken und
+   Umgebungslicht. czV/czS = cos(Zenitwinkel), cosG = cos(Blick↔Sonne). */
+function skyAirMass(cz){
+  cz = Math.max(0, Math.min(1, cz));
+  const th = Math.acos(cz)*180/Math.PI;
+  return 1/(cz + 0.15*Math.pow(93.885 - th, -1.253));
+}
+/* Farbe des DIREKTEN Sonnenlichts am Boden = was von der Lufthülle übrig
+   gelassen wird, exp(−β·Luftmasse), auf den hellsten Kanal normiert (die
+   HELLIGKEIT regelt der Tag/Nacht-Verlauf, hier geht es nur um den Farbstich).
+   Mittags fast weiß mit einem Hauch Gelb, bei 0° Sonnenhöhe tiefrot – das ist
+   dieselbe Rechnung, die den Himmel rot macht, nur für den direkten Strahl. */
+function sunTint(czS, out){
+  const m = skyAirMass(czS), t = [];
+  for(let i=0;i<3;i++) t[i] = Math.exp(-(SKY_BETA_R[i] + SKY_BETA_M)*m);
+  const mx = Math.max(t[0], t[1], t[2]) || 1;
+  return (out || new THREE.Color()).setRGB(t[0]/mx, t[1]/mx, t[2]/mx);
+}
+function skyRadiance(czV, cosG, czS, sunI, out){
+  const airMass = skyAirMass;
+  const mV = airMass(czV), mS = airMass(czS)*(1 - 0.80*Math.max(0, Math.min(1, czV)));
+  const phR = 0.0596831*(1 + cosG*cosG);
+  const g2 = SKY_MIE_G*SKY_MIE_G;
+  const phM = 0.0795775*(1 - g2)/Math.pow(1 + g2 - 2*SKY_MIE_G*cosG, 1.5);
+  const c = out || new THREE.Color();
+  const ch = [];
+  for(let i=0;i<3;i++){
+    const bR = SKY_BETA_R[i], bT = bR + SKY_BETA_M;
+    const inv = 1 - Math.exp(-bT*mV);
+    let v = (bR*phR + SKY_BETA_M*phM)/bT*inv*Math.exp(-bT*mS);
+    v += bR/SKY_BETA_R[2]*inv*Math.exp(-bT*mS*0.30)*SKY_MULTI;
+    ch[i] = 1 - Math.exp(-v*sunI*SKY_EXPOSURE);
+  }
+  return c.setRGB(ch[0], ch[1], ch[2]);
+}
 /* Puff-Textur: A = Dichte (radialer Abfall × Billow-Turbulenz),
    RG = Dichte-Gradient für die Normalen-Verbeulung. */
 function makeCloudPuffTexture(){
@@ -3317,10 +3800,12 @@ const CLOUD_VERT = `
 #include <common>
 attribute vec3 iPos;      // Puff-Mittelpunkt
 attribute vec3 iParam;    // x = Größe, y = UV-Drehung, z = Höhe in der Wolke
+attribute vec4 iCloud;    // xyz = Versatz zum WOLKEN-Mittelpunkt, w = Wolkenradius
 uniform vec3 uCamRight, uCamUp, uEye;
 varying vec2 vUv, vQ;
 varying vec3 vView;
 varying float vShade;
+varying vec3 vOfs;        // Lage des Puffs IN der Wolke (normiert)
 #include <logdepthbuf_pars_vertex>
 void main(){
   vQ = position.xy;                                  // −0,5 … +0,5
@@ -3328,6 +3813,7 @@ void main(){
   vUv = vec2(vQ.x*c - vQ.y*s, vQ.x*s + vQ.y*c) + 0.5;   // gedrehte Textur = Vielfalt
   vView  = normalize(uEye - iPos);
   vShade = iParam.z;
+  vOfs   = iCloud.xyz/max(iCloud.w, 1.0);
   vec3 wp = iPos + (uCamRight*vQ.x + uCamUp*vQ.y)*iParam.x;
   gl_Position = projectionMatrix*modelViewMatrix*vec4(wp, 1.0);
 #include <logdepthbuf_vertex>
@@ -3340,6 +3826,7 @@ uniform float uSunI, uThick, uFade;
 varying vec2 vUv, vQ;
 varying vec3 vView;
 varying float vShade;
+varying vec3 vOfs;
 #include <logdepthbuf_pars_fragment>
 void main(){
 #include <logdepthbuf_fragment>
@@ -3358,6 +3845,15 @@ void main(){
 
   // Weglänge des Sonnenlichts IM Puff (0 = Sonnenseite, 1 = Rückseite)
   float lightD = 0.5 - 0.5*dot(N, uSunDir);
+  // ⚠️ Dazu die Weglänge durch die GANZE WOLKE: Ohne sie wird jeder Puff für
+  // sich beleuchtet, alle sehen gleich aus und die Wolke wirkt wie ein Haufen
+  // Wattebäusche. Wie tief ein Puff im Wolkenkörper sitzt, sagt seine Lage
+  // relativ zum Wolkenmittelpunkt: auf der Sonnenseite (Skalarprodukt > 0)
+  // steht er im Licht, dahinter im Schatten der Puffs vor ihm. Das ist die
+  // Licht-Marschierung eines Raymarchers, nur pro Puff statt pro Sample.
+  float deep = 0.5 - 0.5*dot(normalize(vOfs + uSunDir*0.001), uSunDir);
+  deep *= clamp(length(vOfs), 0.0, 1.0);
+  lightD = clamp(lightD*0.45 + deep*0.95, 0.0, 1.35);
   // Extinktion nur MINIMAL wellenlängenabhängig – Wolkentropfen streuen
   // fast farbneutral (Mie). Die Schattenseite wird trotzdem blau, weil dort
   // das Himmelslicht überwiegt (uSkyCol-Term unten).
@@ -3629,6 +4125,52 @@ function buildShoreTable(key, up, east, north){
    ⚠️ Die Segmentzahl muss das Küsten-Raster (82 m) auflösen: bei r = 40 km
    sind 4000 Segmente ~63 m Scheitelabstand. Mit 1200 (209 m) sieht die
    Küste sichtbar eckig aus. Kostet je ein Dreieck – der Fächer ist billig. */
+/* =================================================================
+   Geländescheibe der Bodenszene (Berge & Täler)
+   -----------------------------------------------------------------
+   Ringscheibe mit r = 40 km, deren Ringe nach außen QUADRATISCH weiter
+   werden: der 1. Ring liegt ~90 m vom Schiff, der äußerste ~2,4 km – nah
+   dran ist das Gelände fein, am Horizont grob. 128 × 44 Ringe ≈ 11 000
+   Dreiecke, also ungefähr so viel wie ein Baum-InstancedMesh.
+   Die UVs kommen wie bei CircleGeometry aus x/y, damit die Gras-Kachel
+   (repeat 220) unverändert weiterläuft.
+   ⚠️ Die HÖHEN setzt `reanchorGround`, nicht diese Funktion – sie hängen am
+   jeweiligen Ankerpunkt auf der Kugel. */
+const GROUND_R = 40000;
+function terrainGeometry(){
+  const SEG = 128, RINGS = 44;
+  const pos = [], uv = [], idx = [];
+  pos.push(0, 0, 0); uv.push(0.5, 0.5);
+  for(let ring=1; ring<=RINGS; ring++){
+    const t = ring/RINGS, r = GROUND_R*t*t;      // quadratisch = innen dicht
+    for(let s=0; s<SEG; s++){
+      const a = s/SEG*2*Math.PI;
+      const x = Math.cos(a)*r, y = Math.sin(a)*r;
+      pos.push(x, y, 0);
+      uv.push(x/(2*GROUND_R) + 0.5, y/(2*GROUND_R) + 0.5);
+    }
+  }
+  for(let s=0; s<SEG; s++)                        // Fächer um die Mitte
+    idx.push(0, 1 + s, 1 + (s+1)%SEG);
+  for(let ring=1; ring<RINGS; ring++){
+    const a0 = 1 + (ring-1)*SEG, b0 = 1 + ring*SEG;
+    for(let s=0; s<SEG; s++){
+      const s1 = (s+1)%SEG;
+      idx.push(a0+s, b0+s, b0+s1);
+      idx.push(a0+s, b0+s1, a0+s1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  // Scheitelfarben: Wiese → Fels → Schnee, gefüllt von `shapeTerrain`.
+  // Ohne sie wären die Berge einfach grüne Buckel – die HÖHE muss man sehen.
+  g.setAttribute("color", new THREE.Float32BufferAttribute(
+    new Float32Array(pos.length).fill(1), 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
 const SHORE_SEGS = 4000;
 function wobbleRim(geo, R, wob, extra){
   const p = geo.attributes.position;
@@ -4926,11 +5468,12 @@ const Flight = {
     // Rakete beim Blick Richtung Sonne fast schwarz.
     this.fillLight = new THREE.DirectionalLight(0x9dbde4, 0);
     this.scene.add(this.fillLight);
-    // Die Sonne selbst (im Welt-Ursprung)
-    const sunMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(SUN.R, 48, 24),
-      new THREE.MeshBasicMaterial({color:0xfff0b0}));
-    this.world.add(sunMesh);
+    // Die Sonne selbst. ⚠️ Sie steht NICHT fest im Welt-Ursprung: bodennah
+    // wandert sie mit der Spieluhr (`sunScenePos`, s. frame()) – Mesh, Glow
+    // und Lens-Flare müssen dabei ZUSAMMEN umziehen, sonst sieht man zwei
+    // Sonnen (den echten Weltursprung und den Spieluhr-Stand).
+    this.sunMesh = makeSunMesh(SUN.R);
+    this.world.add(this.sunMesh);
     const glowC = document.createElement("canvas"); glowC.width=glowC.height=128;
     const gx = glowC.getContext("2d");
     const gg = gx.createRadialGradient(64,64,8,64,64,64);
@@ -4991,15 +5534,72 @@ const Flight = {
     // Nebel-Fotos: weit hinter allen Planeten; frame() koppelt die Opacity
     // an die Sternen-Ausblendung (Atmosphäre blendet sie aus)
     this.nebulae = addNebulae(this.scene, 7e10, 1, 1);
+    // --- Himmelskuppel (Rayleigh/Mie, s. SKY_FRAG) ---------------------
+    // ⚠️ depthTest AUS + renderOrder −1000: die Kuppel wird als allererstes
+    // gemalt, alles andere darüber. Dadurch ist ihr Radius egal – sie muss
+    // weder zwischen Near- und Far-Plane passen noch mit den Planeten
+    // (1e10 m!) um den Tiefenpuffer streiten. Sie hängt an `scene`, nicht an
+    // `world`: das Schiff ist der Szenen-Ursprung, die Kuppel bleibt zentriert.
+    this.skyU = {
+      uSunDir:{value:new THREE.Vector3(0,1,0)}, uUp:{value:new THREE.Vector3(0,1,0)},
+      uBetaR:{value:new THREE.Vector3(...SKY_BETA_R)}, uBetaM:{value:SKY_BETA_M},
+      uSunI:{value:1}, uAlpha:{value:0}, uMulti:{value:SKY_MULTI},
+      uExposure:{value:SKY_EXPOSURE}, uG:{value:SKY_MIE_G},
+      uSpaceCol:{value:new THREE.Color(0x04060e)}
+    };
+    // Radius 5000 km: größer als jede Kamera-Distanz außerhalb der Karte
+    // (dort ist die Kuppel aus), aber weit innerhalb der Far-Plane 2,2e11.
+    this.skyDome = new THREE.Mesh(
+      new THREE.SphereGeometry(5e6, 40, 24),
+      new THREE.ShaderMaterial({uniforms:this.skyU, vertexShader:SKY_VERT,
+        fragmentShader:SKY_FRAG, side:THREE.BackSide,
+        depthWrite:false, depthTest:false}));
+    this.skyDome.renderOrder = -1000;
+    this.skyDome.frustumCulled = false;
+    this.scene.add(this.skyDome);
+    this.skyZenith  = new THREE.Color(0x87b6ea);
+    this.skyHorizon = new THREE.Color(0xbfe6f5);
+    this.sunTintCol = new THREE.Color(0xffffff);
+    this._skyAmb    = new THREE.Color();
     // Lokaler Boden am Startplatz (Tangentialebene; die Kugel ist zu grob für Bodennähe).
     // Alle Rampen liegen »realistisch« an der KÜSTE: Richtung Osten (= Flugrichtung!)
     // kommt nach ~2,8 km Sandstrand und ab ~3,3 km der offene Ozean.
     const grassTex = makeGroundTexture("grass"); grassTex.repeat.set(220,220);
     const sandTex  = makeGroundTexture("sand");  sandTex.repeat.set(220,220);
     const seaNorm  = makeSeaNormalTexture();   // UVs rechnet der Ozean-Shader selbst
-    this.groundPlane = new THREE.Mesh(
-      new THREE.CircleGeometry(40000, 48),
-      new THREE.MeshStandardMaterial({color:0x3f8d4e, roughness:.95, map:grassTex}));
+    // ⚠️ Kein flacher Kreis mehr: `terrainGeometry()` liefert eine Scheibe mit
+    // RINGEN, deren Scheitel in `reanchorGround` auf die echte Geländehöhe
+    // gehoben werden (Berge & Täler, s. terrainH). Die Ringe stehen innen eng
+    // und außen weit – nah am Schiff braucht man Details, 30 km entfernt nicht.
+    // ⚠️ Grundfarbe WEISS: die Landschaftsfarbe (Wiese/Wald/Fels/Schnee und
+    // die Polar-Tönung) kommt komplett aus den Scheitelfarben, s. shapeTerrain.
+    const groundMat = new THREE.MeshStandardMaterial({color:0xffffff, roughness:.95,
+      map:grassTex, vertexColors:true});
+    // ---- Luftperspektive (der Grund, warum ferne Berge nach Bergen aussehen) --
+    // Ohne sie hat ein Gipfel in 30 km Entfernung exakt dieselbe Farbe wie die
+    // Wiese vor den Füßen – dem Auge fehlt jeder Tiefenhinweis und die
+    // Landschaft wirkt flach, obwohl die Geometrie stimmt.
+    // ⚠️ Bewusst KEIN scene.fog: die Szene reicht über 1e10 m (Sonne, Planeten),
+    // ein globaler Nebel würde alles einfärben. Deshalb nur in DIESES Material
+    // injiziert, und die Entfernung kommt aus dem Objektraum der Scheibe.
+    // ⚠️ Entfernung zur KAMERA, nicht zum Anker: sonst liegt beim Blick aus
+    // 5 km Höhe auch der Boden direkt unter dem Schiff im vollen Dunst der
+    // 40-km-Scheibe und die ganze Landschaft wird ein milchiger Fleck.
+    this.groundHaze = {col:{value:new THREE.Color(0xbfe6f5)}, k:{value:1/70000}};
+    groundMat.onBeforeCompile = sh=>{
+      sh.uniforms.uHazeCol = this.groundHaze.col;
+      sh.uniforms.uHazeK   = this.groundHaze.k;
+      sh.vertexShader = sh.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying float vGDist;")
+        .replace("#include <project_vertex>",
+                 "#include <project_vertex>\nvGDist = length(mvPosition.xyz);");
+      sh.fragmentShader = sh.fragmentShader
+        .replace("#include <common>",
+                 "#include <common>\nvarying float vGDist;\nuniform vec3 uHazeCol;\nuniform float uHazeK;")
+        .replace("#include <tonemapping_fragment>",
+                 "gl_FragColor.rgb = mix(gl_FragColor.rgb, uHazeCol, 1.0 - exp(-vGDist*uHazeK));\n#include <tonemapping_fragment>");
+    };
+    this.groundPlane = new THREE.Mesh(terrainGeometry(), groundMat);
     this.groundPlane.rotation.x = -Math.PI/2;
     this.groundBeach = new THREE.Mesh(
       new THREE.CircleGeometry(40000, SHORE_SEGS),   // Rand kommt in start() (pro Rampe)
@@ -5062,35 +5662,18 @@ const Flight = {
     this.seaPatch.rotation.x = -Math.PI/2;
     this.seaPatch.position.set(3400, 4, 0);   // gleiche Ebene wie das Fern-Meer
     this.seaPatch.frustumCulled = false;   // Vertex-Displacement sprengt die Bounding-Box
-    // Wald: 2 InstancedMeshes (alle Stämme + alle Kronen) = nur 2 Draw-Calls
-    const tRnd = seededRand(99), NT = 170;
+    // Wald: 2 InstancedMeshes (alle Stämme + alle Kronen) = nur 2 Draw-Calls.
+    // Die POSITIONEN setzt `placeTrees` bei jedem Verankern neu – nur so
+    // können Bäume dort stehen, wo das Terrain wirklich Wald hat (und eben
+    // NICHT auf der Polarstation im Eis).
+    const NT = 420;
     this.treeTrunks = new THREE.InstancedMesh(
       new THREE.CylinderGeometry(0.8, 1.2, 7, 5),
       new THREE.MeshStandardMaterial({color:0x6b4a2f, roughness:.9}), NT);
     this.treeCrowns = new THREE.InstancedMesh(
       new THREE.ConeGeometry(6, 18, 7),
       new THREE.MeshStandardMaterial({color:0x2e7d3f, roughness:.85}), NT);
-    const tm = new THREE.Matrix4();
-    let placed = 0, guard = 0;
-    while(placed < NT && guard++ < 5000){
-      // 60 % der Bäume nahe der Rampe (dort spielt sich alles ab), Rest weit verstreut
-      let ex, nz;
-      if(tRnd() < 0.6){ const a = tRnd()*6.283, d = 560+tRnd()*1900; ex = Math.cos(a)*d; nz = Math.sin(a)*d; }
-      else { ex = -7000 + tRnd()*9200; nz = (tRnd()-0.5)*14000; }
-      if(Math.hypot(ex, nz) < 540) continue;   // Rampe, Gebäude & Landezone frei halten
-      if(ex > 700) continue;                   // nicht in Strand/Meer (Küste ab ~1 km)
-      const s = 1.0 + tRnd()*1.2;
-      tm.makeScale(s,s,s).setPosition(ex, 3.5*s, nz);
-      this.treeTrunks.setMatrixAt(placed, tm);
-      tm.makeScale(s,s,s).setPosition(ex, 16*s, nz);
-      this.treeCrowns.setMatrixAt(placed, tm);
-      placed++;
-    }
-    // WICHTIG: count kappen – nicht belegte Instanzen stünden sonst als
-    // Identity-Matrix-Bäume mitten auf der Startrampe!
-    this.treeTrunks.count = this.treeCrowns.count = placed;
-    this.treeTrunks.instanceMatrix.needsUpdate = true;
-    this.treeCrowns.instanceMatrix.needsUpdate = true;
+    this.treeTrunks.count = this.treeCrowns.count = 0;
     // Gruppe: lokales X = Ost, Y = hoch, Z = Nord (Basis wird in start() gesetzt)
     this.groundGroup = new THREE.Group();
     this.groundGroup.add(this.groundPlane, this.groundBeach, this.groundSea, this.seaPatch,
@@ -5103,13 +5686,17 @@ const Flight = {
     // EINEM InstancedMesh (1 Draw-Call). Der Objektraum ist der der
     // Bodengruppe (x = Ost, y = hoch, z = Süd), Beleuchtung s. CLOUD_FRAG.
     {
-      const CLOUDS = 40, PUFFS = 8, N = CLOUDS*PUFFS;
+      // 14 statt 8 Puffs je Wolke: Die Silhouette entsteht erst durch das
+      // ÜBERLAPPEN vieler Kugeln – mit wenigen großen Puffs sieht man die
+      // einzelnen Scheiben. Kostet nichts extra (immer noch 1 Draw-Call).
+      const CLOUDS = 40, PUFFS = 14, N = CLOUDS*PUFFS;
       const crnd = seededRand(55);
       const geo = new THREE.InstancedBufferGeometry();
       geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(
         [-.5,-.5,0,  .5,-.5,0,  .5,.5,0,  -.5,.5,0]), 3));
       geo.setIndex([0,1,2, 0,2,3]);
       const iPos = new Float32Array(N*3), iPar = new Float32Array(N*3);
+      const iCld = new Float32Array(N*4);
       let k = 0;
       for(let c=0;c<CLOUDS;c++){
         // 3 von 4 Wolken sind tiefe Haufenwolken (Startphase!), der Rest hoch
@@ -5124,17 +5711,27 @@ const Flight = {
           const f = p/(PUFFS-1);
           const rad = wide*(1 - 0.55*f)*Math.sqrt(crnd())*0.8;   // Puffs überlappen
           const a   = crnd()*6.283;
-          iPos[k*3]   = east  + Math.cos(a)*rad;
-          iPos[k*3+1] = alt   + wide*tall*(f*0.9 + (crnd()-0.5)*0.25);
-          iPos[k*3+2] = north + Math.sin(a)*rad*0.85;
+          const dx = Math.cos(a)*rad, dz = Math.sin(a)*rad*0.85;
+          const dy = wide*tall*(f*0.9 + (crnd()-0.5)*0.25);
+          iPos[k*3]   = east  + dx;
+          iPos[k*3+1] = alt   + dy;
+          iPos[k*3+2] = north + dz;
           iPar[k*3]   = base*(1.15 - 0.4*f)*(0.8 + crnd()*0.45);
           iPar[k*3+1] = crnd()*6.283;                   // UV-Drehung
           iPar[k*3+2] = f;                              // Höhe in der Wolke (Boden dunkler)
+          // Versatz zum Wolkenmittelpunkt → Selbstbeschattung im Fragment.
+          // Die Höhe zählt gestaucht mit, sonst wären flache Wolken bei
+          // tiefer Sonne komplett "durchleuchtet".
+          iCld[k*4]   = dx;
+          iCld[k*4+1] = dy*0.6;
+          iCld[k*4+2] = dz;
+          iCld[k*4+3] = wide*0.8;
           k++;
         }
       }
       geo.setAttribute("iPos", new THREE.InstancedBufferAttribute(iPos, 3));
       geo.setAttribute("iParam", new THREE.InstancedBufferAttribute(iPar, 3));
+      geo.setAttribute("iCloud", new THREE.InstancedBufferAttribute(iCld, 4));
       geo.instanceCount = N;
       this.cloudU = {
         uPuff:{value:makeCloudPuffTexture()},
@@ -5659,7 +6256,9 @@ const Flight = {
     this.padGroup.traverse(o=>{ if(o.name==="mzArm") this.mzArms.push(o); });
     this.mzArmFold = 0;
     const polar = this.pad.id==="polar";
-    this.groundPlane.material.color.set(polar ? 0xdfe9f2 : 0x3f8d4e);
+    // groundPlane wird NICHT mehr hier getönt – seine Farbe (Wiese/Fels/Schnee
+    // und die Polar-Tönung) kommt aus den Scheitelfarben in `shapeTerrain`,
+    // die den Breitengrad des ANKERS auswerten statt der Rampen-ID.
     this.groundBeach.material.color.set(polar ? 0xb9c2cc : 0xd9c893);   // Kies statt Sand
     // Bodenszene an der Rampe verankern (Küste aus dem prozeduralen Terrain)
     this.reanchorGround(pd, "pad:"+this.pad.id);
@@ -5772,7 +6371,105 @@ const Flight = {
       this.treeTrunks.visible = this.treeCrowns.visible = (mode === "inland");
       this.groundSea.visible = this.seaPatch.visible = (mode === "opensea");
     }
+    if(mode !== "opensea"){
+      this.shapeTerrain(up, east, north);
+      this.placeTrees(up, east, north);
+    }
     this._anchorDir = up.clone();
+  },
+  /* ---------- Berge & Täler in die Geländescheibe rechnen ---------------
+     Hebt die Scheitel von `groundPlane` auf die Höhe aus `terrainH` – also
+     GENAU dasselbe Relief, das aus dem Orbit als Schummerung zu sehen ist.
+     ⚠️ Zwei Dinge, die nicht verhandelbar sind:
+     1. HÖHE RELATIV ZUM ANKER: Der Anker liegt immer unter dem Schiff, und
+        das Spiel setzt "gelandet" bei |pos| = R an – die Physik kennt also
+        nur die Kugel. Der Punkt unter dem Schiff MUSS deshalb auf y = 0
+        liegen, sonst schwebt die Rakete überm Tal oder steckt im Hang.
+     2. NAHBEREICH FLACH: zusätzlich blendet `w` das Relief innerhalb von
+        ~2,5 km aus. Dadurch ist die Landefläche eben, und weil `terrainH`
+        an der Küste ohnehin gegen 0 geht, kostet das dort gar nichts.
+     Kosten gemessen: ~2 ms (5 600 Scheitel, terrainH mit 8 Oktaven). */
+  shapeTerrain(up, east, north){
+    const g = this.groundPlane.geometry, p = g.attributes.position, col = g.attributes.color;
+    const R = LEIBNIZ.R, d = new THREE.Vector3();
+    // Polar-Tönung aus der BREITE des Ankers (nicht aus der Rampen-ID) –
+    // dann stimmt sie auch, wenn man irgendwo in der Eiswüste landet.
+    const polar = THREE.MathUtils.smoothstep(Math.abs(up.y), 0.90, 0.975);
+    const at = (e, n)=>{
+      d.copy(up).multiplyScalar(R).addScaledVector(east, e).addScaledVector(north, n).normalize();
+      return d;
+    };
+    const dd0 = at(0, 0);
+    const h0 = terrainH(dd0.x, dd0.y, dd0.z, TERRAIN_OCT_LOCAL);
+    for(let i=0; i<p.count; i++){
+      // Objektraum der Bodengruppe: x = Ost, y = Nord (vor rotation.x), z = Höhe
+      const e = p.getX(i), n = p.getY(i), dist = Math.hypot(e, n);
+      const w = THREE.MathUtils.smoothstep(dist, 900, 4200);
+      const dv = at(e, n);
+      const h = terrainH(dv.x, dv.y, dv.z, TERRAIN_OCT_LOCAL);
+      p.setZ(i, (h - h0)*w);
+      // ---- Farbe nach Höhe: dieselben Stufen wie die Kugeltextur ----
+      const el = h/TERRAIN_MAX_H;
+      let r, gr, b;
+      if(el < 0.34){                            // Wiese, im Wald dunkler
+        const fo = forestMask(dv.x, dv.y, dv.z, h);
+        r = 0.25 + (0.15 - 0.25)*fo;
+        gr = 0.55 + (0.34 - 0.55)*fo;
+        b = 0.30 + (0.18 - 0.30)*fo;
+      } else if(el < 0.68){                     // Wiese → Fels
+        const t = (el - 0.34)/0.34;
+        r = 0.25 + t*0.20; gr = 0.55 - t*0.17; b = 0.30 + t*0.04;
+      } else {                                  // Fels → Firn → Schnee
+        const t = Math.min(1, (el - 0.68)/0.24);
+        r = 0.45 + t*0.44; gr = 0.38 + t*0.53; b = 0.34 + t*0.60;
+      }
+      if(polar > 0){ r += (0.87-r)*polar; gr += (0.91-gr)*polar; b += (0.95-b)*polar; }
+      col.setXYZ(i, r, gr, b);
+    }
+    p.needsUpdate = true; col.needsUpdate = true;
+    g.computeVertexNormals();
+    g.computeBoundingSphere();
+    this._terrainH0 = h0;
+  },
+  /* ---------- Wald: steht da, wo `forestMask` Wald sagt -----------------
+     Vorher standen 170 Bäume in einem festen Zufallsmuster um die Rampe –
+     überall gleich, auch auf der Polarstation im Eis. Jetzt fragt jede
+     Position das Terrain: kein Wald im Wasser, keiner über der Baumgrenze,
+     keiner in der Polarzone (`forestMask` liefert dort 0) – und die Bäume
+     sitzen auf der Geländehöhe statt auf y = 0. */
+  placeTrees(up, east, north){
+    const R = LEIBNIZ.R, d = new THREE.Vector3(), tm = new THREE.Matrix4();
+    const NT = this.treeTrunks.instanceMatrix.count;
+    const rnd = seededRand(99);
+    const dirAt = (e, n)=>d.copy(up).multiplyScalar(R)
+      .addScaledVector(east, e).addScaledVector(north, n).normalize();
+    const h0 = this._terrainH0 || 0;
+    let placed = 0, guard = 0;
+    while(placed < NT && guard++ < 4000){
+      // 60 % im 0,5–2,5-km-Ring ums Schiff (dort spielt sich alles ab)
+      let ex, nz;
+      if(rnd() < 0.6){ const a = rnd()*6.283, r = 560 + rnd()*1900; ex = Math.cos(a)*r; nz = Math.sin(a)*r; }
+      else { const a = rnd()*6.283, r = 2500 + rnd()*9000; ex = Math.cos(a)*r; nz = Math.sin(a)*r; }
+      if(Math.hypot(ex, nz) < 540) continue;   // Rampe, Gebäude & Landezone frei
+      if(ex > 700) continue;                   // nicht in Strand/Meer
+      const dd = dirAt(ex, nz);
+      const th = terrainH(dd.x, dd.y, dd.z, TERRAIN_OCT_LOCAL);
+      if(forestMask(dd.x, dd.y, dd.z, th) < 0.30) continue;   // hier wächst nichts
+      const s = 1.0 + rnd()*1.2;
+      // auf die Geländehöhe setzen (dieselbe Absenkung wie shapeTerrain)
+      const w = THREE.MathUtils.smoothstep(Math.hypot(ex, nz), 900, 4200);
+      const y = (th - h0)*w;
+      tm.makeScale(s,s,s).setPosition(ex, y + 3.5*s, nz);
+      this.treeTrunks.setMatrixAt(placed, tm);
+      tm.makeScale(s,s,s).setPosition(ex, y + 16*s, nz);
+      this.treeCrowns.setMatrixAt(placed, tm);
+      placed++;
+    }
+    // ⚠️ count kappen – nicht belegte Instanzen stünden sonst als
+    // Identity-Matrix-Bäume mitten auf der Startrampe!
+    this.treeTrunks.count = this.treeCrowns.count = placed;
+    this.treeTrunks.instanceMatrix.needsUpdate = true;
+    this.treeCrowns.instanceMatrix.needsUpdate = true;
   },
   height(){ return stackHeight(this.v.stack); },
   /* höchstes Level einer Rolle in der aktuellen Crew (Kader-Bonus) */
@@ -8112,10 +8809,17 @@ const Flight = {
     U.uSunI.value = 0.05 + 0.95*dl;
     U.uAmb.value  = 0.22 + 0.26*dl;
     U.uSkyCol.value.copy(sky);
-    U.uHorizonCol.value.copy(sky).lerp(this.seaHorizonBase, 0.38*dl);
-    // tiefstehende Sonne färbt den Glitzerpfad golden (langer Luftweg!)
-    U.uSunCol.value.setHex(0xfff2df)
-      .lerp(new THREE.Color(0xff9640), sunWarmth(U.uSunDir.value.z));
+    // Horizont: die WARME Streufarbe knapp überm Wasser (bei tiefer Sonne
+    // rot) – nicht mehr das Zenitblau. Das ist der Farbverlauf, den man auf
+    // dem Meer bis zum Horizont sieht.
+    U.uHorizonCol.value.copy(this.skyHorizon).lerp(this.seaHorizonBase, 0.30*dl);
+    // Glitzerpfad in der Farbe des DIREKTEN Sonnenlichts (s. sunTint) – bei
+    // tiefer Sonne also golden bis rot. Nicht ganz voll, sonst verliert das
+    // Glitzern bei Sonnenuntergang jede Zeichnung im Grün/Blau.
+    U.uSunCol.value.setHex(0xfff2df).lerp(this.sunTintCol, 0.85);
+    // Luftperspektive des Geländes: dieselbe Horizontfarbe wie das Meer, damit
+    // ferne Berge und ferne See im selben Dunst verschwinden.
+    this.groundHaze.col.value.copy(U.uHorizonCol.value);
   },
   /* ---------- Kamera-abhängige Uniforms von Meer & Wolken ----------
      ⚠️ MUSS direkt vor JEDEM render() mit der jeweils benutzten Kamera
@@ -8155,12 +8859,14 @@ const Flight = {
     const sun = this.groundSunDir || this.pos.clone().negate().normalize();
     U.uSunDir.value.set(sun.dot(this.gEast), sun.dot(this.gUp), -sun.dot(this.gNorth));
     const dl = this.dayLight, sz = U.uSunDir.value.y;
-    // Direktlicht stirbt, sobald die Sonne unter den Horizont sinkt – die
-    // Wolken hängen hoch und leuchten deshalb noch, wenn der Boden schon
-    // dunkel ist (genau wie in echt).
-    U.uSunI.value = (0.06 + 0.94*dl)*THREE.MathUtils.smoothstep(sz, -0.14, 0.05);
-    U.uSunCol.value.setHex(0xfffaf2).lerp(new THREE.Color(0xffb173), sunWarmth(sz));
-    U.uSkyCol.value.copy(this.scene.background).multiplyScalar(0.72);
+    // ⚠️ NICHT an `dayLight` koppeln! Wolken hängen 1,3–9 km hoch und stehen
+    // noch in voller Sonne, wenn es am Boden längst dämmert – GENAU deshalb
+    // glühen Wolken beim Sonnenuntergang orange, während der Boden dunkel
+    // ist. Mit dayLight (bei 0° Sonnenhöhe nur noch 0,12) waren sie
+    // stattdessen matschig braun. Also allein an der Sonnenhöhe festmachen.
+    U.uSunI.value = THREE.MathUtils.smoothstep(sz, -0.16, 0.02);
+    U.uSunCol.value.setHex(0xfffaf2).lerp(this.sunTintCol, 0.9);
+    U.uSkyCol.value.copy(this.skyZenith).multiplyScalar(0.72);
     U.uGroundCol.value.setHex(this.pad && this.pad.id==="polar" ? 0x9fb4c4 : 0x5d7a58)
       .multiplyScalar(0.25 + 0.75*dl);
     // Über den Wolken ausblenden, statt sie hart verschwinden zu lassen
@@ -8261,8 +8967,16 @@ const Flight = {
         .addScaledVector(this.gNorth, 0.18).normalize();
       this.groundSunDir.lerp(clockSun, gb).normalize();
     }
+    // Sonnenhöhe als cos(Zenitwinkel) – Grundgröße für Himmel UND Lichtfarbe
+    const czSun = this.groundSunDir.dot(this.gUp || V3(0,1,0));
     this.sunLight.position.copy(this.groundSunDir).multiplyScalar(1e7);
     this.sunLight.intensity = 1.3*(0.08 + 0.92*this.dayLight);
+    // Sonnenlicht-FARBE aus derselben Streurechnung wie der Himmel: je tiefer
+    // die Sonne steht, desto mehr Blau hat die Lufthülle herausgestreut, desto
+    // roter das, was unten ankommt. Nur bodennah (gb) – im All ist Sonnenlicht
+    // weiß, weil es gar keine Luft durchquert hat.
+    this.sunTintCol = sunTint(czSun, this.sunTintCol);
+    this.sunLight.color.setHex(0xfff2dd).lerp(this.sunTintCol, gb);
     // Fülllicht aus der Gegenrichtung, leicht von oben (Himmelskuppel)
     this.fillLight.position.copy(this.groundSunDir).negate()
       .addScaledVector(this.gUp || V3(0,1,0), 0.9).normalize().multiplyScalar(1e7);
@@ -8279,6 +8993,12 @@ const Flight = {
     this.ambLight.intensity =
       0.55 - 0.25*gb*this.dayLight - 0.40*gb*(1 - this.dayLight);
     this.ambLight.color.copy(this.ambSpace).lerp(this.ambDay, gb*this.dayLight);
+    // Bodennah ist das Umgebungslicht in Wahrheit der HIMMEL – deshalb wird
+    // die Ambient-Farbe in Richtung Zenitfarbe gezogen (abends also warm,
+    // mittags blau-neutral). Nur zu 45 %: voll eingefärbt kippt die ganze
+    // Bodenszene in einen Farbstich.
+    if(gb > 0.001) this.ambLight.color.lerp(this._skyAmb.copy(this.skyZenith)
+      .lerp(this.ambDay, 0.35), 0.45*gb);
     // ⚠️ Die SICHTBARE Sonne muss dort stehen, wo ihr LICHT herkommt.
     // Bodennah ist das nicht mehr der Weltursprung, sondern `groundSunDir`
     // (Spieluhr) – sonst scheint zwar die Sonne, aber am Himmel ist keine
@@ -8287,15 +9007,38 @@ const Flight = {
     // im All (gb=0) ist groundSunDir = sunReal → exakt der Weltursprung.
     this.sunScenePos = this.groundSunDir.clone().multiplyScalar(this.pos.length());
     this.sunGlow.position.copy(this.sunScenePos).add(this.pos);   // Szene → world-lokal
+    // ⚠️ Die Sonnen-KUGEL muss mit: sonst bleibt sie im Weltursprung stehen,
+    // während Glow und Flare am Spieluhr-Stand leuchten – man sah zwei Sonnen.
+    this.sunMesh.position.copy(this.sunGlow.position);
+    this.sunMesh.material.uniforms.uTime.value = (this.t/3600) % 4096;   // s. AdminCam
     this.sunGlow.material.opacity = this.dayLight;   // Sonne "geht unter" (bodennah)
     // Himmelsfarbe: HÖHE quadratisch (das Blau verschwindet zum All hin
     // schnell), TAGESZEIT linear – quadriert man beides gemeinsam, ist der
     // Himmel schon um 16 Uhr nachtschwarz, während Boden, Meer und Wolken
     // noch in der Sonne stehen.
     const fEff = f*this.dayLight;
-    const sky = new THREE.Color(0x04060e).lerp(new THREE.Color(0x87b6ea),
-      this.map ? 0 : f*f*this.dayLight);
-    this.scene.background = sky;
+    // ---- Himmel aus echter Streuung (s. SKY_FRAG) --------------------
+    // ⚠️ Die Helligkeit des Himmels hängt an der SONNENHÖHE, nicht an
+    // `dayLight`: dayLight ist bei Sonnenstand 0° schon fast aus (0,12) –
+    // damit wäre der Sonnenuntergang dunkelgrau statt glühend rot. Die
+    // Sonne beleuchtet die Lufthülle weiter, bis sie ~15° unter dem
+    // Horizont steht (bürgerliche Dämmerung).
+    const up = this.gUp || V3(0,1,0);
+    const skyI = THREE.MathUtils.smoothstep(czSun, -0.25, -0.02);
+    this.skyU.uSunDir.value.copy(this.groundSunDir);
+    this.skyU.uUp.value.copy(up);
+    this.skyU.uSunI.value = skyI;
+    this.skyU.uAlpha.value = this.map ? 0 : f*f;
+    this.skyDome.visible = !this.map && f > 0.001;
+    // Zenit- und Horizontfarbe aus DERSELBEN Formel – Meer, Wolken und
+    // Umgebungslicht müssen zum Himmel passen (JS-Zwilling skyRadiance).
+    skyRadiance(1, czSun, czSun, skyI, this.skyZenith);
+    skyRadiance(0, Math.sqrt(Math.max(0, 1 - czSun*czSun)), czSun, skyI, this.skyHorizon);
+    const atmo = this.map ? 0 : f*f;
+    this.skyZenith.multiplyScalar(atmo);
+    this.skyHorizon.multiplyScalar(atmo);
+    const sky = this.skyZenith;
+    this.scene.background = this.skyU.uSpaceCol.value;
     this.starField.material.opacity = this.map ? 1 : 1-fEff;
     // Nebel-Kulisse: wie die Sterne in der Atmosphäre ausblenden
     for(const neb of this.nebulae)
