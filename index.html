@@ -9005,7 +9005,15 @@ const Flight = {
     // zu sehen: sie steckte bis 40 km Höhe unter dem Horizont.
     // `sunScenePos` = Position in SZENEN-Koordinaten (Schiff = Ursprung);
     // im All (gb=0) ist groundSunDir = sunReal → exakt der Weltursprung.
-    this.sunScenePos = this.groundSunDir.clone().multiplyScalar(this.pos.length());
+    // ⚠️⚠️ NUR in der Flugansicht! In der KARTE ist die Sonne das ZENTRUM des
+    // Sonnensystems – alle Bahnellipsen laufen um sie herum. Der Spieluhr-
+    // Versatz gehört allein zur Bodenszene; in der Karte sah man die Sonne
+    // sonst als kleinen Punkt zwischen den Bahnen umherwandern, während der
+    // Brennpunkt der Ellipsen leer blieb. Über 40 km ist der Versatz ohnehin 0
+    // (gb = 0 → groundSunDir = sunReal), der Bug trat also nur bei geöffneter
+    // Karte in Bodennähe auf – z. B. im Tutorial »Dein erster Start«.
+    this.sunScenePos = this.map ? this.pos.clone().negate()
+      : this.groundSunDir.clone().multiplyScalar(this.pos.length());
     this.sunGlow.position.copy(this.sunScenePos).add(this.pos);   // Szene → world-lokal
     // ⚠️ Die Sonnen-KUGEL muss mit: sonst bleibt sie im Weltursprung stehen,
     // während Glow und Flare am Spieluhr-Stand leuchten – man sah zwei Sonnen.
