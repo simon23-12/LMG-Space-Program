@@ -3541,17 +3541,17 @@ function shoreDist(east, north){
    Für jedes Nord wird die Wasserkante ostwärts eingeschachtelt. Weil die
    Küste stetig ist, startet jede Zeile beim Ergebnis der vorigen – das
    spart den teuren Grobscan und drückt die Bauzeit auf ~60 ms. */
-function buildShoreTable(pad){
-  if(_shoreCache[pad.id]) return _shoreCache[pad.id];
-  const R = LEIBNIZ.R, up = padDir(pad);
-  const east  = new THREE.Vector3().crossVectors(V3(0,1,0), up).normalize();
-  const north = new THREE.Vector3().crossVectors(up, east).normalize();
+function buildShoreTable(key, up, east, north){
+  if(_shoreCache[key]) return _shoreCache[key];
+  const R = LEIBNIZ.R;
   const d = new THREE.Vector3();
   const H = (e, n) => {
     d.copy(up).multiplyScalar(R).addScaledVector(east, e).addScaledVector(north, n).normalize();
     return landH(d.x, d.y, d.z, TERRAIN_OCT_LOCAL);
   };
-  const E_MIN = -4000, E_MAX = 26000;          // Klammer für die Wasserkante
+  // Klammer für die Wasserkante. Weit genug, dass ein Anker auch mal 25 km
+  // landeinwärts oder 25 km draußen liegen darf (Landung irgendwo auf Leibniz).
+  const E_MIN = -26000, E_MAX = 26000;
   /* Wasserkante bei Nord `n`. ⚠️ Es zählt der Land→Meer-Übergang, der der
      NACHBARZEILE am nächsten liegt – nicht irgendeiner. Eine Bisektion über
      ein Fenster mit MEHREREN Nullstellen landet sonst mal auf der einen,
@@ -3590,7 +3590,7 @@ function buildShoreTable(pad){
   // von der Mitte nach außen laufen – dort sitzt die Rampe, dort startet
   // die Schätzkette mit dem verlässlichsten Wert (1,5 km per Konstruktion)
   const mid = SHORE_N>>1;
-  let guess = 1500;
+  let guess = findShore(0, 0);          // Wasserkante direkt östlich des Ankers
   for(let i=mid;i<SHORE_N;i++){
     const n = -SHORE_HALF + i/(SHORE_N-1)*2*SHORE_HALF;
     guess = shoreE[i] = step(findShore(n, guess), guess);
@@ -3620,7 +3620,7 @@ function buildShoreTable(pad){
   const tex = new THREE.DataTexture(px, SHORE_N, 1, THREE.RGBAFormat);
   tex.magFilter = tex.minFilter = THREE.NearestFilter;   // Interpolation macht der Shader
   tex.generateMipmaps = false; tex.needsUpdate = true;
-  return (_shoreCache[pad.id] = {wob, beach, tex});
+  return (_shoreCache[key] = {wob, beach, tex});
 }
 /* Randscheitel einer CircleGeometry radial auf die Küstenlinie ziehen –
    aus der lineal-geraden Kreiskante wird die echte, geschwungene Küste.
@@ -3720,12 +3720,15 @@ function oceanVertex(patch){
 #include <common>
 ${OCEAN_PARS}
 ${patch ? "uniform float uLift;" : ""}
+uniform float uOpenSea;
 ${SHORE_GLSL}
 #include <logdepthbuf_pars_vertex>
 void main(){
   vXw = uOrigin + position.xy;
-  // Abstand zur (geschwungenen!) Uferlinie – positiv = seewärts
-  float dShore = ${SEA_R} + shoreWob(vXw.y) - length(vXw - ${SEA_C});
+  // Abstand zur (geschwungenen!) Uferlinie – positiv = seewärts.
+  // uOpenSea = 1: Anker steht mitten im Ozean, es gibt gar keine Küste.
+  float dShore = uOpenSea > 0.5 ? 20000.0
+               : ${SEA_R} + shoreWob(vXw.y) - length(vXw - ${SEA_C});
   // Flachwasser: die Dünung läuft am Ufer aus (dort übernimmt die Brandung).
   // vFade steuert NUR die Schattierung und ist in BEIDEN Meshes identisch –
   // dadurch sieht der Übergang Patch↔Fern-Meer überall gleich aus.
@@ -3777,7 +3780,7 @@ const OCEAN_FRAGMENT = `
 ${OCEAN_PARS}
 uniform sampler2D uDetail;
 uniform vec3  uSunDir, uSunCol, uSkyCol, uHorizonCol, uDeepCol, uShallowCol, uFoamCol;
-uniform float uSunI, uAmb, uPixel, uHaze, uChop, uAmpSum;
+uniform float uSunI, uAmb, uPixel, uHaze, uChop, uAmpSum, uOpenSea;
 ${SHORE_GLSL}
 #include <logdepthbuf_pars_fragment>
 
@@ -3838,7 +3841,8 @@ void main(){
   vec3 N = normalize(vec3(-g + dn, 1.0));
 
   // ---- Wassertiefe: Beer-Lambert (flach türkis, tief dunkelblau) ---
-  float dShore = ${SEA_R} + shoreWob(vXw.y) - length(vXw - ${SEA_C});
+  float dShore = uOpenSea > 0.5 ? 20000.0
+               : ${SEA_R} + shoreWob(vXw.y) - length(vXw - ${SEA_C});
   float depthK = smoothstep(0.0, 900.0, dShore);
   vec3  water  = mix(uShallowCol, uDeepCol, depthK);
 
@@ -3879,6 +3883,18 @@ void main(){
        * (0.55 + 0.45*texture2D(uDetail, vXw/23.0 + uTime*vec2(0.02,-0.01)).a)
        * smoothstep(-30.0, 12.0, dShore);        // nicht auf dem Strand
 
+  // ---- Blick von UNTEN gegen die Oberfläche ------------------------
+  // Ohne das ist der Ozean von unten unsichtbar (FrontSide) und man sieht
+  // die nackte Planetenkugel durchscheinen – ein flaches türkises Nichts.
+  // Physik: flach von unten = Totalreflexion (dunkel), steil nach oben =
+  // Snells Fenster (der ganze Himmel auf ~97° gestaucht).
+  if(!gl_FrontFacing){
+    float win = pow(clamp(abs(V.z), 0.0, 1.0), 0.45);   // 0 flach … 1 senkrecht
+    vec3 uw = mix(uDeepCol*0.55, uSkyCol*1.15 + uSunCol*uSunI*0.25, win);
+    uw = mix(uw, uFoamCol*0.8, foam*0.5);               // Schaum auch von unten
+    gl_FragColor = vec4(uw, 1.0);
+    return;
+  }
   // ---- Komposit ---------------------------------------------------
   vec3 col = mix(body, sky, F) + uSunCol*spec*uSunI;
   col = mix(col, uFoamCol*(uAmb + 0.75*uSunI), foam);
@@ -5013,14 +5029,19 @@ const Flight = {
       uHaze:      {value:6.5e-5},   // Luftperspektive zum Horizont
       uChop:      {value:1.0},
       uAmpSum:    {value:1},        // Σ Wellenamplituden (normiert Schaum & SSS)
-      uShore:     {value:null}      // Küsten-Tabelle der Rampe (aus start())
+      uShore:     {value:null},     // Küsten-Tabelle des Ankers (aus reanchorGround)
+      uOpenSea:   {value:0}         // 1 = offener Ozean, gar keine Küste in Sicht
     };
     this.oceanU.uAmpSum.value =
       this.oceanU.uSwell.value.reduce((s,w)=>s+w.w, 0);
     const oceanMat = patch=>new THREE.ShaderMaterial({
       uniforms: Object.assign({uOrigin:{value:new THREE.Vector2()},
                                uEye:{value:new THREE.Vector3()}}, this.oceanU),
-      vertexShader: oceanVertex(patch), fragmentShader: OCEAN_FRAGMENT
+      vertexShader: oceanVertex(patch), fragmentShader: OCEAN_FRAGMENT,
+      // ⚠️ DoubleSide: sobald die Kamera unter die Wasserlinie taucht,
+      // wäre die Oberfläche sonst weggecullt und die Planetenkugel
+      // schiene durch (das »alles türkis«-Symptom).
+      side: THREE.DoubleSide
     });
     const seaMat = oceanMat(false);
     seaMat.uniforms.uOrigin.value.set(42500, 0);
@@ -5640,24 +5661,8 @@ const Flight = {
     const polar = this.pad.id==="polar";
     this.groundPlane.material.color.set(polar ? 0xdfe9f2 : 0x3f8d4e);
     this.groundBeach.material.color.set(polar ? 0xb9c2cc : 0xd9c893);   // Kies statt Sand
-    // ---- Küstenlinie dieser Rampe aus dem prozeduralen Terrain ----------
-    // Die Wasserkante hängt jetzt an der Rampe (jede steht an einem anderen
-    // Kontinentrand), deshalb wird sie hier gebaut statt einmalig in init().
-    // `buildShoreTable` cacht pro Rampe, der Neuaufbau der Ränder kostet ~5 ms.
-    SHORE = buildShoreTable(this.pad);
-    this.oceanU.uShore.value = SHORE.tex;
-    if(this._shorePad !== this.pad.id){
-      this._shorePad = this.pad.id;
-      // ⚠️ FRISCHE Geometrie: wobbleRim verschiebt die Scheitel in-place,
-      // ein zweiter Aufruf auf demselben Kreis würde den Versatz aufaddieren.
-      const swap = (mesh, R, wob, extra)=>{
-        const old = mesh.geometry;
-        mesh.geometry = wobbleRim(new THREE.CircleGeometry(R, SHORE_SEGS), R, wob, extra);
-        old.dispose();
-      };
-      swap(this.groundSea,   41000, shoreWobble, -30);
-      swap(this.groundBeach, 40000, beachWobble);
-    }
+    // Bodenszene an der Rampe verankern (Küste aus dem prozeduralen Terrain)
+    this.reanchorGround(pd, "pad:"+this.pad.id);
     // Meer: Tiefen-/Flachwasserfarbe + Horizontschimmer (der Rest steckt im Shader)
     this.oceanU.uDeepCol.value.set(polar ? 0x08243c : 0x06305e);
     this.oceanU.uShallowCol.value.set(polar ? 0x4e93a4 : 0x2ba7ad);     // Polarmeer eisiger
@@ -5671,7 +5676,6 @@ const Flight = {
     const padQ = new THREE.Quaternion().setFromRotationMatrix(
       new THREE.Matrix4().makeBasis(east, up, south));
     this.padGroup.quaternion.copy(padQ);
-    this.groundGroup.quaternion.copy(padQ);
     // ⚠️ Die RAKETE kriegt exakt dieselbe Basis. Vorher kam ihre Lage aus
     // `setFromUnitVectors(+Y, up)` – das ist die MINIMAL-Drehung und legt den
     // Rollwinkel damit willkürlich fest. Ergebnis: [D] neigte nach SÜDEN und
@@ -5679,9 +5683,96 @@ const Flight = {
     // Mit X=Ost, Y=hoch (Nase), Z=Süd stimmt die Steuerung an JEDER Rampe:
     //   [D] → Osten (90°) · [A] → Westen · [W] → Süden · [S] → Norden.
     this.q.copy(padQ);
-    this._padQInv = padQ.clone().conjugate();   // Welt → Bodenraum (für uEye)
-    this.cloudGroup.quaternion.copy(padQ);      // Wolken teilen den Bodenraum
     this.showMsg(this.pad.icon+" "+this.pad.name+" – bereit zum Start! [Leertaste] zündet die erste Stufe.", 5);
+  },
+  /* ---------- Bodenszene irgendwo auf Leibniz verankern ----------------
+     Früher hing die ganze Bodenszene (Meer, Strand, Wiese, Wolken) starr an
+     der RAMPE. Wer nach einem Wiedereintritt 1000 km entfernt wasserte, sah
+     deshalb nur die nackte Planetenkugel – ein flaches, türkises Nichts.
+     Jetzt folgt der Anker dem Schiff, und `landH` entscheidet, welche der
+     drei Ausprägungen aufgebaut wird:
+       "coast"   – Küste in Reichweite: Layout wie an der Rampe, Ost zeigt
+                   seewärts, Uferlinie aus der abgetasteten Tabelle
+       "opensea" – offener Ozean: Meer RUND UM den Anker, kein Land
+       "inland"  – Binnenland: nur Wiese, kein Meer
+     ⚠️ Der PAD-Frame (`padEastV/padNorthV/padLocal`) bleibt davon unberührt –
+     Landing Zone, Mechazilla und die Booster-Logik hängen weiter an der
+     Rampe, egal wo das Schiff gerade ist. */
+  reanchorGround(dir, key){
+    const R = LEIBNIZ.R, up = dir.clone().normalize();
+    let east = new THREE.Vector3().crossVectors(V3(0,1,0), up);
+    east = east.lengthSq() < 1e-9 ? V3(1,0,0) : east.normalize();
+    let north = new THREE.Vector3().crossVectors(up, east).normalize();
+    const d = new THREE.Vector3();
+    const H = (e,n)=>{
+      d.copy(up).multiplyScalar(R).addScaledVector(east,e).addScaledVector(north,n).normalize();
+      return landH(d.x, d.y, d.z, TERRAIN_OCT_LOCAL);
+    };
+    const atPad = !!(key && key.startsWith("pad:"));
+    if(!atPad){
+      // Basis so drehen, dass OSTEN seewärts zeigt – nur dann ist die
+      // Uferlinie eine Funktion von Nord und die Tabellen-Parametrisierung
+      // (Ost je Nord) überhaupt gültig. An der Rampe garantiert das schon
+      // die Längengrad-Suche, dort bleibt die geografische Basis stehen.
+      const S = 7000, gE = H(S,0) - H(-S,0), gN = H(0,S) - H(0,-S);
+      if(Math.abs(gE) + Math.abs(gN) > 1e-7){
+        const a = Math.atan2(-gN, -gE), ca = Math.cos(a), sa = Math.sin(a);
+        const e2 = east.clone().multiplyScalar(ca).addScaledVector(north, sa);
+        north = east.clone().multiplyScalar(-sa).addScaledVector(north, ca).normalize();
+        east = e2.normalize();
+      }
+    }
+    // Wie weit ist die Wasserkante nach Osten? (bestimmt die Ausprägung)
+    const h0 = H(0,0);
+    let shoreE = null;
+    for(let e=(h0>0?600:-600), st=(h0>0?600:-600); Math.abs(e)<=26000; e+=st){
+      if((H(e,0) > 0) !== (h0 > 0)){ shoreE = e; break; }
+    }
+    const mode = shoreE===null ? (h0 > 0 ? "inland" : "opensea") : "coast";
+    this.groundMode = mode;
+    this.gUp = up; this.gEast = east; this.gNorth = north;
+    this.groundLocal = up.clone().multiplyScalar(R*0.999995);
+    const gQ = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(east, up, north.clone().negate()));
+    this.groundGroup.quaternion.copy(gQ);
+    this.cloudGroup.quaternion.copy(gQ);
+    this._padQInv = gQ.clone().conjugate();     // Welt → Bodenraum (für uEye)
+    const seaU = this.groundSea.material.uniforms, patU = this.seaPatch.material.uniforms;
+    if(mode === "coast"){
+      SHORE = buildShoreTable(key || ("a"+up.x.toFixed(4)+up.y.toFixed(4)+up.z.toFixed(4)),
+                              up, east, north);
+      this.oceanU.uShore.value = SHORE.tex;
+      this.oceanU.uOpenSea.value = 0;
+      // ⚠️ FRISCHE Geometrie: wobbleRim verschiebt die Scheitel in-place,
+      // ein zweiter Aufruf auf demselben Kreis addiert den Versatz auf.
+      const swap = (mesh, Rc, wob, extra)=>{
+        const old = mesh.geometry;
+        mesh.geometry = wobbleRim(new THREE.CircleGeometry(Rc, SHORE_SEGS), Rc, wob, extra);
+        old.dispose();
+      };
+      swap(this.groundSea,   41000, shoreWobble, -30);
+      swap(this.groundBeach, 40000, beachWobble);
+      this.groundSea.position.set(42500, 4, 0);   seaU.uOrigin.value.set(42500, 0);
+      this.seaPatch.position.set(3400, 4, 0);     patU.uOrigin.value.set(3400, 0);
+      this.groundPlane.visible = this.groundBeach.visible = true;
+      this.groundSea.visible = this.seaPatch.visible = true;
+      this.treeTrunks.visible = this.treeCrowns.visible = true;
+    } else {
+      this.oceanU.uOpenSea.value = mode==="opensea" ? 1 : 0;
+      if(mode === "opensea"){
+        // Meer RUND UM den Anker: schlichte große Scheibe, Detail-Patch
+        // mittig unter dem Schiff. Kein Land, keine Uferlinie.
+        const old = this.groundSea.geometry;
+        this.groundSea.geometry = new THREE.CircleGeometry(85000, 128);
+        old.dispose();
+        this.groundSea.position.set(0, 4, 0);  seaU.uOrigin.value.set(0, 0);
+        this.seaPatch.position.set(0, 4, 0);   patU.uOrigin.value.set(0, 0);
+      }
+      this.groundPlane.visible = this.groundBeach.visible = (mode === "inland");
+      this.treeTrunks.visible = this.treeCrowns.visible = (mode === "inland");
+      this.groundSea.visible = this.seaPatch.visible = (mode === "opensea");
+    }
+    this._anchorDir = up.clone();
   },
   height(){ return stackHeight(this.v.stack); },
   /* höchstes Level einer Rolle in der aktuellen Crew (Kader-Bonus) */
@@ -6161,7 +6252,12 @@ const Flight = {
             // das Deck WIRKLICH auf See liegt – sonst ankert das Droneship
             // auf der Wiese.
             let e = Math.max(d.dot(this.padEastV), 6000);
-            for(let k=0; k<40 && shoreDist(e, n) < 800; k++) e += 800;
+            const wet = ee=>{
+              const p = this.padLocal.clone().addScaledVector(this.padEastV, ee)
+                .addScaledVector(this.padNorthV, n).normalize();
+              return landH(p.x, p.y, p.z, TERRAIN_OCT_LOCAL) < -0.002;
+            };
+            for(let k=0; k<40 && !wet(e); k++) e += 800;
             b.tgt = this.padLocal.clone()
               .addScaledVector(this.padEastV, e)
               .addScaledVector(this.padNorthV, n)
@@ -6303,9 +6399,11 @@ const Flight = {
           const dPad = b.local.clone().sub(this.padLocal || b.local);
           // Wasserung? Gegen die GESCHWUNGENE Uferlinie prüfen (shoreDist),
           // damit sich das Urteil mit dem deckt, was man auf dem Bild sieht.
-          const inWater = shoreDist(dPad.dot(this.padEastV||V3(1,0,0)),
-                                    dPad.dot(this.padNorthV||V3(0,0,1))) > 0
-                          && dPad.length() < 85000;
+          // ⚠️ Direkt aus dem Terrain, NICHT über die Küstentabelle: die
+          // gehört zum Boden-Anker, der beim Booster-Abstieg längst dem
+          // Schiff hinterhergewandert sein kann. `landH` gilt überall.
+          const bd = b.local.clone().normalize();
+          const inWater = landH(bd.x, bd.y, bd.z, TERRAIN_OCT_LOCAL) < 0;
           let fac, wo;
           if(dDS < 130){
             fac = 0.9; wo = "🚢 AUF DEM DRONESHIP"; this.statShipLanded = true;
@@ -6827,6 +6925,109 @@ const Flight = {
   setRumble(level){
     if(!this._audio) return;
     this._audio.gain.gain.value = level;
+  },
+  /* ---------- Wasseroberfläche in JS ----------------------------------
+     Spiegelt EXAKT die Höhenrechnung des Ozean-Vertex-Shaders (gleiche
+     Wellensumme, gleiche Hüllkurve, gleicher Hub). Nur so treffen Gischt
+     und Einschlag genau die Stelle, an der man das Wasser auch SIEHT.
+     Koordinaten: Ost/Nord im Boden-Anker-System, Rückgabe = Höhe wie das
+     Mesh sie zeichnet. Ohne Bodenszene (map/hoch) gibt es kein Wasser. */
+  seaHeight(e, n){
+    const U = this.oceanU, patU = this.seaPatch.material.uniforms;
+    const org = patU.uOrigin.value, lift = patU.uLift.value;
+    const open = U.uOpenSea.value > 0.5;
+    const dS = open ? 20000 : shoreDist(e, n);
+    const sm = (a,b,x)=>{ const t = Math.max(0, Math.min(1, (x-a)/(b-a))); return t*t*(3-2*t); };
+    const E = (1 - sm(1150, 2480, Math.abs(e-org.x)))
+            * (1 - sm(2280, 3580, Math.abs(n-org.y)))
+            * sm(0, 320, dS);
+    let hh = 0;
+    const T = U.uTime.value, W = U.uSwell.value;
+    for(let i=0;i<W.length;i++){
+      const w = W[i], k = w.z, A = w.w*E*sm(55, 85, 2*Math.PI/k);
+      hh += A*Math.cos((w.x*e + w.y*n)*k - Math.sqrt(9.81*k)*T + i*2.399);
+    }
+    let z = lift*E + 0.35 + hh;
+    if(!open) z -= Math.max(0, 20 - dS)*0.35;
+    return 4 + z;
+  },
+  /* Ist die Stelle (Ost/Nord) überhaupt Wasser? */
+  isWaterAt(e, n){
+    if(this.oceanU.uOpenSea.value > 0.5) return this.groundMode === "opensea";
+    return this.groundMode === "coast" && shoreDist(e, n) > 0;
+  },
+  /* Punkt aus der Szene (schiffzentriert) ins Boden-System (Ost/hoch/Nord) */
+  toGround(scenePos){
+    if(!this._padQInv) return null;
+    const v = scenePos.clone().sub(this.world.position)
+      .sub(this.groundGroup.position).applyQuaternion(this._padQInv);
+    return {e: v.x, up: v.y, n: -v.z};      // Gruppen-Z zeigt nach SÜDEN
+  },
+  /* ---------- Gischt: Einschlag & Triebwerksstrahl aufs Wasser ---------
+     Zwei Auslöser, beide über `seaHeight`:
+       · SPLASH – irgendetwas durchstößt die Oberfläche von oben. Wucht und
+         Menge skalieren mit der Sinkgeschwindigkeit (ein Booster mit 40 m/s
+         wirft eine deutlich größere Fontäne als ein sanft aufsetzendes
+         Starship).
+       · STRAHL – ein brennendes Triebwerk steht dicht über dem Wasser: der
+         Abgasstrahl drückt eine Delle und reißt einen Ring aus Sprühnebel
+         hoch (der »Landing Burn übers Wasser«-Effekt).
+     Beides nutzt den vorhandenen Partikel-Pool, nur weiß/türkis getönt. */
+  waterFx(dt){
+    if(!this.groundGroup.visible || this.map || !this._padQInv) return;
+    const g = this.toGround(V3(0,0,0));           // Schiff sitzt im Szenen-Ursprung
+    if(!g || !this.isWaterAt(g.e, g.n)) { this._wasUnder = false; return; }
+    const surf = this.seaHeight(g.e, g.n);
+    const H = this.height();
+    const bottom = g.up - H/2;                    // Unterkante der Rakete
+    // Szenen-Richtungen für die Partikel (Boden-System → Welt)
+    const up = this.gUp, east = this.gEast, north = this.gNorth;
+    // ⚠️ Szenen-Ursprung ist das SCHIFF, nicht die Wasserlinie: die Höhe
+    // muss relativ zu `g.up` versetzt werden, sonst entsteht die Gischt auf
+    // Raketenhöhe statt an der Oberfläche.
+    const at = (e,n,h)=> up.clone().multiplyScalar(h - g.up)
+      .addScaledVector(east, e - g.e).addScaledVector(north, n - g.n);
+    const vRel = this.vel.clone().sub(bodyVel(LEIBNIZ, this.t));
+    const vDown = -vRel.dot(up);
+    // --- 1) SPLASH beim Durchstoßen der Oberfläche ---------------------
+    const under = bottom < surf;
+    if(under && !this._wasUnder && vDown > 3){
+      const power = Math.min(1, vDown/45);
+      const nP = Math.round(10 + 26*power);
+      for(let i=0;i<nP;i++){
+        const a = Math.random()*6.283, r = 2 + Math.random()*10*(0.4+power);
+        const outw = east.clone().multiplyScalar(Math.cos(a)).addScaledVector(north, Math.sin(a));
+        this.spawnParticle(
+          at(g.e + Math.cos(a)*r, g.n + Math.sin(a)*r, surf),
+          outw.multiplyScalar(3 + 14*power*Math.random())
+              .addScaledVector(up, 8 + 30*power*Math.random()),
+          1.0 + Math.random()*1.2, 4 + 11*power*Math.random(),
+          Math.random() < 0.7 ? 0xffffff : 0xbfe8f0);
+      }
+      this.showMsg("💦 PLATSCH – Wasserlandung!", 2);
+    }
+    this._wasUnder = under;
+    // --- 2) Triebwerksstrahl drückt Gischt hoch ------------------------
+    const s = this.activeSeg();
+    const burning = s && s.ignited && s.fuelLeft > 0 && s.thrust && this.throttle > 0
+                    && WARPS[this.warpI] <= 2;
+    const clear = bottom - surf;                  // Abstand Düse → Wasser
+    if(burning && clear > 0 && clear < 80){
+      // quadratisch: der Strahl weitet sich auf, dicht überm Wasser wird es
+      // schlagartig heftig – wie beim Landing Burn über See
+      const inten = Math.pow(1 - clear/80, 2)*Math.min(1, this.throttle);
+      const nP = Math.min(4, Math.floor(inten*4.5) + (Math.random() < inten ? 1 : 0));
+      for(let i=0;i<nP;i++){
+        const a = Math.random()*6.283, r = 3 + Math.random()*16*(0.4+inten);
+        const outw = east.clone().multiplyScalar(Math.cos(a)).addScaledVector(north, Math.sin(a));
+        this.spawnParticle(
+          at(g.e + Math.cos(a)*r, g.n + Math.sin(a)*r, surf),
+          outw.multiplyScalar(10 + 26*Math.random())
+              .addScaledVector(up, 7 + 26*inten*Math.random()),
+          0.8 + Math.random()*0.9, 5 + 12*inten*Math.random(),
+          Math.random() < 0.6 ? 0xffffff : 0xd8f0f6);
+      }
+    }
   },
   spawnParticle(pos, vel, life, size, color){
     const p = this.particles.find(p=>p.life<=0);
@@ -7906,8 +8107,7 @@ const Flight = {
     U.uTime.value = ((this.t % OCEAN_T) + OCEAN_T) % OCEAN_T;   // exakt periodisch
     // Sonnenrichtung (bodennah = Spieluhr, s. frame()) in Ost/Nord/Hoch zerlegt
     const sun = this.groundSunDir || this.pos.clone().negate().normalize();
-    U.uSunDir.value.set(sun.dot(this.padEastV), sun.dot(this.padNorthV),
-                        sun.dot(this.padUpV));
+    U.uSunDir.value.set(sun.dot(this.gEast), sun.dot(this.gNorth), sun.dot(this.gUp));
     const dl = this.dayLight;
     U.uSunI.value = 0.05 + 0.95*dl;
     U.uAmb.value  = 0.22 + 0.26*dl;
@@ -7953,8 +8153,7 @@ const Flight = {
     const U = this.cloudU;
     if(!this._padQInv) return;
     const sun = this.groundSunDir || this.pos.clone().negate().normalize();
-    U.uSunDir.value.set(sun.dot(this.padEastV), sun.dot(this.padUpV),
-                        -sun.dot(this.padNorthV));
+    U.uSunDir.value.set(sun.dot(this.gEast), sun.dot(this.gUp), -sun.dot(this.gNorth));
     const dl = this.dayLight, sz = U.uSunDir.value.y;
     // Direktlicht stirbt, sobald die Sonne unter den Horizont sinkt – die
     // Wolken hängen hoch und leuchten deshalb noch, wenn der Boden schon
@@ -8002,6 +8201,15 @@ const Flight = {
     this.cloudShell.position.copy(lp);
     this.atmoShell.position.copy(lp);
     this.padGroup.position.copy(lp).add(this.padLocal||V3(LEIBNIZ.R,0,0));
+    // Bodenszene dem Schiff nachführen: sobald der Bodenpunkt mehr als 12 km
+    // vom Anker weggewandert ist und wir tief genug sind, neu verankern.
+    // Über offenem Ozean kostet das fast nichts (keine Küstentabelle), an
+    // einer Küste ~60 ms – dort ist man beim Landen aber ohnehin langsam.
+    const relLp = this.pos.clone().sub(lp);
+    if(!this.map && this._anchorDir && relLp.length() - LEIBNIZ.R < 22000){
+      const sub = relLp.clone().normalize();
+      if(sub.distanceTo(this._anchorDir)*LEIBNIZ.R > 12000) this.reanchorGround(sub);
+    }
     this.groundGroup.position.copy(lp).add(this.groundLocal||V3(LEIBNIZ.R,0,0));
     // Mechazilla-Arme: offen im Anflug, schnappen beim Catch zu (~1 s)
     if(this.mzArms && this.mzArms.length){
@@ -8018,7 +8226,7 @@ const Flight = {
         this.droneMesh.quaternion.setFromUnitVectors(V3(0,1,0), this.dsLocal.clone().normalize());
       } else this.droneMesh.visible = false;
     }
-    this.cloudGroup.position.copy(lp).add(this.padLocal||V3(LEIBNIZ.R,0,0));
+    this.cloudGroup.position.copy(lp).add(this.groundLocal||V3(LEIBNIZ.R,0,0));
     for(const [m, ring] of this.moonRings) ring.position.copy(bodyPos(m.parent, this.t));
     // Sonnenlicht: Richtung wird weiter unten (Tag/Nacht-Block) gesetzt –
     // im Orbit die echte Geometrie, bodennah der Stand der Spieluhr.
@@ -8046,18 +8254,18 @@ const Flight = {
     // oben, also passen Richtung und Helligkeit zusammen. Ab 40 km (gb=0)
     // zählt wieder die echte Sonnengeometrie.
     this.groundSunDir = sunReal.clone();
-    if(gb > 0.001 && this.padUpV){
+    if(gb > 0.001 && this.gUp){
       const phi = 2*Math.PI*(dayFrac - 0.25);
-      const clockSun = this.padEastV.clone().multiplyScalar(Math.cos(phi))
-        .addScaledVector(this.padUpV, Math.sin(phi))
-        .addScaledVector(this.padNorthV, 0.18).normalize();
+      const clockSun = this.gEast.clone().multiplyScalar(Math.cos(phi))
+        .addScaledVector(this.gUp, Math.sin(phi))
+        .addScaledVector(this.gNorth, 0.18).normalize();
       this.groundSunDir.lerp(clockSun, gb).normalize();
     }
     this.sunLight.position.copy(this.groundSunDir).multiplyScalar(1e7);
     this.sunLight.intensity = 1.3*(0.08 + 0.92*this.dayLight);
     // Fülllicht aus der Gegenrichtung, leicht von oben (Himmelskuppel)
     this.fillLight.position.copy(this.groundSunDir).negate()
-      .addScaledVector(this.padUpV || V3(0,1,0), 0.9).normalize().multiplyScalar(1e7);
+      .addScaledVector(this.gUp || V3(0,1,0), 0.9).normalize().multiplyScalar(1e7);
     this.fillLight.intensity = 0.42*gb*this.dayLight;
     // Bodennah wird das Streulicht WARM (sonst entsättigt das blaugraue
     // All-Ambient z. B. den Sandstrand zu Grau) und zugleich SCHWÄCHER:
@@ -8318,6 +8526,7 @@ const Flight = {
     // Triebwerks-Sound: lauter mit Schub, leiser mit dünner Luft (Vakuum = fast still)
     this.setRumble(burning || boosterBurn ? (0.04+0.14*(burning?this.throttle:1))*(0.25+0.75*f) : 0);
     // Partikel altern mit SIMULATIONS-Zeit (sonst driften sie bei Warp gegen die Planetenbewegung)
+    this.waterFx(simmed);
     this.updateParticles(simmed);
     for(const sat of this.sats) sat.mesh.position.copy(sat.pos);
     if(this.tutTanker && this.tutTankerMesh)
@@ -8416,7 +8625,24 @@ const Flight = {
     if(c.width!==w || c.height!==h){ c.width = w; c.height = h; }
     const x = c.getContext("2d");
     x.clearRect(0, 0, w, h);
-    if(this.map || this.crashed || !this.v) return;
+    if(this.map || !this.v) return;
+    // ---- Kamera unter Wasser: Szene eintauchen ------------------------
+    // Der Shader zeigt die Oberfläche jetzt auch von unten; der Rest der
+    // Tiefenwirkung (Trübung, Farbstich) kommt hier als Overlay dazu.
+    if(this.groundGroup.visible && this._padQInv){
+      const cg = this.toGround(this.camera.position);
+      if(cg && this.isWaterAt(cg.e, cg.n) && cg.up < this.seaHeight(cg.e, cg.n)){
+        const tief = Math.min(1, (this.seaHeight(cg.e, cg.n) - cg.up)/25);
+        const dc = this.oceanU.uDeepCol.value, sc = this.oceanU.uShallowCol.value;
+        const mix2 = (a,b,t)=>Math.round(255*(a + (b-a)*t));
+        const g2 = x.createLinearGradient(0, 0, 0, h);
+        g2.addColorStop(0, `rgba(${mix2(sc.r,dc.r,tief)},${mix2(sc.g,dc.g,tief)},${mix2(sc.b,dc.b,tief)},${0.42+0.34*tief})`);
+        g2.addColorStop(1, `rgba(${mix2(sc.r,dc.r,1)},${mix2(sc.g,dc.g,1)},${mix2(sc.b,dc.b,1)},${0.62+0.3*tief})`);
+        x.fillStyle = g2; x.fillRect(0, 0, w, h);
+        return;                                   // unter Wasser kein Lens-Flare
+      }
+    }
+    if(this.crashed) return;
     // Sonne dort, wo sie auch WIRKLICH gemalt wird (s. sunScenePos): im All
     // der Weltursprung, bodennah der Stand der Spieluhr.
     const sunRel = (this.sunScenePos || this.pos.clone().negate()).clone();
