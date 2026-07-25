@@ -4456,10 +4456,21 @@ void main(){
    auf Fairing vs. nackte Spitze. Die "Konvergenz" (Iterationszähler,
    Momentan-Cd-Rauschen) ist Solver-Theater, die Zahlen dahinter nicht.
    ================================================================= */
+/* Die CFD-Farbrampe – EINE Quelle für Rumpf-Oberfläche UND Rauchfahnen.
+   blau (Unterdruck / Lee) → cyan → grün (neutral) → gelb → rot (Stau).
+   Lägen zwei Kopien im Code, würden Fahne und Oberfläche irgendwann
+   unterschiedliche Sprachen sprechen. */
+const CFD_RAMP_GLSL = `
+  vec3 ramp(float t){
+    vec3 c1=vec3(.13,.28,.95), c2=vec3(.10,.78,.86), c3=vec3(.22,.85,.32),
+         c4=vec3(.95,.86,.20), c5=vec3(1.,.26,.10);
+    return t<.25 ? mix(c1,c2,t*4.) : t<.5 ? mix(c2,c3,(t-.25)*4.)
+         : t<.75 ? mix(c3,c4,(t-.5)*4.) : mix(c4,c5,(t-.75)*4.); }
+`;
 const CFD = {
   renderer:null, scene:null, camera:null, host:null, mode:"ascent",
   camAz:2.45, camEl:0.28, camDist:150, raf:null, t:0, iter:0, samples:[],
-  world:null, tracers:[], blobs:[], stag:[], paths:[], aeroData:null,
+  world:null, blobs:[], stag:[], aeroData:null, ribbonMesh:null,
   /* Bugform-Stumpfheit 0 (spitz) … 1 (flache Stirnfläche) je Bauteiltyp */
   bluntOf(seg){
     if(seg.type==="ogive") return 0.06;                 // Fairing-Ogive
@@ -4570,6 +4581,7 @@ const CFD = {
       g.addColorStop(1,"rgba(255,255,255,0)");
       x.fillStyle = g; x.fillRect(0,0,64,64);
       this.glowTex = new THREE.CanvasTexture(c);
+      this.smokeTex = this.makeSmokeTexture();
       // Druck-Shader: rot = Staufläche, grün = neutral, blau = Lee/Nachlauf
       this.cpMat = new THREE.ShaderMaterial({
         vertexShader:`varying vec3 vN; varying vec3 vW;
@@ -4577,11 +4589,7 @@ const CFD = {
             vec4 wp = modelMatrix*vec4(position,1.0); vW = wp.xyz;
             gl_Position = projectionMatrix*viewMatrix*wp; }`,
         fragmentShader:`varying vec3 vN; varying vec3 vW;
-          vec3 ramp(float t){
-            vec3 c1=vec3(.13,.28,.95), c2=vec3(.10,.78,.86), c3=vec3(.22,.85,.32),
-                 c4=vec3(.95,.86,.20), c5=vec3(1.,.26,.10);
-            return t<.25 ? mix(c1,c2,t*4.) : t<.5 ? mix(c2,c3,(t-.25)*4.)
-                 : t<.75 ? mix(c3,c4,(t-.5)*4.) : mix(c4,c5,(t-.75)*4.); }
+          ${CFD_RAMP_GLSL}
           void main(){
             vec3 n = normalize(vN);
             float face = dot(n, vec3(-1.,0.,0.));   // Anströmung fließt +X
@@ -4589,6 +4597,75 @@ const CFD = {
             vec3 col = ramp(clamp(t,0.,1.));
             col *= .55+.45*abs(dot(n, normalize(cameraPosition-vW)));
             gl_FragColor = vec4(col,1.); }`
+      });
+      /* ---------- Rauchfahnen-Shader ---------------------------------------
+         Ein echter Windkanal bläst Rauchschnüre ein: vorne glatte Bänder, die
+         sich um den Körper legen und im Nachlauf turbulent aufreißen. Genau
+         das macht dieses Material – nur eingefärbt mit der CFD-Druckrampe
+         statt weiß.
+         ⚠️ Das Band wird IM VERTEX-SHADER zur Kamera aufgespannt (aSide ×
+         halbe Bandbreite quer zur Blickachse). Ein Band mit fester Ebene
+         verschwindet, sobald die Kamera in seine Ebene dreht – bei einer frei
+         orbitierenden Kamera flackert dann die halbe Strömung weg.
+         ⚠️ GLSL ES 1.00 (WebGL1, alte Schultreiber): attribute/varying,
+         texture2D, gl_FragColor – kein inverse(), keine dynamischen Loops. */
+      this.smokeMat = new THREE.ShaderMaterial({
+        uniforms:{ uTex:{value:this.smokeTex}, uT:{value:0}, uOp:{value:0.40} },
+        transparent:true, depthWrite:false, side:THREE.DoubleSide,
+        blending:THREE.AdditiveBlending,
+        vertexShader:`
+          attribute vec3 aTan;      // Tangente der Stromröhre
+          attribute vec3 aRad;      // radial nach außen
+          attribute vec3 aBi;       // Binormale (aTan × aRad)
+          attribute float aSide;    // −1 / +1 = die zwei Bandkanten
+          attribute float aU;       // 0..1 entlang der Fahne
+          attribute float aP;       // Druck-Skalar → ramp()
+          attribute float aW;       // halbe Bandbreite hier
+          attribute float aTurb;    // 0 laminar … 1 voll turbulent
+          attribute float aSeed;    // Phase pro Fahne
+          attribute float aDim;     // weiter außen = ungestörter = blasser
+          uniform float uT;
+          varying float vU; varying float vSide; varying float vP;
+          varying float vTurb; varying float vSeed; varying float vDim;
+          void main(){
+            // Turbulentes Wabern: quer zur Strömung, wächst stromab
+            float w = aTurb*aW*2.6;
+            vec3 p = position
+              + aRad*(w*sin(uT*3.1 + aSeed      + aU*22.0))
+              + aBi *(w*cos(uT*2.4 + aSeed*1.7  + aU*17.0));
+            vec4 mv = modelViewMatrix*vec4(p, 1.0);
+            vec3 tv = normalize(mat3(modelViewMatrix)*aTan);
+            vec3 vd = normalize(-mv.xyz);
+            vec3 sd = cross(tv, vd);
+            float sl = length(sd);
+            // Blickrichtung ∥ Fahne: dann quer dazu radial aufspannen
+            sd = sl > 1e-4 ? sd/sl : normalize(mat3(modelViewMatrix)*aRad);
+            mv.xyz += sd*(aSide*aW);
+            vU = aU; vSide = aSide; vP = aP; vTurb = aTurb; vSeed = aSeed; vDim = aDim;
+            gl_Position = projectionMatrix*mv;
+          }`,
+        fragmentShader:`
+          uniform sampler2D uTex; uniform float uT; uniform float uOp;
+          varying float vU; varying float vSide; varying float vP;
+          varying float vTurb; varying float vSeed; varying float vDim;
+          ${CFD_RAMP_GLSL}
+          void main(){
+            float edge = 1.0 - vSide*vSide;              // weiche Bandkanten
+            // Zwei Lagen derselben Kachel, gegenläufig gescrollt = Wabern
+            vec2 uv1 = vec2(vU*3.2 - uT*0.42, vSide*0.22 + vSeed);
+            vec2 uv2 = vec2(vU*7.4 - uT*0.90, vSide*0.40 + vSeed*1.7 + 0.37);
+            float n1 = texture2D(uTex, uv1).a;
+            float n2 = texture2D(uTex, uv2).a;
+            // laminar = glatte Schnur, turbulent = zerrissene Fetzen
+            float sm = mix(0.42 + 0.58*n1, n1*n2*2.6, vTurb);
+            float fade = smoothstep(0.0, 0.09, vU)*(1.0 - smoothstep(0.68, 1.0, vU));
+            float a = uOp*edge*fade*sm*vDim*(0.80 + 0.55*vTurb);
+            // Wo der Druck WIRKLICH abweicht (Stau rot / Lee blau), leuchtet
+            // die Fahne kräftiger – sonst frisst das neutrale Grün der
+            // ungestörten Anströmung das ganze Bild auf.
+            float dev = clamp(abs(vP-0.5)*2.0, 0.0, 1.0);
+            gl_FragColor = vec4(ramp(clamp(vP,0.0,1.0))*a*(0.70+0.75*dev), 1.0);
+          }`
       });
       this.initPointer();
       addEventListener("resize", ()=>{ if(this.renderer) this.resize(); });
@@ -4609,6 +4686,46 @@ const CFD = {
   },
   setMode(m){ this.mode = m; this.buildScene(); },
   restart(){ this.iter = 0; this.samples = []; },
+  /* ---------- Rauch-Kachel (nahtlos) -----------------------------------
+     Fraktales Wertrauschen in der Alphakanal-Kachel. Die Fahnen scrollen sie
+     entlang ihrer Länge – deshalb MUSS sie nahtlos sein, sonst wandert alle
+     paar Sekunden eine harte Kante durch den Windkanal.
+     ⚠️ Nahtlos = jedes Oktavgitter muss 256 GANZZAHLIG teilen (4,8,16,32,64)
+     und beim Nachschlagen per Modulo umlaufen. Ein Multiplikations-Hash wie
+     beim Terrain bringt hier nichts: die Kachel wird EINMAL gebacken. */
+  makeSmokeTexture(){
+    const S = 256, c = document.createElement("canvas"); c.width = c.height = S;
+    const ctx = c.getContext("2d"), img = ctx.createImageData(S, S);
+    const rnd = seededRand(4711), grids = [];
+    for(let o=0;o<5;o++){
+      const n = 4 << o, g = new Float32Array(n*n);
+      for(let i=0;i<n*n;i++) g[i] = rnd();
+      grids.push({n, g});
+    }
+    const sm = t=>t*t*(3-2*t);
+    const at = (gr, x, y)=>{
+      const n = gr.n, fx = x*n, fy = y*n;
+      const ix = Math.floor(fx), iy = Math.floor(fy);
+      const tx = sm(fx-ix), ty = sm(fy-iy);
+      const i0 = ((ix%n)+n)%n, i1 = (i0+1)%n, j0 = ((iy%n)+n)%n, j1 = (j0+1)%n;
+      const a = gr.g[j0*n+i0], b = gr.g[j0*n+i1], d = gr.g[j1*n+i0], e = gr.g[j1*n+i1];
+      return (a+(b-a)*tx)*(1-ty) + (d+(e-d)*tx)*ty;
+    };
+    for(let y=0;y<S;y++) for(let x=0;x<S;x++){
+      let v = 0, amp = 0.5, sum = 0;
+      for(let o=0;o<5;o++){ v += amp*at(grids[o], x/S, y/S); sum += amp; amp *= 0.55; }
+      v /= sum;
+      // Kontrast anheben: lockere Schwaden statt gleichmäßigem Grau
+      v = Math.pow(Math.max(0, v*1.30 - 0.20), 1.45);
+      const i = (y*S+x)*4;
+      img.data[i] = img.data[i+1] = img.data[i+2] = 255;
+      img.data[i+3] = Math.min(255, v*255)|0;
+    }
+    ctx.putImageData(img, 0, 0);
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    return t;
+  },
   initPointer(){
     let drag = null;
     this.host.addEventListener("pointerdown", e=>{ drag = {x:e.clientX, y:e.clientY}; });
@@ -4625,9 +4742,12 @@ const CFD = {
   },
   buildScene(){
     if(this.world) this.scene.remove(this.world);
+    // ⚠️ Das Fahnen-Mesh hat ~19 000 Scheitel mit 10 Attributen – bei jedem
+    // Moduswechsel eines liegen zu lassen frisst nach ein paar Klicks im
+    // Windkanal echten GPU-Speicher.
+    if(this.ribbonMesh){ this.ribbonMesh.geometry.dispose(); this.ribbonMesh = null; }
     this.world = new THREE.Group(); this.scene.add(this.world);
-    this.tracers = []; this.blobs = []; this.stag = []; this.paths = [];
-    this.smoke = []; this.seps = []; this.nearPaths = []; this.bow = [];
+    this.blobs = []; this.stag = []; this.seps = []; this.bow = [];
     this.iter = 0; this.samples = [];
     const aero = this.aeroData = this.aero(VAB.stack, this.mode);
     if(!aero) return;
@@ -4657,38 +4777,87 @@ const CFD = {
       }
       return r;
     };
-    // --- Stromlinien: Stromröhren-Näherung, 6 Radien × 8 Azimute (dezent –
-    // die Hauptrolle spielen die Rauchfahnen) ---
-    const lineMat = new THREE.LineBasicMaterial({color:0xd9d98c, transparent:true, opacity:0.20});
-    for(const z0f of [0.18, 0.45, 0.8, 1.25, 1.8, 2.5]){
-      const z0 = aero.rmax*z0f;
-      for(let a=0;a<8;a++){
-        const phi = a/8*Math.PI*2 + z0f;
-        const pts = [], path = [];
-        for(let k=0;k<=110;k++){
-          const xq = -L*1.4 + k*(L*3.4)/110;
-          const rl = Math.sqrt(rpEff(xq)**2 + z0*z0) + 0.35;
-          const p = V3(xq, Math.cos(phi)*rl, Math.sin(phi)*rl);
-          pts.push(p); path.push(p);
+    /* --- Rauchfahnen statt Linien ----------------------------------------
+       Vorher zeichnete der Windkanal 48 dünne Stromlinien – geometrisch
+       korrekt, aber es sah aus wie ein Drahtmodell. Ein echter Windkanal
+       macht die Strömung mit RAUCH sichtbar: eingeblasene Schnüre, die sich
+       glatt um den Körper legen und im Nachlauf turbulent aufreißen.
+       Die Bahnen sind dieselben wie vorher (Stromröhren-Näherung
+       r_Linie = √(r_Profil² + z0²)), nur werden sie jetzt als kameragerichtete
+       Bänder mit scrollender Rauch-Kachel gerendert.
+       ⚠️ ALLE Fahnen landen in EINER BufferGeometry – ein Mesh pro Fahne
+       wären bei 7 Radien × 8 Azimuten 56 Draw-Calls für nichts.
+       ⚠️ Die Bandbreite wächst stromab (turbulente Aufweitung); im laminaren
+       Vorfeld müssen die Bänder SCHMAL bleiben, sonst verschmieren die
+       einzelnen Schnüre zu einer einzigen Nebelwand und man sieht nicht
+       mehr, wie die Strömung dem Rumpf ausweicht. */
+    const RINGS = [0.18, 0.42, 0.72, 1.10, 1.55, 2.10, 2.75], NAZ = 8, NK = 132;
+    const wBase = aero.rmax*0.15;
+    const pos=[], tan=[], rad=[], bi=[], sideA=[], uA=[], pA=[], wA=[], turbA=[], seedA=[], dimA=[], idx=[];
+    // Druck-Indikator aus der ABLENKUNG der Stromröhre: wird sie nach außen
+    // gedrängt (drl/dx > 0), staut sich die Strömung → rot. Schließt sie sich
+    // wieder (< 0), beschleunigt sie → blau. Gerade = neutral/grün. Damit
+    // stimmt die Fahnenfarbe an Bug und Lee mit der Rumpffarbe zusammen.
+    const rlAt = (xq, z0)=> Math.sqrt(rpEff(xq)**2 + z0*z0) + 0.35;
+    let vOfs = 0;
+    for(let ri=0; ri<RINGS.length; ri++){
+      const z0 = aero.rmax*RINGS[ri];
+      for(let ai=0; ai<NAZ; ai++){
+        const phi = ai/NAZ*Math.PI*2 + RINGS[ri]*2.3;
+        const cp = Math.cos(phi), sp2 = Math.sin(phi);
+        const seed = (ri*NAZ+ai)*0.6180339887 % 1 * 6.2831853;
+        // Weiter außen liegende Schnüre werden vom Rumpf kaum gestört → blasser
+        const outer = 1/(1 + RINGS[ri]*0.45);
+        for(let k=0; k<=NK; k++){
+          const u = k/NK, xq = -L*1.45 + u*(L*3.5);
+          const rl = rlAt(xq, z0);
+          // ⚠️ dx muss GRÖSSER als der Stützstellenabstand (L*3.5/NK) sein –
+          // an der Stirnfläche springt `rpEff` von 0 auf r, mit zu feinem dx
+          // erwischt diesen Sprung nur ein einziger Scheitel und der Staupunkt
+          // ist ein 3-m-Strich statt einer sichtbaren roten Zone.
+          const dx = L*0.050;
+          const slope = (rlAt(xq+dx, z0) - rlAt(xq-dx, z0))/(2*dx);
+          const sSat = slope*2.6;
+          const p = 0.5 + 0.5*sSat/(1 + Math.abs(sSat));
+          const turb = THREE.MathUtils.clamp((xq - L*0.12)/(L*0.85), 0, 1);
+          const w = wBase*(1 + 2.4*turb)*outer;
+          // Achse x, radial nach außen (cos φ, sin φ) in y/z,
+          // azimutal (0, −sin φ, cos φ) = die dritte Basisrichtung
+          const tl = Math.hypot(1, slope);
+          for(const sd of [-1, 1]){
+            pos.push(xq, cp*rl, sp2*rl);
+            tan.push(1/tl, slope*cp/tl, slope*sp2/tl);
+            rad.push(0, cp, sp2);
+            bi.push(0, -sp2, cp);
+            sideA.push(sd); uA.push(u); pA.push(p); wA.push(w);
+            turbA.push(turb); seedA.push(seed); dimA.push(outer);
+          }
+          if(k < NK){
+            const b = vOfs + k*2;
+            idx.push(b, b+1, b+2, b+1, b+3, b+2);
+          }
         }
-        const geo = new THREE.BufferGeometry().setFromPoints(pts);
-        this.world.add(new THREE.Line(geo, lineMat));
-        this.paths.push(path);
+        vOfs += (NK+1)*2;
       }
     }
-    // --- Rauchfahnen: große weiche Puffs strömen die körpernahen Linien
-    // entlang und quellen im Nachlauf turbulent auf (volumetrischer Look) ---
-    this.nearPaths = this.paths.slice(0, 24);   // die 3 körpernächsten Ringe
-    this.smoke = [];
-    for(let i=0;i<260;i++){
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:this.glowTex,
-        color:Math.random()<0.7 ? 0x46e08c : 0x38c8d8, transparent:true, opacity:0,
-        depthWrite:false, blending:THREE.AdditiveBlending}));
-      sp.userData = {path:this.nearPaths[(Math.random()*this.nearPaths.length)|0],
-        u:Math.random(), sp:0.09+Math.random()*0.07, ph:Math.random()*7,
-        sz:aero.rmax*(0.9+Math.random()*1.3)};
-      this.world.add(sp); this.smoke.push(sp);
-    }
+    const rg = new THREE.BufferGeometry();
+    const F = (arr, n)=> new THREE.BufferAttribute(new Float32Array(arr), n);
+    rg.setAttribute("position", F(pos,3));
+    rg.setAttribute("aTan", F(tan,3));
+    rg.setAttribute("aRad", F(rad,3));
+    rg.setAttribute("aBi", F(bi,3));
+    rg.setAttribute("aSide", F(sideA,1));
+    rg.setAttribute("aU", F(uA,1));
+    rg.setAttribute("aP", F(pA,1));
+    rg.setAttribute("aW", F(wA,1));
+    rg.setAttribute("aTurb", F(turbA,1));
+    rg.setAttribute("aSeed", F(seedA,1));
+    rg.setAttribute("aDim", F(dimA,1));
+    rg.setIndex(idx);
+    rg.computeBoundingSphere();
+    this.ribbonMesh = new THREE.Mesh(rg, this.smokeMat);
+    this.ribbonMesh.frustumCulled = false;   // Wabern reicht über die Bounding Sphere
+    this.world.add(this.ribbonMesh);
     // --- Grünes Staukissen VOR der Stirnfläche (komprimierte Zone) ---
     this.bow = [];
     for(let i=0;i<5;i++){
@@ -4717,17 +4886,9 @@ const CFD = {
       const r0 = aero.segs[i].r, r1 = aero.segs[i+1].r;
       if(r1 > r0+0.4) addSepRing(xsep + (r1-r0)*0.4, r1*0.98, Math.min(1, (r1-r0)/aero.rmax*2));
     }
-    // --- Tracer-Partikel laufen die Stromlinien entlang ---
-    for(let i=0;i<36;i++){
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:this.glowTex,
-        color:0xfff7c8, transparent:true, opacity:0.85, depthWrite:false,
-        blending:THREE.AdditiveBlending}));
-      const s = aero.rmax*0.14;
-      sp.scale.set(s, s, 1);
-      sp.userData = {path:this.paths[(Math.random()*this.paths.length)|0],
-        u:Math.random(), sp:0.10+Math.random()*0.08};
-      this.world.add(sp); this.tracers.push(sp);
-    }
+    // (Keine Tracer-Punkte mehr: die scrollende Rauch-Kachel trägt die
+    // Bewegung, leuchtende Perlen auf unsichtbaren Bahnen wirkten daneben
+    // wie ein Fehler im Bild.)
     // --- Wirbel-Wolken (volumetrischer Look): Emitter aus der Geometrie ---
     const emitters = [{x:L/2, len:rBase*7, r:rBase*0.95, w:aero.parts.base, hue:0}];
     let xw = -L/2;
@@ -4781,32 +4942,9 @@ const CFD = {
     this.camera.position.set(Math.cos(this.camAz)*ce, Math.sin(this.camEl),
       Math.sin(this.camAz)*ce).multiplyScalar(this.camDist);
     this.camera.lookAt(0, 0, 0);
-    // Tracer entlang der Stromlinien
-    for(const tr of this.tracers){
-      const d = tr.userData;
-      d.u = (d.u + d.sp*dt) % 1;
-      const f = d.u*(d.path.length-1), i0 = f|0, ff = f-i0;
-      tr.position.lerpVectors(d.path[i0], d.path[Math.min(i0+1, d.path.length-1)], ff);
-    }
-    // Rauchfahnen: den Pfaden folgen, im Nachlauf turbulent aufquellen
-    for(const sm of this.smoke){
-      const d = sm.userData;
-      d.u += d.sp*dt;
-      if(d.u >= 1){   // hinten raus → vorn neu einströmen (frischer Pfad)
-        d.u = 0;
-        d.path = this.nearPaths[(Math.random()*this.nearPaths.length)|0];
-      }
-      const f = d.u*(d.path.length-1), i0 = f|0, ff = f-i0;
-      sm.position.lerpVectors(d.path[i0], d.path[Math.min(i0+1, d.path.length-1)], ff);
-      // Turbulenz wächst hinter dem Körper: Puffs wabern + blähen sich auf
-      const turb = THREE.MathUtils.clamp((sm.position.x - a.L*0.15)/(a.L*0.8), 0, 1);
-      sm.position.y += turb*a.rmax*0.5*Math.sin(this.t*3.1 + d.ph);
-      sm.position.z += turb*a.rmax*0.5*Math.cos(this.t*2.6 + d.ph*1.3);
-      const s = d.sz*(1 + turb*1.7);
-      sm.scale.set(s, s, 1);
-      const env = Math.sin(Math.PI*Math.min(1, Math.max(0, (d.u-0.02)/0.96)));
-      sm.material.opacity = (0.13 + 0.13*turb)*env*(0.8 + 0.2*Math.sin(this.t*5 + d.ph));
-    }
+    // Rauchfahnen: alles passiert im Shader – hier läuft nur die Uhr weiter
+    // (Scrollen der Rauch-Kachel + turbulentes Wabern der Bänder).
+    if(this.smokeMat) this.smokeMat.uniforms.uT.value = this.t;
     // Staukissen pulsiert vor der Stirnfläche (Stärke = Stumpfheit)
     for(const sp of this.bow){
       const d = sp.userData;
@@ -6745,6 +6883,21 @@ const Flight = {
     const rel = this.pos.clone().sub(lp);
     const alt = rel.length() - LEIBNIZ.R - this.height()/2;   // Unterkante über Grund
     const up = rel.clone().normalize();
+    /* ⚠️⚠️ ZEITRAFFER MUSS RUNTER, sonst ist der Landing Burn eine reine
+       Absichtserklärung: `step()` gibt oberhalb von 2× GAR KEINEN Schub
+       (`s.ignited && warp<=2`) – der Autopilot stellt brav Schub 0,3 ein,
+       das Triebwerk bleibt kalt, das Schiff fällt mit Terminalgeschwindigkeit
+       weiter und schlägt auf. Dazu kommt die Schrittweite: bei Warp rechnet
+       frame() mit maxDt = 1 s, das sind 71 m Fallweg PRO SCHRITT – damit
+       verpasst schon der Flip sein 250-m-Fenster (gemessen: Warp 5 → Burn ab
+       178 m, Warp 50 → Burn ab 14 m, beides Crash).
+       Also ab 2,5 km hart begrenzen – genau wie der Docking-Autopilot und die
+       Booster-Landung es tun. Der lange, langweilige Fall darüber bleibt
+       vorspulbar (das Tutorial empfiehlt [.] ausdrücklich). */
+    if(alt < 2500 && WARPS[this.warpI] > 2){
+      this.warpI = 1;
+      this.showMsg("⏩ Landing Burn steht an – Zeitraffer auf 2× begrenzt!", 3);
+    }
     const airVel = this.vel.clone().sub(bodyVel(LEIBNIZ, this.t));
     const v = airVel.length(), vDown = -airVel.dot(up);
     const m = this.mass(), s = this.activeSeg();
@@ -8914,7 +9067,24 @@ const Flight = {
     const relLp = this.pos.clone().sub(lp);
     if(!this.map && this._anchorDir && relLp.length() - LEIBNIZ.R < 22000){
       const sub = relLp.clone().normalize();
-      if(sub.distanceTo(this._anchorDir)*LEIBNIZ.R > 12000) this.reanchorGround(sub);
+      /* ⚠️ Die Schwelle MUSS mit der Höhe schrumpfen. `shapeTerrain` legt den
+         ANKER auf y = 0 und zeichnet alles Gelände relativ dazu – die Physik
+         (und jeder Autopilot) messen dagegen die Höhe über der KUGEL. Beides
+         stimmt nur überein, solange der Anker unter dem Schiff sitzt. Mit den
+         alten festen 12 km lag er in hügeligem Gelände im Median 220 m, im
+         90. Perzentil 700 m und im Extremfall 2 km neben der Wahrheit: Der
+         Bellyflop-Autopilot zündet seinen Flip 244 m über der Kugel – bei
+         +400 m Sichtversatz steckt das Schiff da längst im Hang. Genau das
+         "je nach Landeplatz zündet der Burn zu spät".
+         Mit 30 % der Höhe ist der Anker unter 3 km Höhe immer näher als 900 m
+         – also innerhalb der ebenen Zone von `shapeTerrain`, der sichtbare
+         Boden unter dem Schiff liegt dann exakt auf der Kugel.
+         Kosten: der teure Fall ist die Küste (~40 ms, Küstentabelle), aber
+         dort geht `terrainH` ohnehin gegen 0 (Berge wachsen mit dem Abstand
+         vom Ufer) – das hügelige Binnenland kostet nur ~4 ms. */
+      const gAlt = relLp.length() - LEIBNIZ.R;
+      const thr = Math.max(700, Math.min(12000, gAlt*0.30));
+      if(sub.distanceTo(this._anchorDir)*LEIBNIZ.R > thr) this.reanchorGround(sub);
     }
     this.groundGroup.position.copy(lp).add(this.groundLocal||V3(LEIBNIZ.R,0,0));
     // Mechazilla-Arme: offen im Anflug, schnappen beim Catch zu (~1 s)
