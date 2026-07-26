@@ -752,6 +752,8 @@ const PARTS = {
            info:"Ablativer Schutzschild – ohne ihn verglüht die Rakete beim Wiedereintritt aus dem Orbit!"},
   tankS:  {name:"Treibstofftank S",          type:"tank",   cat:"upper", mass:250,  fuel:1400, w:10,h:16, tech:"start", info:"1,4 t Treibstoff – klein und leicht."},
   engS:   {name:"Triebwerk »Funke«",         type:"engine", cat:"upper", mass:200,  thrust:45000, isp:300, w:10,h:8, tech:"start", info:"45 kN Schub, drosselbar."},
+  engStd: {name:"Triebwerk »Ochse«",         type:"engine", cat:"lower", mass:600,  thrust:200000, isp:265, w:10,h:10, tech:"propI",
+           info:"Das Arbeitstier für die ERSTE Stufe: 200 kN, drosselbar, robust – und mit kurzer Düse gebaut, damit sie am Boden sauber arbeitet. Dafür schluckt sie viel (Isp 265 s). Vakuum-Triebwerke wie der »Terrier« haben große Düsen: die sind oben sparsamer, am Boden aber nutzlos."},
   tankM:  {name:"Treibstofftank M",          type:"tank",   cat:"upper", mass:450,  fuel:2800, w:10,h:28, tech:"advProp", info:"2,8 t Treibstoff."},
   engVac: {name:"Triebwerk »Terrier«",       type:"engine", cat:"upper", mass:500,  thrust:60000, isp:345, w:10,h:9, tech:"advProp", info:"Sehr effizient im Vakuum (Isp 345 s)."},
   engNuc: {name:"Atom-Triebwerk »Einstein«", type:"engine", cat:"upper", mass:1200, thrust:55000, isp:520, w:10,h:14, tech:"future", info:"Isp 520 s! Schwach, aber extrem sparsam – das Triebwerk für Minzi und darüber hinaus."},
@@ -838,7 +840,7 @@ function isCrewedStack(stack){ return crewCapacity(stack) > 0; }
    Gelandete Raketen werden voll erstattet – nur Verbrauchtes/Verlorenes kostet. */
 const PART_COSTS = {
   probePod:350, probeS:250, pod:700, chute:60, chute3:220, lab:380, shield:140,
-  tankS:100, engS:220, tankM:180, engVac:420, engNuc:1400, engIon:900, tankXL:700,
+  tankS:100, engS:220, engStd:300, tankM:180, engVac:420, engNuc:1400, engIon:900, tankXL:700,
   decoupler:40, interXS:30, inter:50, interL:90, legs:90, rcs:130, srb:150, fin:25, gridfin:240, tankL:350, engMain:650, srbL:300,
   sb2:260, sb4:500, probe:180, solar:70, battery:50, bay:80, bayS:50, antenna:60,
   satW:320, satR:420, satS:550, satK:380, fairing:80, tankXS:70, engT:120, dock:100,
@@ -1095,9 +1097,10 @@ const TECH = [
   {id:"start",     name:"Startkapital",           cost:0,   req:[],                     desc:"Die ersten Schritte ins All."},
   {id:"basic",     name:"Feststoffraketen",       cost:10,  req:["start"],              desc:"Booster und Flossen für stabile Starts."},
   {id:"struct",    name:"Strukturbau",            cost:12,  req:["start"],              desc:"Stufentrennung – der Schlüssel zu großen Raketen."},
+  {id:"propI",     name:"Flüssigtriebwerke I",    cost:10,  req:["start"],              desc:"Der »Ochse«: ein kräftiges Meereshöhen-Triebwerk für die ERSTE Stufe. Endlich hebt eine Rakete auch ohne Feststoffbooster ab – und man kann sie dabei drosseln und wieder abstellen."},
   {id:"surv",      name:"Überleben & Forschung",  cost:18,  req:["basic"],              desc:"Hitzeschild für die Rückkehr, Labor für die Wissenschaft – dazu Solarpanele & Servicebucht S, damit im Orbit nicht der Strom ausgeht."},
   {id:"crewed",    name:"Bemannte Raumfahrt",     cost:25,  req:["surv"],               desc:"Lebenserhaltung & Sitze: Jetzt fliegen echte Pilot*innen mit!"},
-  {id:"advProp",   name:"Flüssigtriebwerke II",   cost:30,  req:["basic","struct"],     desc:"Effiziente Vakuum-Triebwerke und mittlere Tanks."},
+  {id:"advProp",   name:"Flüssigtriebwerke II",   cost:30,  req:["basic","struct","propI"], desc:"Effiziente Vakuum-Triebwerke und mittlere Tanks."},
   {id:"payload",   name:"Satellitentechnik",      cost:45,  req:["advProp"],            desc:"Sondenkerne, Batterien, Fairings, Servicebucht M – und die 📡 Satelliten-Aufträge!"},
   {id:"fine",      name:"Feinwerktechnik",        cost:40,  req:["payload"],            desc:"Miniatur-Antriebe für präzise Satelliten-Manöver."},
   {id:"heavy",     name:"Schwerlast-Raketen",     cost:60,  req:["advProp"],            desc:"Große Tanks, großes Triebwerk – große Ziele."},
@@ -1346,6 +1349,11 @@ function migrateGame(){
   // laufenden Stations-Missionen plötzlich unfair schwer.
   if(Game.done.includes("dock1") && !Game.unlocked.includes("padEq"))
     Game.unlocked.push("padEq");
+  // Bestands-Saves: »Flüssigtriebwerke I« (der »Ochse«) ist neu und liegt VOR
+  // »Flüssigtriebwerke II«. Wer II schon hat, kriegt I gratis – sonst hinge in
+  // seinem Baum plötzlich ein gesperrter Knoten mitten in einer erforschten Kette.
+  if(Game.unlocked.includes("advProp") && !Game.unlocked.includes("propI"))
+    Game.unlocked.push("propI");
 }
 /* Auto-Save: Fortschritt überlebt das Schließen des Browsers.
    (Der JSON-Download bleibt für Backups & Rechnerwechsel.) */
@@ -5568,6 +5576,21 @@ const VAB = {
    FLUG (3D)
    ================================================================= */
 const WARPS = [1,2,5,10,50,100,500,1000,10000,100000];
+/* ---------- Wo steht die Sonne? Spieluhr vs. echte Geometrie ----------
+   Die Rampen liegen inertial FEST (Startfenster-Didaktik), ein Leibniz-"Tag"
+   über dem Startplatz dauert deshalb in Wahrheit ein ganzes Jahr (106 Tage).
+   Damit auf der Rampe trotzdem ein 24-h-Tag läuft, geht die Sonne rund um
+   Leibniz nach der SPIELUHR auf und unter (s. frame()). Erst weit draußen –
+   auf dem Weg zu Monti & Co. – zählt wieder die echte Sonnenrichtung.
+   ⚠️ Der Übergang MUSS weit weg vom Horizont liegen: Zwischen Uhr-Sonne und
+   echter Richtung liegen bis zu 180° (an der LMG-Rampe um 08:00 gemessene
+   128°). Als das früher zwischen 0 und 40 km Höhe geblendet wurde, schrubbte
+   die Sonne in der knappen Minute Aufstieg im Zeitraffer über den Himmel –
+   und beim Wiedereintritt rückwärts wieder zurück. */
+const SUN_CLOCK_R0 = LEIBNIZ.R + 2.0e6;    // bis 2000 km Höhe: reine Spieluhr
+const SUN_CLOCK_R1 = LEIBNIZ.R + 8.0e6;    // ab 8000 km Höhe: echte Sonnenrichtung
+const SUN_SLEW = 0.05;                     // max. rad pro ECHTER Sekunde dazwischen
+                                           // (auch bei Warp – nie wieder Zeitraffer)
 const Flight = {
   renderer:null, scene:null, camera:null,
   leibnizMesh:null, montiMesh:null, cloudShell:null, atmoShell:null,
@@ -6374,6 +6397,10 @@ const Flight = {
     // Anker für Booster-Landeplätze: Ost/Nord der Rampe, Landing Zone,
     // Droneship (Position wird erst im Flug gesetzt – es fährt zum Ziel!)
     this.padEastV = east.clone(); this.padNorthV = north.clone(); this.padUpV = up.clone();
+    // Sonnenstand: Der Rampen-Frame ist zugleich die Basis der Spieluhr-Sonne
+    // (s. frame()). `null` = Blend im ersten Frame passend zur Startposition
+    // setzen, damit ein Tutorial im Monti-Orbit nicht erst herüberdreht.
+    this.sunBlend = null;
     this.lzLocal = (Game.sandbox || Game.unlocked.includes("landZone"))
       ? this.padLocal.clone().addScaledVector(east, 10).addScaledVector(north, 260) : null;
     this.dsLocal = null;
@@ -9113,32 +9140,62 @@ const Flight = {
     const inSpace = !this.landed && !this.crashed && alt >= LEIBNIZ.atmoH;
     if(inSpace !== this._wasSpace){ this._wasSpace = inSpace; updateMusic(); }
     const f = Math.max(0, 1-Math.max(0,alt)/LEIBNIZ.atmoH);
-    // Tag/Nacht am Boden: Die Spieluhr (24-h-Tag ab 08:00) steuert die Helligkeit –
-    // wer auf der Rampe vorspult, erlebt Abend, Nacht und Morgengrauen!
-    // (Nur bodennah eingeblendet; im Orbit zählt die echte Sonnengeometrie.)
+    // Tag/Nacht: Die Spieluhr (24-h-Tag ab 08:00) steuert Stand UND Helligkeit
+    // der Sonne – wer auf der Rampe vorspult, erlebt Abend, Nacht und
+    // Morgengrauen!
     const dayFrac = (((8*3600 + this.t) % 86400) + 86400) % 86400 / 86400;
-    const elev = Math.sin(2*Math.PI*(dayFrac - 0.25));        // 12:00 = 1, 24:00 = −1
-    const dayL = Math.max(0, Math.min(1, elev*1.7 + 0.12));   // Dämmerung ~06/18 Uhr
     const gb = Math.max(0, Math.min(1, 1 - alt/40000));       // Boden-Blend (0 ab 40 km)
-    this.dayLight = 1 - gb*(1 - dayL);                        // 1 = voller Tag
-    // ⚠️ Sonnen-RICHTUNG bodennah aus derselben Uhr: Die Rampen liegen
-    // inertial fest, dadurch stand die echte Sonne beim Start unter dem
-    // Horizont – das Licht kam von UNTEN durch den Planeten und die ganze
-    // Bodenszene war reines Ambient-Grau (kein Glitzern auf dem Meer, keine
-    // Sonnenseite an den Wolken). Jetzt geht die Sonne im OSTEN auf, steht
-    // mittags im Zenit und im Westen unter; die Höhe ist exakt `elev` von
-    // oben, also passen Richtung und Helligkeit zusammen. Ab 40 km (gb=0)
-    // zählt wieder die echte Sonnengeometrie.
-    this.groundSunDir = sunReal.clone();
-    if(gb > 0.001 && this.gUp){
-      const phi = 2*Math.PI*(dayFrac - 0.25);
-      const clockSun = this.gEast.clone().multiplyScalar(Math.cos(phi))
-        .addScaledVector(this.gUp, Math.sin(phi))
-        .addScaledVector(this.gNorth, 0.18).normalize();
-      this.groundSunDir.lerp(clockSun, gb).normalize();
+    /* ⚠️ Sonnen-RICHTUNG aus der Spieluhr: Die Rampen liegen inertial fest,
+       dadurch stand die echte Sonne beim Start unter dem Horizont – das Licht
+       kam von UNTEN durch den Planeten und die ganze Bodenszene war reines
+       Ambient-Grau (kein Glitzern auf dem Meer, keine Sonnenseite an den
+       Wolken). Jetzt geht die Sonne im OSTEN auf, steht mittags im Zenit und
+       im Westen unter.
+       ⚠️⚠️ Diese Uhr-Sonne gilt im GANZEN Leibniz-Raum (bis SUN_CLOCK_R0/R1),
+       nicht nur bodennah: Früher wurde zwischen 0 und 40 km auf die echte
+       Richtung geblendet – und weil dazwischen bis zu 180° liegen (gemessen
+       128° an der LMG-Rampe um 08:00), raste die Sonne beim Aufstieg in einer
+       knappen Minute im Zeitraffer über den Himmel, beim Wiedereintritt
+       rückwärts zurück. Jetzt bleibt sie beim Verlassen der Atmosphäre
+       einfach stehen; gedreht wird erst weit draußen, wo es keinen Horizont
+       mehr gibt – und dort zusätzlich ratenbegrenzt (SUN_SLEW).
+       ⚠️ Basis ist der FESTE Rampen-Frame (padEastV/padUpV/padNorthV), nicht
+       der mitwandernde Boden-Anker (gEast/gUp/gNorth): sonst spränge die
+       Sonne bei jedem `reanchorGround` ein Stück weiter. Nebeneffekt (und
+       ehrliche Physik): Wer eine Viertelbahn entfernt landet, landet
+       womöglich auf der NACHTSEITE. */
+    const phi = 2*Math.PI*(dayFrac - 0.25);
+    const clockSun = this.padEastV.clone().multiplyScalar(Math.cos(phi))
+      .addScaledVector(this.padUpV, Math.sin(phi))
+      .addScaledVector(this.padNorthV, 0.18).normalize();
+    const wantBlend = Math.max(0, Math.min(1,
+      (relLp.length() - SUN_CLOCK_R0)/(SUN_CLOCK_R1 - SUN_CLOCK_R0)));
+    // Ratenbegrenzung in ECHTER Zeit (1/60 s pro Frame): Der Blend darf die
+    // Sonne nie schneller als SUN_SLEW rad/s drehen – egal bei welchem Warp.
+    const sunSep = Math.acos(Math.max(-1, Math.min(1, clockSun.dot(sunReal))));
+    const maxStep = sunSep > 1e-3 ? (SUN_SLEW/60)/sunSep : 1;
+    if(this.sunBlend == null) this.sunBlend = wantBlend;     // frischer Flug
+    this.sunBlend += Math.max(-maxStep, Math.min(maxStep, wantBlend - this.sunBlend));
+    this.sunBlend = Math.max(0, Math.min(1, this.sunBlend));
+    if(this.sunBlend < 1e-4) this.groundSunDir = clockSun;
+    else if(this.sunBlend > 1-1e-4) this.groundSunDir = sunReal.clone();
+    else {
+      // echtes Slerp (kein lerp+normalize: bei fast gegenläufigen Richtungen
+      // wird die Summe null und die Sonne würde springen)
+      this._sunQa = (this._sunQa || new THREE.Quaternion()).setFromUnitVectors(clockSun, sunReal);
+      this._sunQb = (this._sunQb || new THREE.Quaternion()).identity().slerp(this._sunQa, this.sunBlend);
+      this.groundSunDir = clockSun.applyQuaternion(this._sunQb);
     }
     // Sonnenhöhe als cos(Zenitwinkel) – Grundgröße für Himmel UND Lichtfarbe
     const czSun = this.groundSunDir.dot(this.gUp || V3(0,1,0));
+    // Helligkeit aus der Sonnenhöhe über dem SCHIFF (nicht über dem Boden-Anker:
+    // der springt bei 22 km unter das Schiff und würde die Helligkeit mit sich
+    // reißen) – so ist es genau dort dunkel, wo die Sonne wirklich unter dem
+    // Horizont steht, und Richtung und Helligkeit passen immer zusammen.
+    const czDay = relLp.lengthSq() > 1
+      ? this.groundSunDir.dot(relLp.clone().normalize()) : czSun;
+    const dayL = Math.max(0, Math.min(1, czDay*1.7 + 0.12));  // Dämmerung ~06/18 Uhr
+    this.dayLight = 1 - gb*(1 - dayL);                        // 1 = voller Tag
     this.sunLight.position.copy(this.groundSunDir).multiplyScalar(1e7);
     this.sunLight.intensity = 1.3*(0.08 + 0.92*this.dayLight);
     // Sonnenlicht-FARBE aus derselben Streurechnung wie der Himmel: je tiefer
