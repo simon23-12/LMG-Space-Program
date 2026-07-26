@@ -848,7 +848,15 @@ const PART_COSTS = {
 };
 for(const [id,c] of Object.entries(PART_COSTS)) if(PARTS[id]) PARTS[id].cost = c;
 function stackCost(stack){ return stack.reduce((a,id)=>a+(PARTS[id].cost||0),0); }
-function missionCash(m){ return 150 + m.sci*10; }
+/* Missionsprämie. ⚠️ Bewusst großzügig: Von einer Orbitalrakete kommt nur die
+   OBERSTE Stufe zurück (`settleCrewAndAssets` erstattet nur den gelandeten
+   Reststack), die Unterstufe ist ohne Forschung »Wiederverwendbarkeit« weg –
+   und am Anfang darf man nur EINE Mission gleichzeitig annehmen. Mit der alten
+   Prämie (150 + 10·🧪) war jeder Orbitalflug ein sicheres Minusgeschäft:
+   ~1450 🪙 Rakete, ~730 🪙 Bergung, 400 🪙 Prämie. Verdoppelt trägt sich ein
+   geglückter Flug ungefähr selbst, und Bergung/Wiederverwendung bleiben der
+   Hebel für echten Gewinn. */
+function missionCash(m){ return 300 + m.sci*20; }
 
 /* ---------- Raumstation »Große Pause« (ISS – Internationale Schul-Station) ----------
    Fliegt "on rails" in einem exakten 100-km-Kreisorbit um Leibniz – in Karriere,
@@ -1404,18 +1412,22 @@ const UI = {
   },
   startSandbox(){ Game.sandbox=true; this.inGame=true; VAB.stack=[]; this.show("vab"); showHint("sandbox"); },
   launch(){
+    // ⚠️ Jeder abgelehnte Start lässt die Hallenmannschaft zusammenzucken
+    // (VAB.oops) – der Hangar reagiert also sichtbar auf Fehler.
     const v = VAB.validate();
-    if(v){ alert(v); return; }
+    if(v){ VAB.oops(); alert(v); return; }
     // Startrampe: Massenlimit prüfen (der alte LMG-Startplatz trägt max. 25 t)
     const pad = currentPad();
     const totalM = VAB.totalMass();
     if(totalM > pad.maxMass){
+      VAB.oops();
       alert("🏗️ Zu schwer für den "+pad.name+"!\n\nDiese Rakete wiegt "+(totalM/1000).toFixed(1)+
         " t, die Rampe trägt nur "+(pad.maxMass/1000)+" t.\n\nSchwere Raketen starten vom Raumhafen »Schulhof Süd« am Äquator (Forschung »Raumhafen am Äquator«).");
       return;
     }
     // Superheavy braucht den Mechazilla-Turm (Startaufhängung + Flame Diverter)
     if(VAB.stack.some(id=>PARTS[id].type==="superheavy") && pad.id!=="eq"){
+      VAB.oops();
       alert("🦾 Der SUPERHEAVY startet nur vom Raumhafen »Schulhof Süd«!\n\nNur dort stehen der Mechazilla-Startturm und der Flame Diverter – und nur dort kann der Booster nach dem Start wieder GECATCHT werden.");
       return;
     }
@@ -1424,6 +1436,7 @@ const UI = {
     if(!Game.sandbox){
       cost = stackCost(VAB.stack);
       if(cost > Game.funds){
+        VAB.oops();
         alert("💸 Zu teuer! Diese Rakete kostet 🪙 "+cost+", in der Kasse sind nur 🪙 "+Game.funds+".\n\n"+
           "Tipps: Missionen erfüllen bringt Geld – und sicher auf Leibniz gelandete Raketen werden voll erstattet!");
         return;
@@ -3578,11 +3591,21 @@ function buildAstronaut(){
   const suit = new THREE.MeshStandardMaterial({color:0xe8ecf5, roughness:.6});
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.32,0.42,1.1,10), suit);
   body.position.y = 0.55; g.add(body);
+  // Arme und Beine hängen an GELENK-Gruppen (Schulter bzw. Hüfte), damit sie
+  // sich animieren lassen (Gang & Schweißen in der Montagehalle). Die Ruhepose
+  // ist exakt die alte: Der Versatz der Gruppen ist so gewählt, dass die
+  // Zylinder wieder bei (±0,48 | 0,70) und (±0,18 | −0,30) landen.
   for(const s of [-1,1]){
+    const shoulder = new THREE.Group();
+    shoulder.position.set(s*0.30, 1.05, 0); shoulder.rotation.z = s*0.5;
+    shoulder.name = "arm"; shoulder.userData.side = s;
     const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,0.8,6), suit);
-    arm.position.set(s*0.48,0.7,0); arm.rotation.z = s*0.5; g.add(arm);
+    arm.position.y = -0.4; shoulder.add(arm); g.add(shoulder);
+    const hip = new THREE.Group();
+    hip.position.set(s*0.18, 0.05, 0);
+    hip.name = "leg"; hip.userData.side = s;
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.7,6), suit);
-    leg.position.set(s*0.18,-0.3,0); g.add(leg);
+    leg.position.y = -0.35; hip.add(leg); g.add(hip);
   }
   const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.42,14,12), suit);
   helmet.position.y = 1.5; g.add(helmet);
@@ -4180,6 +4203,11 @@ function terrainGeometry(){
   return g;
 }
 const SHORE_SEGS = 4000;
+/* Wie weit reicht die Sandscheibe unter Wasser weiter? (s. `beachClipU`)
+   Das Fern-Meer endet 30 m VOR der Wasserkante, den Rest malt der feine
+   Küsten-Patch – 60 m Sicherheitssaum decken beides ab, ohne dass unnötig
+   viel Sand unter der Meeresscheibe liegt und mit ihr um die Tiefe streitet. */
+const BEACH_CLIP = 60;
 function wobbleRim(geo, R, wob, extra){
   const p = geo.attributes.position;
   for(let i=0;i<p.count;i++){
@@ -5037,6 +5065,71 @@ const CFD = {
   }
 };
 
+/* ---------- Texturen der Montagehalle (prozedural, wie überall) ----------
+   ⚠️ Beide Kacheln werden 3×3 versetzt gezeichnet (Zufallsparameter EINMAL
+   würfeln!) – dann laufen Körnung und Flecken über die Kachelgrenze weiter
+   und man sieht das Raster nicht. Dasselbe Rezept wie makeGroundTexture. */
+function makeHallFloorTex(){
+  const c = document.createElement("canvas"); c.width = c.height = 256;
+  const x = c.getContext("2d"), S = 256;
+  x.fillStyle = "#6d768c"; x.fillRect(0,0,S,S);
+  const specks = [], stains = [];
+  for(let i=0;i<1800;i++) specks.push([Math.random()*S, Math.random()*S,
+    0.4+Math.random()*1.5, Math.random()<0.5]);
+  for(let i=0;i<7;i++) stains.push([Math.random()*S, Math.random()*S, 8+Math.random()*26]);
+  for(let ox=-1;ox<=1;ox++) for(let oy=-1;oy<=1;oy++){
+    const dx = ox*S, dy = oy*S;
+    for(const [sx,sy,r,light] of specks){
+      x.fillStyle = light ? "rgba(255,255,255,.055)" : "rgba(20,26,40,.075)";
+      x.beginPath(); x.arc(sx+dx, sy+dy, r, 0, 7); x.fill();
+    }
+    for(const [sx,sy,r] of stains){
+      const g = x.createRadialGradient(sx+dx, sy+dy, 0, sx+dx, sy+dy, r);
+      g.addColorStop(0, "rgba(24,28,40,.30)"); g.addColorStop(1, "rgba(24,28,40,0)");
+      x.fillStyle = g; x.beginPath(); x.arc(sx+dx, sy+dy, r, 0, 7); x.fill();
+    }
+  }
+  // Plattenfugen: eine Fuge pro Kachel = großes, ruhiges Raster im Boden
+  x.strokeStyle = "rgba(18,23,36,.55)"; x.lineWidth = 2.5;
+  x.beginPath(); x.moveTo(0,0.5); x.lineTo(S,0.5); x.moveTo(0.5,0); x.lineTo(0.5,S); x.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+  return t;
+}
+function makeHallWallTex(){
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const x = c.getContext("2d"), S = 128;
+  x.fillStyle = "#414d6e"; x.fillRect(0,0,S,S);
+  // Trapezblech: senkrechte Rippen (hell/dunkel im Wechsel)
+  for(let i=0;i<S;i+=16){
+    const g = x.createLinearGradient(i,0,i+16,0);
+    g.addColorStop(0,   "rgba(255,255,255,.10)");
+    g.addColorStop(0.35,"rgba(255,255,255,.02)");
+    g.addColorStop(0.55,"rgba(0,0,0,.16)");
+    g.addColorStop(1,   "rgba(255,255,255,.06)");
+    x.fillStyle = g; x.fillRect(i,0,16,S);
+  }
+  // Paneelstoß mit Nieten
+  x.fillStyle = "rgba(0,0,0,.35)"; x.fillRect(0, 0, S, 2.5);
+  x.fillStyle = "rgba(255,255,255,.14)";
+  for(let i=8;i<S;i+=16){ x.beginPath(); x.arc(i, 5.5, 1.3, 0, 7); x.fill(); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+  return t;
+}
+/* Warnstreifen (schwarz/gelb) für die Sicherheitszone um die Rakete */
+function makeHazardTex(){
+  const c = document.createElement("canvas"); c.width = 64; c.height = 16;
+  const x = c.getContext("2d");
+  x.fillStyle = "#e8b32a"; x.fillRect(0,0,64,16);
+  x.fillStyle = "#1b2032";
+  for(let i=-16;i<64;i+=16){ x.beginPath();
+    x.moveTo(i,0); x.lineTo(i+8,0); x.lineTo(i+16,16); x.lineTo(i+8,16); x.closePath(); x.fill(); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+
 /* =================================================================
    VAB (3D-Montagehalle)
    ================================================================= */
@@ -5052,69 +5145,195 @@ const VAB = {
     this.scene.background = new THREE.Color(0x10182c);
     this.scene.fog = new THREE.Fog(0x10182c, 320, 900);
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
-    // Halle: Boden + Raster + Wände
-    const floor = new THREE.Mesh(new THREE.CircleGeometry(300, 48),
-      new THREE.MeshStandardMaterial({color:0x222d4e, roughness:.9}));
+    /* =============================================================
+       MONTAGEHALLE
+       Alles prozedural (kein Bild-Asset, läuft per Doppelklick).
+       ⚠️ Draw-Call-Budget: Sämtliches Hallen-Inventar (Regalpfosten,
+       Regalböden, Kisten, Werkbänke, Gerüst, Geländer, Kran) steckt in
+       EINEM InstancedMesh aus Einheitswürfeln und EINEM aus Zylindern –
+       Größe und Farbe kommen pro Instanz. Sonst wären es ~200 Draw-Calls
+       für ein paar Regale. `box()`/`cyl()` sammeln, `flushProps()` baut. */
+    const HW = 180, HH = 190;                     // halbe Breite, Höhe
+    const props = [], pipes = [];
+    const box = (x,y,z, sx,sy,sz, col, ry)=>props.push({x,y,z,sx,sy,sz,col,ry:ry||0});
+    const cyl = (x,y,z, r,h, col, rx,rz)=>pipes.push({x,y,z,r,h,col,rx:rx||0,rz:rz||0});
+    // Boden: Beton mit Fugen (die alte Kreisscheibe + GridHelper sah aus wie
+    // ein Wireframe-Testlevel)
+    const floorTex = makeHallFloorTex(); floorTex.repeat.set(9,9);
+    // ⚠️ Materialfarbe dunkelt die Kachel ab: Ungetönt brennt der Beton unter
+    // Hallen- und Himmelslicht auf ~#b0bdea aus und die Halle sieht aus wie
+    // ein Leuchtkasten – dunkler passt er zu den Wänden und die Rakete bleibt
+    // das Hellste im Bild.
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(HW*2, HW*2),
+      new THREE.MeshStandardMaterial({color:0x6a6f79, map:floorTex, roughness:.94}));
     floor.rotation.x = -Math.PI/2; this.scene.add(floor);
-    const grid = new THREE.GridHelper(300, 30, 0x3a4a78, 0x27335c);
-    grid.position.y = 0.05; this.scene.add(grid);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(14,15,48),
-      new THREE.MeshBasicMaterial({color:0xf7941d, transparent:true, opacity:.5}));
-    ring.rotation.x = -Math.PI/2; ring.position.y = 0.08; this.scene.add(ring);
-    this.scene.add(new THREE.HemisphereLight(0xbcd0ff, 0x202840, 0.85));
-    const sun = new THREE.DirectionalLight(0xfff2dd, 1.1);
-    sun.position.set(120,200,80); this.scene.add(sun);
-    const fill = new THREE.PointLight(0xf7941d, 0.25, 500);
-    fill.position.set(-80,60,-60); this.scene.add(fill);
-    // --- Hangargebäude ---
-    const wallMat = new THREE.MeshStandardMaterial({color:0x1a2440, roughness:.9, side:THREE.DoubleSide});
-    const mkWall = (w,h,x,z,ry)=>{
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w,h), wallMat);
-      m.position.set(x,h/2,z); m.rotation.y = ry; this.scene.add(m);
+    // Bodenmarkierung: Sicherheitszone (Warnstreifen) + Montagering
+    const hazTex = makeHazardTex(); hazTex.repeat.set(46,1);
+    const hazGeo = new THREE.RingGeometry(25.5, 29, 96, 1);
+    // ⚠️ RingGeometry legt die UVs PLANAR an (u aus x, v aus y) – damit laufen
+    // die Warnstreifen quer übers Bild statt um den Kreis. Deshalb hier polar
+    // neu setzen, und zwar aus dem Scheitel-INDEX (nicht aus atan2): so wächst
+    // u monoton und die Naht bei 0°/360° bleibt bei ganzzahligem repeat unsichtbar.
+    {
+      const uv = hazGeo.attributes.uv, TS = 96;
+      for(let j=0;j<=1;j++) for(let i=0;i<=TS;i++) uv.setXY(j*(TS+1)+i, i/TS, j);
+      uv.needsUpdate = true;
+    }
+    const haz = new THREE.Mesh(hazGeo,
+      new THREE.MeshBasicMaterial({map:hazTex, transparent:true, opacity:.8}));
+    haz.rotation.x = -Math.PI/2; haz.position.y = 0.06; this.scene.add(haz);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(14,15,64),
+      new THREE.MeshBasicMaterial({color:0xf7941d, transparent:true, opacity:.55}));
+    ring.rotation.x = -Math.PI/2; ring.position.y = 0.07; this.scene.add(ring);
+    // Fahrspur vom Tor zum Montageplatz
+    for(const dx of [-9, 9])
+      box(dx, 0.05, -105, 0.8, 0.1, 130, 0xe8b32a);
+    // --- Wände: Trapezblech mit Sockel und Stützen ---------------------
+    const wallTex = makeHallWallTex(); wallTex.repeat.set(20, 6);
+    const wallMat = new THREE.MeshStandardMaterial({color:0xffffff, map:wallTex,
+      roughness:.75, metalness:.25, side:THREE.DoubleSide});
+    const mkWall = (x,z,ry)=>{
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(HW*2, HH), wallMat);
+      m.position.set(x, HH/2, z); m.rotation.y = ry; this.scene.add(m);
     };
-    mkWall(360,190,0,-180,0);
-    mkWall(360,190,-180,0,Math.PI/2);
-    mkWall(360,190,180,0,-Math.PI/2);
-    const door = new THREE.Mesh(new THREE.PlaneGeometry(110,90),
-      new THREE.MeshStandardMaterial({color:0x101729, side:THREE.DoubleSide}));
-    door.position.set(0,45,-179.4); this.scene.add(door);
-    const doorFrame = new THREE.Mesh(new THREE.PlaneGeometry(118,96),
-      new THREE.MeshBasicMaterial({color:0x2f3f6a}));
-    doorFrame.position.set(0,46,-179.7); this.scene.add(doorFrame);
-    const tMat = new THREE.MeshStandardMaterial({color:0x2f3f6a, roughness:.6, metalness:.4});
-    for(let z=-150;z<=150;z+=60){
-      const tr = new THREE.Mesh(new THREE.BoxGeometry(360,3,3), tMat);
-      tr.position.set(0,188,z); this.scene.add(tr);
+    mkWall(0,-HW,0); mkWall(-HW,0,Math.PI/2); mkWall(HW,0,-Math.PI/2); mkWall(0,HW,Math.PI);
+    for(let i=-150;i<=150;i+=50){                 // Stahlstützen an allen Wänden
+      box(i, HH/2, -HW+1.6, 5, HH, 3.2, 0x2b3554);
+      box(i, HH/2,  HW-1.6, 5, HH, 3.2, 0x2b3554);
+      box(-HW+1.6, HH/2, i, 3.2, HH, 5, 0x2b3554);
+      box( HW-1.6, HH/2, i, 3.2, HH, 5, 0x2b3554);
     }
-    for(let xx=-150;xx<=150;xx+=60){
-      const tr = new THREE.Mesh(new THREE.BoxGeometry(3,3,360), tMat);
-      tr.position.set(xx,188,0); this.scene.add(tr);
-    }
-    for(let xx=-120;xx<=120;xx+=80)
-      for(let zz=-120;zz<=120;zz+=120){
-        const l = new THREE.Mesh(new THREE.BoxGeometry(14,1.5,6),
-          new THREE.MeshBasicMaterial({color:0xfff4c8}));
-        l.position.set(xx,184,zz); this.scene.add(l);
-      }
-    // Kerbals beleben die Halle: laufen zwischen Wegpunkten umher
-    this.kerbals = [];
-    for(let k=0;k<6;k++){
-      const ker = buildAstronaut();
-      ker.scale.set(2.4,2.4,2.4);
-      const ang = Math.random()*Math.PI*2, rad = 35+Math.random()*100;
-      ker.position.set(Math.cos(ang)*rad, 1.6, Math.sin(ang)*rad);
-      this.scene.add(ker);
-      this.kerbals.push({mesh:ker, target:null, speed:5+Math.random()*4, pause:Math.random()*2});
-    }
+    box(0, 3, -HW+1.2, HW*2, 6, 2.4, 0x222b45);   // Sockelleisten
+    box(0, 3,  HW-1.2, HW*2, 6, 2.4, 0x222b45);
+    // Hallentor (die Rakete muss ja raus) mit Rahmen und Lamellen
+    box(0, 46, -HW+1.0, 122, 96, 2.0, 0x39456b);
+    box(0, 45, -HW+0.4, 110, 90, 1.2, 0x151d33);
+    for(let y=6;y<86;y+=10) box(0, y, -HW+0.1, 108, 1.2, 0.8, 0x27324f);
+    // Firmenschild ÜBER dem Tor (hing vorher schief rechts daneben in der Luft)
+    box(0, 120, -HW+1.4, 150, 42, 1.6, 0x1a2440);
+    for(const dx of [-70, 70]){ cyl(dx, 138, -HW+2.4, 1.1, 1.2, 0x8894b4, Math.PI/2, 0);
+                                cyl(dx, 102, -HW+2.4, 1.1, 1.2, 0x8894b4, Math.PI/2, 0); }
     const lc = document.createElement("canvas"); lc.width=512; lc.height=128;
     const lx = lc.getContext("2d");
-    lx.fillStyle="rgba(247,148,29,.85)"; lx.font="900 86px sans-serif"; lx.textAlign="center";
+    lx.fillStyle="rgba(247,148,29,.92)"; lx.font="900 86px sans-serif"; lx.textAlign="center";
     lx.fillText("LMG", 256, 80);
-    lx.font="700 22px sans-serif"; lx.fillStyle="rgba(232,236,245,.8)";
+    lx.font="700 22px sans-serif"; lx.fillStyle="rgba(232,236,245,.85)";
     lx.fillText("M O N T A G E H A L L E  1", 256, 114);
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(140,35),
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(132,33),
       new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(lc), transparent:true}));
-    sign.position.set(70,96,-178); this.scene.add(sign);
+    sign.position.set(0, 120, -HW+2.3); this.scene.add(sign);
+    // --- Dach: Binder, Laufkran, Lampen --------------------------------
+    for(let z=-150;z<=150;z+=50){                  // Fachwerkbinder (Ober-/Untergurt + Diagonalen)
+      box(0, HH-4, z, HW*2, 3, 3, 0x39456b);
+      box(0, HH-19, z, HW*2, 2.2, 2.2, 0x39456b);
+      for(let x=-160;x<=160;x+=20) box(x, HH-11.5, z, 1.6, 17, 1.6, 0x39456b, 0.5);
+    }
+    box(-120, HH-26, 0, 6, 4, HW*2, 0x2b3554);     // Kranbahn
+    box( 120, HH-26, 0, 6, 4, HW*2, 0x2b3554);
+    this.craneY = HH-32;
+    for(let x=-130;x<=130;x+=65)                    // Hochregal-Lampen (Gehäuse)
+      for(const z of [-110, 0, 110]) box(x, HH-36, z, 16, 3, 7, 0x2b3554);
+    const lampMat = new THREE.MeshBasicMaterial({color:0xfff4c8});
+    for(let x=-130;x<=130;x+=65)
+      for(const z of [-110, 0, 110]){
+        const l = new THREE.Mesh(new THREE.PlaneGeometry(14, 5.5), lampMat);
+        l.rotation.x = Math.PI/2; l.position.set(x, HH-38, z); this.scene.add(l);
+      }
+    // --- Hochregale: das Lager der Raumfahrt-AG -------------------------
+    const CRATE = [0xb98b4e, 0xa9793f, 0x8d6a3c, 0x6f7a92, 0x4d5a78];
+    const rnd = seededRand(4711);
+    /* Ein Regal: Pfosten, drei Böden, darauf Kisten, Fässer und
+       Ersatz-Tanksegmente. (lx,lz) = lokal, wird um `ry` gedreht platziert. */
+    const rack = (cx, cz, ry, len)=>{
+      const ca = Math.cos(ry), sa = Math.sin(ry);
+      const put = (lx, ly, lz, sx, sy, sz, col)=>
+        box(cx + lx*ca - lz*sa, ly, cz + lx*sa + lz*ca, sx, sy, sz, col, ry);
+      // ⚠️ Maßstab: Eine Figur ist ~6 Einheiten hoch (Modellhöhe 2,57 × 2,4).
+      // Vier Ebenen à 15 Einheiten sehen nach Hochregal aus; mit den früher
+      // gewählten 21 Einheiten Abstand stand über jeder Kiste ein halber
+      // Stock Luft und das Regal wirkte leergeräumt.
+      const D = 17, LEV = [11, 26, 41, 56];
+      for(let lx=-len/2; lx<=len/2+0.1; lx+=len/3)
+        for(const lz of [-D/2, D/2]) put(lx, 33, lz, 2.6, 66, 2.6, 0x3f6ea8);
+      for(const y of LEV) put(0, y, 0, len, 1.6, D, 0x4a5a7d);
+      for(const y of LEV){
+        for(let lx=-len/2+7; lx<len/2-6; lx+=11+rnd()*5){
+          const r = rnd();
+          if(r < 0.55){                                   // Kiste
+            const w2 = 7+rnd()*4, h2 = 6+rnd()*4;
+            put(lx, y+0.8+h2/2, (rnd()-0.5)*4, w2, h2, 9+rnd()*3,
+                CRATE[Math.floor(rnd()*CRATE.length)]);
+          } else if(r < 0.8){                             // Fässer
+            for(const o of [-3, 3]){
+              const px = cx + lx*ca - o*sa, pz = cz + lx*sa + o*ca;
+              cyl(px, y+5.5, pz, 2.6, 8.6, rnd()<0.5 ? 0xd8892f : 0x4e8f5a);
+            }
+          } else {                                        // Ersatz-Tanksegment
+            const px = cx + lx*ca, pz = cz + lx*sa;
+            cyl(px, y+4.5, pz, 3.6, 13, 0xe8ecf5, Math.PI/2, ry);
+            cyl(px, y+4.5, pz, 3.75, 2.4, 0xf7941d, Math.PI/2, ry);
+          }
+        }
+      }
+    };
+    rack(-112, -HW+16, 0, 108);  rack(112, -HW+16, 0, 108);
+    rack(-HW+16, -70, Math.PI/2, 110);  rack(-HW+16, 75, Math.PI/2, 110);
+    rack( HW-16, -70, Math.PI/2, 110);  rack( HW-16, 75, Math.PI/2, 110);
+    // --- Werkbänke (an zweien wird geschweißt) --------------------------
+    this.benches = [];
+    // ⚠️ Tischhöhe = gut die halbe Figur (die ist ~6 Einheiten hoch) – eine
+    // Platte auf 9 Einheiten wäre höher als die Leute selbst.
+    const bench = (x, z, ry)=>{
+      const ca = Math.cos(ry), sa = Math.sin(ry);
+      box(x, 3.3, z, 20, 0.9, 7, 0x8894b4, ry);                     // Platte
+      for(const lx of [-8.5, 8.5]) for(const lz of [-2.4, 2.4])
+        box(x + lx*ca - lz*sa, 1.6, z + lx*sa + lz*ca, 1.3, 3.3, 1.3, 0x39456b);
+      box(x - 3.3*sa, 5.8, z + 3.3*ca, 17, 4.6, 0.8, 0x4a5a7d, ry); // Werkzeugwand
+      this.benches.push({x, z, ry});
+    };
+    bench(-92, 92, 0.35); bench(96, 88, -0.4); bench(-104, 8, Math.PI/2);
+    // --- Servicegerüst neben der Rakete --------------------------------
+    for(const s of [30, 40]) for(const d of [-11, 11])
+      box(s, 39, d, 2, 78, 2, 0x3f6ea8);
+    for(let y=11; y<=73; y+=11){
+      box(35, y, 0, 14, 1.2, 24, 0x4a5a7d);                 // Podest
+      box(28.6, y+1.9, 0, 0.8, 3.4, 24, 0x8894b4);          // Geländer zur Rakete
+      for(const dz of [-12, 12]) box(35, y+1.9, dz, 14, 3.4, 0.8, 0x8894b4);
+    }
+    cyl(35, 39, 13.5, 0.7, 78, 0x8894b4);             // Leiter-Holme
+    cyl(35, 39, 15.5, 0.7, 78, 0x8894b4);
+    // --- Alles Kleinzeug in zwei Draw-Calls -----------------------------
+    const flushProps = ()=>{
+      const bm = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),
+        new THREE.MeshStandardMaterial({roughness:.7, metalness:.15}), props.length);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(),
+            v = new THREE.Vector3(), sc = new THREE.Vector3(), col = new THREE.Color();
+      props.forEach((p,i)=>{
+        q.setFromEuler(new THREE.Euler(0, p.ry, 0));
+        bm.setMatrixAt(i, m4.compose(v.set(p.x,p.y,p.z), q, sc.set(p.sx,p.sy,p.sz)));
+        bm.setColorAt(i, col.setHex(p.col));
+      });
+      this.scene.add(bm);
+      const cm = new THREE.InstancedMesh(new THREE.CylinderGeometry(1,1,1,12),
+        new THREE.MeshStandardMaterial({roughness:.6, metalness:.25}), pipes.length);
+      pipes.forEach((p,i)=>{
+        q.setFromEuler(new THREE.Euler(p.rx, p.rz, 0, "YXZ"));
+        cm.setMatrixAt(i, m4.compose(v.set(p.x,p.y,p.z), q, sc.set(p.r,p.h,p.r)));
+        cm.setColorAt(i, col.setHex(p.col));
+      });
+      this.scene.add(cm);
+    };
+    // --- Licht ----------------------------------------------------------
+    this.scene.add(new THREE.HemisphereLight(0xbcd0ff, 0x28324e, 0.75));
+    const sun = new THREE.DirectionalLight(0xfff2dd, 0.95);
+    sun.position.set(120,200,80); this.scene.add(sun);
+    const sun2 = new THREE.DirectionalLight(0xbdd2ff, 0.35);
+    sun2.position.set(-140,120,-90); this.scene.add(sun2);
+    const fill = new THREE.PointLight(0xf7941d, 0.30, 460);
+    fill.position.set(-80,60,-60); this.scene.add(fill);
+    // --- Belegschaft ----------------------------------------------------
+    this.buildCrew();
+    flushProps();
     // Kamerasteuerung
     let drag = null;
     host.addEventListener("pointerdown", e=>{ drag = {x:e.clientX, y:e.clientY}; });
@@ -5167,12 +5386,13 @@ const VAB = {
   add(id){
     const p = PARTS[id];
     if(p.type==="pod"){
-      if(this.stack.some(x=>PARTS[x].type==="pod")) return alert("Nur eine Kapsel pro Rakete!");
+      if(this.stack.some(x=>PARTS[x].type==="pod")){ this.oops(); return alert("Nur eine Kapsel pro Rakete!"); }
       this.stack.unshift(id);
     }
     else if(p.type==="chute") this.stack.unshift(id);
-    else if((p.type==="sideboost" || p.type==="srb") && this.capError([...this.stack, id]))
-      return alert(this.capError([...this.stack, id]));
+    else if((p.type==="sideboost" || p.type==="srb") && this.capError([...this.stack, id])){
+      this.oops(); return alert(this.capError([...this.stack, id]));
+    }
     else this.stack.push(id);
     this.refresh();
   },
@@ -5542,26 +5762,235 @@ const VAB = {
     const h = this.rocket.userData.height;
     this.camDist = Math.max(45, h*1.7);
   },
+  /* =================================================================
+     Belegschaft der Montagehalle
+     Vorher: sechs Figuren, die mit `|sin(t)|·0,5` durch die Halle HÜPFTEN
+     und ihre Blickrichtung pro Frame hart umsprangen. Jetzt haben die
+     Astronaut*innen Hüft- und Schultergelenke (s. buildAstronaut) und
+     echte Aufgaben:
+       walk  – läuft Wegpunkte ab: Beine schwingen, Oberkörper wippt leicht,
+               die Drehung wird eingeschliffen (kürzester Weg)
+       weld  – steht an der Werkbank und schweißt: zuckendes Licht, Funken
+       carry – schleppt Kisten zwischen den Hochregalen
+       talk  – Zweiergrüppchen, das gestikuliert
+     Und alle können hinfallen: selten von selbst (Stolperer) und immer
+     dann, wenn im Hangar etwas schiefgeht → `VAB.oops()`.
+     ================================================================= */
+  CREW_Y: 1.56,          // Fußhöhe: Modell reicht bis −0,65 · Skalierung 2,4
+  buildCrew(){
+    this.crew = [];
+    // Funken-Pool (EIN Draw-Call): tote Partikel parken unter dem Boden
+    const N = 90, pos = new Float32Array(N*3);
+    for(let i=0;i<N;i++) pos[i*3+1] = -999;
+    const sgeo = new THREE.BufferGeometry();
+    sgeo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    const spark = new THREE.Points(sgeo, new THREE.PointsMaterial({
+      color:0xffd28a, size:1.1, transparent:true, opacity:.95,
+      blending:THREE.AdditiveBlending, depthWrite:false}));
+    this.scene.add(spark);
+    this.sparks = {geo:sgeo, pos, vel:new Float32Array(N*3), life:new Float32Array(N), i:0, n:N};
+    const glowTex = (()=>{
+      const c = document.createElement("canvas"); c.width = c.height = 64;
+      const g = c.getContext("2d").createRadialGradient(32,32,0,32,32,32);
+      g.addColorStop(0,"rgba(255,255,255,1)"); g.addColorStop(0.35,"rgba(190,225,255,.75)");
+      g.addColorStop(1,"rgba(150,200,255,0)");
+      const x = c.getContext("2d"); x.fillStyle = g; x.fillRect(0,0,64,64);
+      return new THREE.CanvasTexture(c);
+    })();
+    const mk = (role, x, z, yaw)=>{
+      const mesh = buildAstronaut();
+      mesh.scale.set(2.4,2.4,2.4);
+      mesh.position.set(x, this.CREW_Y, z);
+      mesh.rotation.y = yaw;
+      this.scene.add(mesh);
+      const legs = [], arms = [];
+      mesh.traverse(o=>{ if(o.name==="leg") legs.push(o); else if(o.name==="arm") arms.push(o); });
+      const w = {mesh, role, legs, arms, yaw, phase:Math.random()*7,
+        speed:10+Math.random()*5, target:null, wait:Math.random()*2,
+        fall:0, weld:0, welding:false, crate:null};
+      this.crew.push(w);
+      return w;
+    };
+    // Zwei Schweißer an den Werkbänken
+    for(const b of (this.benches||[]).slice(0,2)){
+      // ⚠️ Dicht an die Bank stellen (Bank ist 10 tief): Steht der Schweißer
+      // 9 Einheiten davor, liegt der Lichtbogen doppelt so weit weg wie seine
+      // Arme lang sind – es sieht aus, als schweiße er die Luft an.
+      const wx = b.x + 4.4*Math.sin(b.ry), wz = b.z - 4.4*Math.cos(b.ry);
+      const w = mk("weld", wx, wz, Math.atan2(b.x-wx, b.z-wz));
+      const g = new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,
+        blending:THREE.AdditiveBlending, depthWrite:false, transparent:true}));
+      g.position.set(b.x + 2.4*Math.sin(b.ry), 4.1, b.z - 2.4*Math.cos(b.ry));
+      g.scale.setScalar(3); this.scene.add(g);
+      const li = new THREE.PointLight(0x9ec9ff, 0, 120);
+      li.position.copy(g.position); this.scene.add(li);
+      // Startet in der PAUSE und mit zufälligem Versatz: kein Blitz direkt beim
+      // Betreten der Halle, und die beiden Werkbänke zünden nie gleichzeitig.
+      w.glow = g; w.light = li; w.welding = false;
+      w.weld = w.weldDur = 12 + Math.random()*70;
+    }
+    // Zwei Kistenschlepper
+    for(const [x,z] of [[-60, -120], [70, 110]]){
+      const w = mk("carry", x, z, Math.random()*6.28);
+      w.speed = 8 + Math.random()*2;
+      w.crate = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.5,0.5),
+        new THREE.MeshStandardMaterial({color:0xb98b4e, roughness:.85}));
+      w.crate.position.set(0, 0.72, 0.46);
+      w.mesh.add(w.crate);
+    }
+    // Ein schwatzendes Duo (schaut sich an)
+    const tx = -52, tz = 58;
+    mk("talk", tx, tz, 0).mesh.rotation.y = Math.atan2(9, 4);
+    mk("talk", tx+9, tz+4, 0).mesh.rotation.y = Math.atan2(-9, -4);
+    // …und vier, die durch die Halle laufen
+    for(let k=0;k<4;k++){
+      const a = Math.random()*Math.PI*2, r = 45+Math.random()*95;
+      mk("walk", Math.cos(a)*r, Math.sin(a)*r, Math.random()*6.28);
+    }
+  },
+  /* Wegpunkt in der Halle: nicht in die Rakete, nicht in die Regale */
+  crewWaypoint(){
+    for(let k=0;k<24;k++){
+      const x = (Math.random()-0.5)*260, z = (Math.random()-0.5)*260;
+      if(Math.hypot(x,z) > 34 && Math.abs(x) < 140 && Math.abs(z) < 140)
+        return {x, z};
+    }
+    return {x:60, z:60};
+  },
+  emitSparks(p, n){
+    const S = this.sparks;
+    for(let k=0;k<n;k++){
+      const i = S.i = (S.i+1) % S.n, a = Math.random()*Math.PI*2, sp = 8+Math.random()*26;
+      S.pos[i*3]   = p.x + (Math.random()-0.5); S.pos[i*3+1] = p.y;
+      S.pos[i*3+2] = p.z + (Math.random()-0.5);
+      S.vel[i*3]   = Math.cos(a)*sp*0.5;
+      S.vel[i*3+1] = 6 + Math.random()*20;
+      S.vel[i*3+2] = Math.sin(a)*sp*0.5;
+      S.life[i] = 0.3 + Math.random()*0.5;
+    }
+  },
+  /* Im Hangar ist etwas schiefgegangen (ungültige Rakete, verweigerter Start,
+     zu viele Booster): Alle zucken zusammen – und eine*r legt sich hin. */
+  oops(){
+    if(!this.crew) return;
+    const up = this.crew.filter(w=>w.fall<=0 && w.role!=="weld");
+    for(const w of this.crew){ w.wait = Math.max(w.wait||0, 0.7+Math.random()*0.9); w.target = null; }
+    for(let k=0, n=1+(Math.random()<0.35?1:0); k<n && up.length; k++)
+      up[Math.floor(Math.random()*up.length)].fall = 2.9;
+  },
+  stepWorker(w, dt){
+    const m = w.mesh, S = w.legs.length ? 1 : 0;
+    if(!S) return;
+    // ---- Sturz: umkippen, kurz zappeln, wieder aufstehen ----
+    if(w.fall > 0){
+      w.fall -= dt;
+      const lay = Math.max(0, Math.min(Math.min(1, (2.9-w.fall)/0.28), Math.min(1, w.fall/0.55)));
+      const kick = Math.sin(w.fall*13)*0.5*lay;
+      m.rotation.x = -1.45*lay;
+      m.position.y = this.CREW_Y - 1.30*lay;
+      w.legs.forEach(l=> l.rotation.x = kick*l.userData.side);
+      w.arms.forEach(a=>{ a.rotation.x = -1.0*lay; a.rotation.z = a.userData.side*(0.5+0.5*lay); });
+      if(w.fall <= 0){ m.rotation.x = 0; m.position.y = this.CREW_Y;
+        w.legs.forEach(l=>l.rotation.x=0); w.arms.forEach(a=>{a.rotation.x=0; a.rotation.z=a.userData.side*0.5;}); }
+      return;
+    }
+    // ---- Schweißen ----
+    // ⚠️⚠️ Die Frequenz ist bewusst SEHR niedrig (ein Lichtbogen pro Werkbank
+    // gut alle 1–2 min, mit zwei Bänken also ungefähr einmal pro Minute).
+    // Vorher zündete jede Bank alle 2–6 s und die Helligkeit wurde PRO FRAME
+    // gewürfelt – das sind 60 Hz Stroboskop im Randbereich des Blickfelds,
+    // also genau der Bereich, der bei fotosensibler Epilepsie Anfälle auslöst.
+    // Deshalb jetzt: seltener, weiches Ein-/Ausblenden statt hartem An/Aus,
+    // und das Flackern ist ein ruhiger Schwebungs-Term bei ~1 Hz statt Rauschen.
+    if(w.role === "weld"){
+      w.weld -= dt;
+      if(w.weld <= 0){
+        w.welding = !w.welding;
+        w.weld = w.weldDur = w.welding ? 2.4 + Math.random()*2.2    // Lichtbogen
+                                       : 62  + Math.random()*58;    // Pause
+      }
+      let f = 0, j = 0;
+      if(w.welding){
+        w.phase += dt;
+        const t = w.weldDur - w.weld;                    // Sekunden seit Zündung
+        const env = Math.min(1, t/0.45, w.weld/0.65);    // weich an, weich aus
+        f = env * (0.60 + 0.16*Math.sin(w.phase*6.1) + 0.10*Math.sin(w.phase*2.7));
+        j = (Math.random()-0.5)*0.07;
+      }
+      w.arms.forEach(a=>{ a.rotation.x = -1.15 + j; a.rotation.z = a.userData.side*0.20; });
+      w.legs.forEach(l=> l.rotation.x = 0);
+      m.position.y = this.CREW_Y;
+      w.light.intensity = 3.4*f;
+      w.glow.material.opacity = f;
+      w.glow.scale.setScalar(2.2 + f*2.2);
+      if(f > 0.2 && Math.random() < 0.75) this.emitSparks(w.glow.position, 2);
+      return;
+    }
+    // ---- Fachsimpeln ----
+    if(w.role === "talk"){
+      w.phase += dt*2.1;
+      m.position.y = this.CREW_Y + Math.sin(w.phase*1.3)*0.05;
+      const g = Math.max(0, Math.sin(w.phase*0.7));
+      w.arms.forEach(a=>{ a.rotation.x = -0.2 - g*0.85*(a.userData.side>0?1:0.35);
+                          a.rotation.z = a.userData.side*0.5; });
+      w.legs.forEach(l=> l.rotation.x = 0);
+      return;
+    }
+    // ---- Laufen / Kisten schleppen ----
+    if(w.wait > 0){
+      w.wait -= dt;
+      m.position.y = this.CREW_Y + Math.sin(performance.now()/900 + w.phase)*0.035;
+      w.legs.forEach(l=> l.rotation.x *= 0.85);
+      w.arms.forEach(a=> a.rotation.x = w.role==="carry" ? -1.25 : a.rotation.x*0.85);
+      return;
+    }
+    if(!w.target) w.target = this.crewWaypoint();
+    const dx = w.target.x - m.position.x, dz = w.target.z - m.position.z;
+    const d = Math.hypot(dx, dz);
+    if(d < 2.5){
+      w.target = null; w.wait = 0.7 + Math.random()*2.6;
+      if(w.crate) w.crate.visible = !w.crate.visible;    // Kiste abstellen/aufnehmen
+      return;
+    }
+    // Drehung einschleifen (kürzester Weg) – und erst dann losgehen
+    const want = Math.atan2(dx, dz);
+    let dy = ((want - w.yaw + Math.PI*3) % (Math.PI*2)) - Math.PI;
+    w.yaw += dy*Math.min(1, dt*5.5);
+    m.rotation.y = w.yaw;
+    const step = Math.max(0, Math.cos(dy))*w.speed*dt;
+    m.position.x += Math.sin(w.yaw)*step;
+    m.position.z += Math.cos(w.yaw)*step;
+    w.phase += step/1.35;                                // ~2,7 m Schrittzyklus
+    const sw = Math.sin(w.phase);
+    w.legs.forEach(l=> l.rotation.x = sw*0.55*l.userData.side);
+    w.arms.forEach(a=>{ a.rotation.x = w.role==="carry" ? -1.25 : -sw*0.42*a.userData.side;
+                        a.rotation.z = a.userData.side*0.5; });
+    m.position.y = this.CREW_Y + Math.abs(Math.cos(w.phase))*0.15;
+    if(Math.random() < 0.00006) w.fall = 2.9;            // Stolperer
+  },
+  stepSparks(dt){
+    const S = this.sparks;
+    if(!S) return;
+    for(let i=0;i<S.n;i++){
+      if(S.life[i] <= 0) continue;
+      S.life[i] -= dt;
+      S.vel[i*3+1] -= 70*dt;
+      S.pos[i*3]   += S.vel[i*3]*dt;
+      S.pos[i*3+1] += S.vel[i*3+1]*dt;
+      S.pos[i*3+2] += S.vel[i*3+2]*dt;
+      if(S.life[i] <= 0 || S.pos[i*3+1] < 0.4) S.pos[i*3+1] = -999;
+    }
+    S.geo.attributes.position.needsUpdate = true;
+  },
   frame(){
     const host = document.getElementById("vab3d");
     const w = host.clientWidth, h = host.clientHeight;
     if(w<2||h<2) return;
     this.renderer.setSize(w,h,false);
     this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
-    // Kerbals laufen durch die Halle
-    for(const k of this.kerbals){
-      if(k.pause > 0){ k.pause -= 1/60; continue; }
-      if(!k.target || k.mesh.position.distanceTo(k.target) < 3){
-        const ang = Math.random()*Math.PI*2, rad = 30+Math.random()*110;
-        k.target = new THREE.Vector3(Math.cos(ang)*rad, 1.6, Math.sin(ang)*rad);
-        k.pause = Math.random()*3;
-        continue;
-      }
-      const dir = k.target.clone().sub(k.mesh.position).normalize();
-      k.mesh.position.addScaledVector(dir, k.speed/60);
-      k.mesh.rotation.y = Math.atan2(dir.x, dir.z);
-      k.mesh.position.y = 1.6 + Math.abs(Math.sin(performance.now()/130))*0.5;  // Hüpf-Gang
-    }
+    // Die Halle lebt: Laufen, Schweißen, Kisten schleppen, Hinfallen
+    for(const w of this.crew) this.stepWorker(w, 1/60);
+    this.stepSparks(1/60);
     const th = this.rocket ? this.rocket.userData.height/2 : 20;
     const cx = Math.cos(this.camEl)*Math.cos(this.camAz)*this.camDist;
     const cz = Math.cos(this.camEl)*Math.sin(this.camAz)*this.camDist;
@@ -5762,9 +6191,40 @@ const Flight = {
     };
     this.groundPlane = new THREE.Mesh(terrainGeometry(), groundMat);
     this.groundPlane.rotation.x = -Math.PI/2;
+    /* ---- Strand: alles unter Wasser WEGSCHNEIDEN ------------------------
+       Der Strand ist eine 40-km-Scheibe, von der 39 km unter dem Meer liegen
+       (Sand y = 2, Meer y = 4). Genau da flimmerte es beim Auf- und Abstieg:
+       zwei fast deckungsgleiche Riesenscheiben, deren Fächer-Dreiecke bis zu
+       40 km lang sind – so grob interpoliert, dass der Log-Z-Puffer sie nicht
+       mehr trennen kann. ⚠️ GEMESSEN (16 km Höhe, Blick auf die Küste): erst
+       ~100 m Höhenabstand beruhigen das Bild, `polygonOffset` wirkt gar nicht
+       (three schreibt bei Log-Z `gl_FragDepth`, dann ignoriert die GPU den
+       Offset), und das fein tesselierte Terrain daneben zickt NICHT – es sind
+       wirklich die Riesendreiecke.
+       Lösung: Sandfragmente ab 150 m seewärts der Wasserkante verwerfen. Sie
+       waren ohnehin unsichtbar (das Meer ist opak), der Tiefenstreit ist damit
+       weg und die Füllrate gespart. `uBeachClip` schaltet das nur im
+       Küstenmodus ein – im Binnenland gibt es keine Uferlinie. */
+    this.beachClipU = {value:0};
+    const beachMat = new THREE.MeshStandardMaterial({color:0xd9c893, roughness:.95, map:sandTex});
+    beachMat.onBeforeCompile = sh=>{
+      sh.uniforms.uShore     = this.oceanU.uShore;
+      sh.uniforms.uBeachClip = this.beachClipU;
+      sh.uniforms.uOrigin    = {value:new THREE.Vector2(41000, 0)};
+      sh.vertexShader = sh.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying vec2 vBXw;\nuniform vec2 uOrigin;")
+        .replace("#include <begin_vertex>",
+                 "#include <begin_vertex>\nvBXw = uOrigin + position.xy;");
+      sh.fragmentShader = sh.fragmentShader
+        .replace("#include <common>",
+                 "#include <common>\nvarying vec2 vBXw;\nuniform float uBeachClip;\n"+SHORE_GLSL)
+        .replace("#include <clipping_planes_fragment>",
+                 "#include <clipping_planes_fragment>\n  if(uBeachClip > 0.0 && "+SEA_R+
+                 " + shoreWob(vBXw.y) - length(vBXw - "+SEA_C+") > uBeachClip) discard;");
+    };
     this.groundBeach = new THREE.Mesh(
       new THREE.CircleGeometry(40000, SHORE_SEGS),   // Rand kommt in start() (pro Rampe)
-      new THREE.MeshStandardMaterial({color:0xd9c893, roughness:.95, map:sandTex}));
+      beachMat);
     this.groundBeach.rotation.x = -Math.PI/2;
     this.groundBeach.position.set(41000, 2, 0);   // Strand ab ~1 km Ost – Meerblick von der Rampe!
     // --- Ozean: EIN Shader, zwei Meshes (Details am Kopf der Datei) ------
@@ -6516,12 +6976,14 @@ const Flight = {
       };
       swap(this.groundSea,   41000, shoreWobble, -30);
       swap(this.groundBeach, 40000, beachWobble);
+      this.beachClipU.value = BEACH_CLIP;         // Sand unter Wasser wegschneiden
       this.groundSea.position.set(42500, 4, 0);   seaU.uOrigin.value.set(42500, 0);
       this.seaPatch.position.set(3400, 4, 0);     patU.uOrigin.value.set(3400, 0);
       this.groundPlane.visible = this.groundBeach.visible = true;
       this.groundSea.visible = this.seaPatch.visible = true;
       this.treeTrunks.visible = this.treeCrowns.visible = true;
     } else {
+      this.beachClipU.value = 0;                  // ohne Küste gibt es nichts zu klippen
       this.oceanU.uOpenSea.value = mode==="opensea" ? 1 : 0;
       if(mode === "opensea"){
         // Meer RUND UM den Anker: schlichte große Scheibe, Detail-Patch
@@ -6566,13 +7028,20 @@ const Flight = {
     };
     const dd0 = at(0, 0);
     const h0 = terrainH(dd0.x, dd0.y, dd0.z, TERRAIN_OCT_LOCAL);
+    // ⚠️ Seegrund ABSENKEN (nur an der Küste): Unter dem opaken Meer sieht man
+    // ihn nie – aber solange er nur ein paar Meter unter der Meeresscheibe
+    // liegt, streiten beide im Tiefenpuffer und das Wasser "grieselt" aus
+    // 10–20 km Höhe (dieselbe Ursache wie beim Strand, s. `beachClipU`).
+    // 120 m Luft beenden das zuverlässig; gemessen war ab ~100 m Ruhe.
+    const deepen = this.groundMode === "coast";
     for(let i=0; i<p.count; i++){
       // Objektraum der Bodengruppe: x = Ost, y = Nord (vor rotation.x), z = Höhe
       const e = p.getX(i), n = p.getY(i), dist = Math.hypot(e, n);
       const w = THREE.MathUtils.smoothstep(dist, 900, 4200);
       const dv = at(e, n);
       const h = terrainH(dv.x, dv.y, dv.z, TERRAIN_OCT_LOCAL);
-      p.setZ(i, (h - h0)*w);
+      p.setZ(i, (h - h0)*w -
+        (deepen ? 120*THREE.MathUtils.smoothstep(shoreDist(e, n), 40, 600) : 0));
       // ---- Farbe nach Höhe: dieselben Stufen wie die Kugeltextur ----
       const el = h/TERRAIN_MAX_H;
       let r, gr, b;
