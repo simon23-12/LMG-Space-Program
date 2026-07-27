@@ -328,7 +328,10 @@ input[type=file]{display:none;}
     <button class="btn" id="infBtn" style="display:none" onclick="Flight.toggleInfinite()">∞ Tank [U]</button>
     <button class="btn" onclick="Flight.addNode()">Manöver [K]</button>
     <button class="btn" id="btnExp" onclick="Flight.runExperiment()">Experiment [B]</button>
-    <button class="btn" onclick="Flight.revert()">↩ Neustart</button>
+    <!-- ↩ Neustart gibt es NUR im Training/Tutorial (s. updateButtons): in der
+         Karriere war er ein Freifahrtschein – Rakete verloren? Neustart drücken,
+         und die abgebuchten Startkosten sind wieder da. -->
+    <button class="btn" id="btnRevert" onclick="Flight.revert()">↩ Neustart</button>
     <button class="btn" onclick="Flight.toggleMap()">Karte [M]</button>
     <button class="btn" onclick="Flight.warpDown()">⏪ [,]</button>
     <button class="btn" onclick="Flight.warpUp()">⏩ [.]</button>
@@ -404,21 +407,28 @@ input[type=file]{display:none;}
   </div>
 </div>
 
-<!-- HANGAR: gespeicherte Raketen ("Workhorses") -->
+<!-- HANGAR: gespeicherte Raketen ("Workhorses") + Orbit-Inventar in zwei Reitern.
+     Der zweite Reiter kommt bewusst HIER unter und nicht als eigener Knopf in die
+     VAB-Werkzeugleiste: die ist auf einem 13"-Laptop schon randvoll (s. CLAUDE.md). -->
 <div id="hangarModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:60;
   align-items:center;justify-content:center;">
   <div style="background:var(--panel);border:2px solid var(--blue);border-radius:14px;
-    max-width:560px;width:90%;margin:20px;padding:24px;">
-    <h2 style="color:var(--orange);margin-bottom:4px;">📂 Hangar – gespeicherte Raketen</h2>
-    <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">
-      Bewährte Raketen laden und immer wieder fliegen. Speichern: 💾 in der Montagehalle.</div>
+    max-width:620px;width:90%;margin:20px;padding:24px;">
+    <h2 id="hangarTitle" style="color:var(--orange);margin-bottom:10px;">📂 Hangar – gespeicherte Raketen</h2>
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <button class="btn" id="hangarTabRockets" style="flex:1" onclick="VAB.hangarTab('rockets')">🚀 Gespeicherte Raketen</button>
+      <button class="btn" id="hangarTabAssets" style="flex:1" onclick="VAB.hangarTab('assets')">🛰️ Objekte im All</button>
+    </div>
+    <div id="hangarSub" style="color:var(--muted);font-size:13px;margin-bottom:12px;"></div>
     <div id="hangarList" style="max-height:320px;overflow-y:auto;"></div>
     <!-- Raketen als Datei mitnehmen: Schüler*innen sitzen nicht immer am selben PC! -->
-    <div style="display:flex;gap:10px;margin-top:18px;">
+    <div id="hangarFiles" style="display:flex;gap:10px;margin-top:18px;">
       <button class="btn" style="flex:1" onclick="VAB.exportRockets()" title="Alle gespeicherten Raketen als Datei herunterladen – zum Mitnehmen auf einen anderen PC">⬇ Als Datei sichern</button>
       <button class="btn" style="flex:1" onclick="document.getElementById('rocketFile').click()" title="Raketen-Datei von einem anderen PC laden">⬆ Datei laden</button>
       <input type="file" id="rocketFile" accept=".json,application/json" style="display:none"
         onchange="if(this.files[0]) VAB.importRockets(this.files[0]); this.value='';">
+    </div>
+    <div style="display:flex;gap:10px;margin-top:10px;">
       <button class="btn" style="flex:1" onclick="document.getElementById('hangarModal').style.display='none'">Schließen</button>
     </div>
   </div>
@@ -1023,7 +1033,7 @@ const PARTS = {
   sb4:    {name:"Seitenbooster ×4",          type:"sideboost", n:4, cat:"lower", mass:1800, fuel:6800, thrust:920000, isp:220, w:10,h:24, tech:"heavyPlus",
            info:"Vier radiale Feststoffbooster für Monster-Raketen. Zünden: Stufe 1 oder [R] · Abwurf: [J]"},
   probe:  {name:"Sondenkern »Pixel«",        type:"probe",  cat:"sat", mass:150, w:8,h:6, tech:"payload", charge:80, info:"Unbemanntes Gehirn – braucht ständig Strom (0,25 ⚡/s)! Interne Batterie: 80 ⚡."},
-  solar:  {name:"Solarpanele (ausfahrbar)",  type:"solar",  cat:"sat", mass:60,  w:14,h:4, tech:"surv", info:"Mit [G] ausfahren: +3 ⚡/s. Vorsicht: reißen im Fahrtwind ab!"},
+  solar:  {name:"Solarpanele (ausfahrbar)",  type:"solar",  cat:"sat", mass:60,  w:14,h:4, tech:"surv", info:"Mit [G] ausfahren: +3 ⚡/s. Nur im Vakuum – unter 50 km Höhe ist die Luft zu dicht, dort klappen sie von selbst ein."},
   battery:{name:"Batterie",                  type:"battery",cat:"sat", mass:60,  w:8,h:5, tech:"payload", charge:500, info:"Speichert 500 ⚡ für Sonden, SAS und Experimente."},
   bay:    {name:"Servicebucht M",            type:"bay",    cat:"sat", mass:80,  w:11,h:5, covers:2, tech:"payload",
            info:"Aerodynamischer Stauraum: verkleidet die ZWEI Bauteile DIREKT DARÜBER (z. B. Satellit + Batterie) und senkt den Luftwiderstand. Öffnen: [O]"},
@@ -1108,6 +1118,29 @@ const PART_COSTS = {
 };
 for(const [id,c] of Object.entries(PART_COSTS)) if(PARTS[id]) PARTS[id].cost = c;
 function stackCost(stack){ return stack.reduce((a,id)=>a+(PARTS[id].cost||0),0); }
+
+/* ---------- Orbit-Inventar (»🛰️ Objekte im All« im Hangar) ----------
+   Was im All zurückbleibt, verschwindet nicht mehr: Game.assets speichert die
+   Bauteile mit. Diese beiden Helfer beantworten die zwei Fragen der Liste –
+   wie heißt das Ding, und kann man es noch fliegen? */
+const CMD_TYPES = ["pod","probe","starship"];
+const ENGINE_TYPES = ["engine","srb","superheavy","starship"];
+function assetShipName(stack){
+  const cmd = (stack||[]).find(id=>PARTS[id] && CMD_TYPES.includes(PARTS[id].type));
+  return cmd ? PARTS[cmd].name : "Raumfahrzeug";
+}
+/* "" = fliegbar, sonst der Grund im Klartext (steht als Tooltip am Knopf). */
+function assetFlyReason(a){
+  const st = ((a && a.stack) || []).filter(id=>PARTS[id]);
+  if(!st.length)
+    return "Von diesem Objekt sind keine Bauteil-Daten gespeichert – es lässt sich nur beobachten.";
+  if(!st.some(id=>CMD_TYPES.includes(PARTS[id].type)))
+    return "Ohne Kommandokapsel oder Sondenkern lässt sich nichts steuern.";
+  if(!st.some(id=>ENGINE_TYPES.includes(PARTS[id].type)))
+    return "Ohne Triebwerk kommt es nicht mehr von der Stelle.";
+  return "";
+}
+const ASSET_ICON = {ship:"🚀", tanker:"⛽", wreck:"🆘", sat:"📡"};
 /* Missionsprämie. ⚠️ Bewusst großzügig: Von einer Orbitalrakete kommt nur die
    OBERSTE Stufe zurück (`settleCrewAndAssets` erstattet nur den gelandeten
    Reststack), die Unterstufe ist ohne Forschung »Wiederverwendbarkeit« weg –
@@ -1418,6 +1451,16 @@ const UNKNOWN_HINT_SMALL = "🛰 Noch unentdeckt: Kleinkörper sind viel zu winz
    über die Pole – EINE Quelle für Teil-Text, Mission, Zielring und Auswertung. */
 const SURVEY_PE = 200000, SURVEY_INC = 75;
 
+/* Ab welcher Höhe über Leibniz dürfen die Solarpanele raus?
+   Ein Solarflügel ist ein Papierdrachen – unter 50 km ist die Luft dafür zu dicht.
+   Darunter lassen sie sich gar nicht erst ausfahren und klappen im Sinkflug
+   automatisch ein (statt wie früher irgendwann einfach abzureißen). Im VAKUUM
+   gibt es keine Beschränkung: Panele sind dort das Einzige, was Strom macht.
+   ⚠️ Der Wert liegt bewusst UNTER der Atmosphärengrenze (70 km): zwischen 50 und
+   70 km ist die Luft so dünn, dass sie nichts mehr ausmacht – dort schon zu
+   sperren würde nur beim Aufstieg nerven. */
+const PANEL_SAFE_ALT = 50000;
+
 /* ---------- Synchronbahn (»geostationär«): 1 Umlauf = 1 Leibniz-Tag ----------
    Die Wolken von Leibniz drehen mit ~14.000 s – unser "Schultag". In ≈2000 km
    Höhe dauert ein Umlauf genau so lange: Der Satellit steht still am Himmel. */
@@ -1708,6 +1751,14 @@ function migrateGame(){
   if(Game.introSeen===undefined) Game.introSeen = Game.done.length>0;
   if(!Game.pad) Game.pad = "lmg";
   if(!Array.isArray(Game.asteroidsScanned)) Game.asteroidsScanned = [];
+  /* Bestands-Saves: Objekte im Orbit merken sich jetzt IHRE Bauteile, damit man
+     sie im Hangar unter »🛰️ Objekte im All« wieder übernehmen kann. Ältere
+     Einträge haben kein `stack` und bleiben deshalb reine Beobachtungsobjekte –
+     außer beim Tanker, dort ist das Bauteil eindeutig bekannt. Wracks bekommen
+     bewusst NICHTS untergeschoben: geraten geratene Teile wären geschenkte
+     Hardware, und gerettet werden sie wie gehabt mit einer eigenen Kapsel. */
+  for(const a of (Game.assets||[]))
+    if(a && a.kind==="tanker" && !a.stack) a.stack = ["starshipTank"];
   if(!Game.boosterSite) Game.boosterSite = "rtls";   // RTLS/Droneship-Wahl im VAB
   // Bestands-Saves: Wer schon an der Station gedockt hat, startete de facto vom
   // Äquator – der neue Raumhafen wird gratis freigeschaltet, sonst wären die
@@ -2424,11 +2475,13 @@ function renderMissionControl(list){
   const assets = Game.assets||[];
   if(assets.length){
     sec("🛰 Im Orbit unterwegs");
-    card(assets.map(d=>{
+    card(`<p style="margin-bottom:8px;color:var(--muted);font-size:13px;">Steuerbare Objekte lassen
+      sich in der Montagehalle unter 📂 Hangar → »🛰️ Objekte im All« wieder übernehmen.</p>`+
+      assets.map(d=>{
       const b = BODY_BY_NAME()[d.body];
-      return `<div style="margin:3px 0;">${d.kind==="wreck"?"🆘":"📡"} <b>${d.name}</b>
+      return `<div style="margin:3px 0;">${ASSET_ICON[d.kind]||"📡"} <b>${d.name}</b>
         <small style="color:var(--muted)">– ${(d.alt/1000).toFixed(0)}-km-Orbit um ${b?b.name:d.body}
-        ${d.relay?" · Funknetz-Relais":""}</small></div>`;
+        ${d.relay?" · Funknetz-Relais":""}${assetFlyReason(d)?"":" · steuerbar 🚀"}</small></div>`;
     }).join(""));
   }
 }
@@ -6925,8 +6978,84 @@ const VAB = {
     alert("💾 »"+name+"« gespeichert! Wieder laden über 📂 Hangar.");
   },
   openHangar(){
-    this.renderHangar();
+    this.hangarTab(this._hangarTab || "rockets");
     document.getElementById("hangarModal").style.display = "flex";
+  },
+  /* Reiter umschalten: 🚀 gespeicherte Bauplaene ↔ 🛰️ Objekte im All */
+  hangarTab(which){
+    this._hangarTab = which;
+    const rk = which !== "assets";
+    document.getElementById("hangarTitle").textContent =
+      rk ? "📂 Hangar – gespeicherte Raketen" : "🛰️ Objekte im All";
+    document.getElementById("hangarSub").innerHTML = rk
+      ? "Bewährte Raketen laden und immer wieder fliegen. Speichern: 💾 in der Montagehalle."
+      : "Alles, was du im All zurückgelassen hast – Schiffe, Satelliten, Tanker, Wracks. "+
+        "Sie fliegen auf ihren Bahnen weiter; steuerbare Objekte kannst du wieder übernehmen.";
+    // Die Datei-Knöpfe gehören nur zu den Bauplänen
+    document.getElementById("hangarFiles").style.display = rk ? "flex" : "none";
+    document.getElementById("hangarTabRockets").className = "btn" + (rk ? " orange" : "");
+    document.getElementById("hangarTabAssets").className  = "btn" + (rk ? "" : " orange");
+    if(rk) this.renderHangar(); else this.renderAssets();
+  },
+  /* Orbit-Inventar: was aus abgeschlossenen Flügen im All geblieben ist.
+     Weiterfliegen geht nur mit Kommandoeinheit + Triebwerk (assetFlyReason). */
+  renderAssets(){
+    const list = document.getElementById("hangarList");
+    list.innerHTML = "";
+    if(Game.sandbox){
+      list.innerHTML = '<div style="color:var(--muted);padding:18px 4px;">Im Training wird nichts '+
+        'aufgehoben – ein Orbit-Inventar gibt es nur in der Karriere.</div>';
+      return;
+    }
+    const all = Game.assets || [];
+    if(!all.length){
+      list.innerHTML = '<div style="color:var(--muted);padding:18px 4px;">Noch nichts im All. '+
+        'Wer einen Flug im Orbit beendet, findet sein Schiff hier wieder – genauso jeden '+
+        'ausgesetzten Satelliten. 🛰️</div>';
+      return;
+    }
+    all.forEach(d=>{
+      const b = BODY_BY_NAME()[d.body];
+      const st = (d.stack||[]).filter(id=>PARTS[id]);
+      const why = assetFlyReason(d);
+      // Tankfüllung aus dem Schnappschuss gegen die Kapazität derselben Bauteile
+      let tank = "", dry = false;
+      if(st.length && d.fuel){
+        const now = (d.fuel||[]).reduce((a,x)=>a+x,0) + (d.srb||[]).reduce((a,x)=>a+x,0);
+        const segs = this.vesselFrom(st).segs;
+        const max = segs.reduce((a,s)=>a+s.fuel+s.srbFuel, 0);
+        tank = max > 0 ? " · ⛽ "+Math.round(now/max*100)+" %" : " · ⛽ kein Tank";
+        dry = max > 0 && now <= 0;
+      }
+      const extra = [];
+      if(d.relay) extra.push("Funknetz-Relais");
+      if(d.com)   extra.push("Kommerz-Satellit");
+      if(d.crew && d.crew.length) extra.push("Crew an Bord: "+d.crew.join(", "));
+      const div = document.createElement("div");
+      div.style.cssText = "display:flex;align-items:center;gap:10px;padding:9px 10px;margin:5px 0;"+
+        "background:rgba(255,255,255,.04);border:1px solid #2a3a64;border-radius:8px;";
+      div.innerHTML = `<div style="flex:1;min-width:0;"><b>${ASSET_ICON[d.kind]||"🛰"} ${d.name||"Objekt"}</b><br>
+        <small style="color:var(--muted)">${(d.alt/1000).toFixed(0)}-km-Bahn um ${b?b.name:d.body}
+        ${st.length?" · "+st.length+(st.length===1?" Teil":" Teile"):""}${tank}
+        ${extra.length?'<br>'+extra.join(" · "):""}
+        ${why?'<br><span style="color:var(--muted)">🔒 '+why+'</span>':
+          (dry?'<br><span style="color:var(--orange)">⛽ Tank leer – ohne Betankung im All kommt es nicht mehr von der Stelle.</span>':"")}
+        </small></div>`;
+      const fly = document.createElement("button");
+      fly.className = "btn orange"; fly.textContent = "🚀 Weiterfliegen";
+      if(why){ fly.disabled = true; fly.style.opacity = .45; fly.title = why; }
+      else fly.onclick = ()=>{
+        if(!confirm("»"+(d.name||"Objekt")+"« übernehmen und von seiner Bahn aus weiterfliegen?\n\n"+
+          "Der Start kostet nichts – das Objekt ist längst bezahlt und längst da oben.\n"+
+          "Deine Rakete in der Montagehalle bleibt so, wie sie ist.")) return;
+        document.getElementById("hangarModal").style.display = "none";
+        Flight.startFromAsset(d);
+        UI.show("flight");
+        showHint("flight3d");
+      };
+      div.appendChild(fly);
+      list.appendChild(div);
+    });
   },
   renderHangar(){
     const list = document.getElementById("hangarList");
@@ -7059,6 +7188,17 @@ const VAB = {
       return {parts:[...s], ...st, fuelLeft:st.fuel, srbLeft:st.srbFuel, ignited:false, boost};
     });
     return {segs, stack:[...this.stack]};
+  },
+  /* Fahrzeug aus einem BELIEBIGEN Stack bauen (nicht aus dem Hallen-Stack) –
+     für »🛰️ Objekte im All«, wo eine längst gestartete Rakete aus dem Spielstand
+     wieder zusammengesetzt wird. Geht bewusst über buildVessel(), damit Stufen,
+     Seitenbooster-Pools und Statistik exakt dieselbe Logik durchlaufen. */
+  vesselFrom(stack){
+    const keep = this.stack;
+    this.stack = stack.filter(id=>PARTS[id]);
+    const v = this.buildVessel();
+    this.stack = keep;
+    return v;
   },
   /* Startmasse inkl. Seitenbooster – für das Rampen-Limit */
   totalMass(){
@@ -8708,6 +8848,7 @@ const Flight = {
     document.getElementById("boosterCam").style.display = "none";
     this.docked = false; this.dockOffset = null;
     this.autoDock = null; this.target = null; this.launchWindowMiss = undefined;
+    this.fromAsset = false;   // startFromAsset() setzt das direkt nach start() auf true
     this.stagedOnce = false;
     this.chuteTorn = false;
     if(this.eva){ this.world.remove(this.eva.mesh); this.eva = null; }
@@ -9250,6 +9391,13 @@ const Flight = {
       this.showMsg("Keine Solarpanele an Bord! ☀️",2); return;
     }
     if(this.panelsBroken){ this.showMsg("Die Panele sind abgerissen… 😬",2); return; }
+    // In der dichten Luft unter Leibniz gar nicht erst ausfahren (s. PANEL_SAFE_ALT).
+    // Einklappen geht dagegen IMMER – deshalb nur der Ausfahr-Fall.
+    if(!this.panelsOut && leibnizAlt(this.pos, this.t) < PANEL_SAFE_ALT){
+      this.showMsg("☀️ Zu dichte Luft für die Solarpanele! Erst über "+
+        (PANEL_SAFE_ALT/1000)+" km Höhe ausfahren – sonst reißt der Fahrtwind sie ab.",4);
+      return;
+    }
     this.panelsOut = !this.panelsOut;
     // Stecken die Panele in einer geschlossenen Servicebucht? Bucht mit öffnen!
     if(this.panelsOut && !this.bayOpen && this.solarInBay()){
@@ -9738,6 +9886,13 @@ const Flight = {
     return false;
   },
   toggleSAS(){
+    // Ohne Strom lässt sich SAS gar nicht erst scharfschalten – sonst könnte man
+    // sich mit [T]-Tippen Schritt für Schritt doch noch ausrichten lassen.
+    if(this.charge <= 0 && !(typeof Tut!=="undefined" && Tut.active)){
+      this.sas = "off";
+      this.showMsg("🪫 Strom leer – SAS lässt sich nicht einschalten! (Panele ausfahren? [G])",3);
+      return;
+    }
     const order = ["off","pro","retro"];
     if(this.node) order.push("node");
     // Nahe der Raumstation (oder dem gewählten Ziel): Extra-Modus zum
@@ -10097,7 +10252,16 @@ const Flight = {
     if(Game.sandbox) return;   // Assets sind Karriere-Inventar
     for(const d of (Game.assets||[])){
       let mesh;
-      if(d.kind==="wreck"){
+      const known = (d.stack||[]).filter(id=>PARTS[id]);
+      if(d.kind==="ship" || (d.kind==="wreck" && known.length)){
+        // Zurückgelassenes Schiff: sieht aus wie das, was wirklich da oben hängt.
+        // buildRocketGroup setzt den Ursprung auf die UNTERKANTE – für ein frei
+        // schwebendes Objekt gehört er in die Mitte, sonst steht der Marker am Fuß.
+        mesh = new THREE.Group();
+        const rk = buildRocketGroup(known, false);
+        rk.position.y = -stackHeight(known)/2;
+        mesh.add(rk);
+      } else if(d.kind==="wreck"){
         mesh = new THREE.Group();
         const capsule = buildPartMesh("pod"); capsule.position.y = -7; mesh.add(capsule);
         const tank = buildPartMesh("tankS"); tank.position.y = -23; mesh.add(tank);
@@ -10531,7 +10695,10 @@ const Flight = {
       const isRelay = this._satHadAntenna && this._satHadSolar;
       Game.assets.push({kind:"sat", body:bodyKey,
         alt:Math.round(o.alt), phase:Math.random()*Math.PI*2,
-        name:"Satellit #"+(nSats+1), relay:isRelay});
+        name:"Satellit #"+(nSats+1), relay:isRelay,
+        // Bauteile mitschreiben, damit »🛰️ Objekte im All« zeigen kann, was da
+        // oben kreist. Ohne Triebwerk bleibt er Inventar, kein Fahrzeug.
+        stack:["probe"].concat(this._satHadSolar?["solar"]:[], this._satHadAntenna?["antenna"]:[])});
       if(isRelay){
         Game.relays = (Game.relays||0)+1;
         msg = "📡 RELAIS-Satellit ausgesetzt! Funknetz: "+commRelays()+" Relais.";
@@ -10649,7 +10816,8 @@ const Flight = {
         if(i>=0) Game.assets.splice(i,1);
       }
       Game.assets.push({kind:"sat", body:bodyKey, alt:Math.round(o.alt),
-        phase:Math.random()*Math.PI*2, name:PARTS[satId].name, com:satId==="satK"});
+        phase:Math.random()*Math.PI*2, name:PARTS[satId].name, com:satId==="satK",
+        stack:[satId]});   // für »🛰️ Objekte im All«
       autoSave();
     }
     this.showMsg(msg,5);
@@ -10813,6 +10981,44 @@ const Flight = {
         this.showMsg("📡 Funkkontakt wiederhergestellt! ("+cc.why+")",3);
       }
     } else { this.commDead = false; this.comm = null; }
+    // ☀️ Solarpanele sind Papierdrachen: in der dichten Luft unter PANEL_SAFE_ALT
+    // klappen sie automatisch ein, statt (wie früher) irgendwann einfach
+    // abzureißen. Im Vakuum dürfen sie jederzeit raus – s. togglePanels().
+    if(this.panelsOut && !this.panelsBroken &&
+       leibnizAlt(this.pos, this.t) < PANEL_SAFE_ALT){
+      this.panelsOut = false;
+      this.showMsg("☀️ Zu dichte Luft – die Solarpanele fahren automatisch ein! "+
+        "(Erst über "+(PANEL_SAFE_ALT/1000)+" km wieder ausfahrbar)",4);
+    }
+    // --- Strom-Haushalt (in Tutorials unbegrenzt – Üben ohne Stromsorgen) ---
+    // ⚠️⚠️ Der Strom wird VOR der Steuerung abgerechnet, nicht danach! Vorher lief
+    // erst der Steuerblock und dann diese Bilanz – bei leerer Batterie richtete SAS
+    // das Schiff also noch EINEN Schritt lang aus, bevor es abgeschaltet wurde.
+    // Wer [T] erneut drückte (oder aus dem Zeitraffer auf 1× zurückkam, wo der
+    // Steuerblock überhaupt erst wieder anläuft), bekam damit beliebig viel
+    // Gratis-Ausrichtung: gemessen 161° in 5 s mit komplett leerer Batterie.
+    // Jetzt entscheidet der Stromstand, BEVOR irgendetwas gedreht wird.
+    if(typeof Tut!=="undefined" && Tut.active){
+      this.maxCharge = Math.max(this.maxCharge, 1000);
+      this.charge = this.maxCharge;
+      this.powerDead = false;
+    } else {
+      const hasPod = isCrewedStack(this.v.stack);
+      const nSolar = this.v.stack.filter(id=>PARTS[id].type==="solar").length;
+      const gen = (this.panelsOut && !this.panelsBroken) ? 3*nSolar : 0;
+      let use = 0;
+      if(!hasPod && !this.landed) use += 0.25;       // Sondensteuerung
+      if(this.sas!=="off") use += 0.3;               // SAS
+      this.charge = Math.min(this.maxCharge, this.charge + (gen-use)*dt);
+      if(this.charge <= 0){
+        this.charge = 0;
+        if(this.sas!=="off"){ this.sas = "off"; this.showMsg("🪫 Strom leer – SAS abgeschaltet!",3); }
+        if(!hasPod && !this.powerDead){
+          this.powerDead = true;
+          this.showMsg("🪫 STROM LEER – die Sonde reagiert nicht mehr! (Panele ausfahren? [G])",4);
+        }
+      } else if(this.powerDead && this.charge > 5) this.powerDead = false;
+    }
     // Wendigkeit: Basis-Reaktionsräder sind träge, RCS macht agil, Pilot*innen-Erfahrung hilft
     const nRcs = this.v.stack.filter(id=>PARTS[id].type==="rcs").length;
     // Ohne RCS DEUTLICH träger (nur schwache Reaktionsräder), jeder Ring hilft kräftig
@@ -10836,7 +11042,10 @@ const Flight = {
       // Wichtig: Geschwindigkeit RELATIV zum dominanten Körper (nicht zur Sonne)!
       const sasRelVel = this.vel.clone().sub(bodyVel(this.body(), this.t));
       const sasReady = this.sas==="tgt" || sasRelVel.length()>5;
-      if(this.sas!=="off" && sasReady &&
+      // ⚠️ SAS ist ein Stromfresser (0,3 ⚡/s) – bei leerer Batterie dreht es NICHTS
+      // mehr. Die Bilanz oben hat `sas` in dem Fall schon auf "off" gesetzt; der
+      // Test hier ist die zweite Sicherung, falls jemand `sas` zwischendurch setzt.
+      if(this.sas!=="off" && sasReady && this.charge > 0 &&
          !(k["w"]||k["s"]||k["a"]||k["d"]||k["q"]||k["e"])){
         let target = null;
         if(this.sas==="node" && this.nodeDir) target = this.nodeDir.clone();
@@ -10850,34 +11059,21 @@ const Flight = {
         if(target){
           const nose = V3(0,1,0).applyQuaternion(this.q);
           const full = new THREE.Quaternion().setFromUnitVectors(nose, target);
-          const stepQ = new THREE.Quaternion().slerp(full, Math.min(1, agility*1.6*dt));
+          // ⚠️ SAS dreht mit GENAU DERSELBEN Rate wie die Handsteuerung: agility·dt
+          // im Bogenmaß, gedeckelt auf den Restwinkel. Vorher stand hier ein Slerp
+          // mit dem Faktor agility*1.6*dt – ein Slerp-Faktor ist aber ein ANTEIL der
+          // Reststrecke, kein Winkel. Bei 180° Abweichung waren das π·1,6 ≈ 5× der
+          // Handsteuerungs-Rate: eine Rakete ohne RCS ruderte per [T] flott herum,
+          // per WASD aber zäh. Der Restwinkel steckt im w-Anteil des Quaternions
+          // (|w| = cos(Winkel/2)); |w|, weil ±q dieselbe Drehung meinen.
+          const ang = 2*Math.acos(Math.min(1, Math.abs(full.w)));
+          const stepQ = new THREE.Quaternion().slerp(full,
+            ang > 1e-6 ? Math.min(1, agility*dt/ang) : 1);
           this.q.premultiply(stepQ);
         }
       }
       if(k["arrowup"])   this.throttle=Math.min(1,this.throttle+1.2*dt);
       if(k["arrowdown"]) this.throttle=Math.max(0,this.throttle-1.2*dt);
-    }
-    // --- Strom-Haushalt (in Tutorials unbegrenzt – Üben ohne Stromsorgen) ---
-    if(typeof Tut!=="undefined" && Tut.active){
-      this.maxCharge = Math.max(this.maxCharge, 1000);
-      this.charge = this.maxCharge;
-      this.powerDead = false;
-    } else {
-      const hasPod = isCrewedStack(this.v.stack);
-      const nSolar = this.v.stack.filter(id=>PARTS[id].type==="solar").length;
-      const gen = (this.panelsOut && !this.panelsBroken) ? 3*nSolar : 0;
-      let use = 0;
-      if(!hasPod && !this.landed) use += 0.25;       // Sondensteuerung
-      if(this.sas!=="off") use += 0.3;               // SAS
-      this.charge = Math.min(this.maxCharge, this.charge + (gen-use)*dt);
-      if(this.charge <= 0){
-        this.charge = 0;
-        if(this.sas!=="off"){ this.sas = "off"; this.showMsg("🪫 Strom leer – SAS abgeschaltet!",3); }
-        if(!hasPod && !this.powerDead){
-          this.powerDead = true;
-          this.showMsg("🪫 STROM LEER – die Sonde reagiert nicht mehr! (Panele ausfahren? [G])",4);
-        }
-      } else if(this.powerDead && this.charge > 5) this.powerDead = false;
     }
     const m = this.mass(), s = this.activeSeg();
     // Ingenieur*innen an Bord sparen Treibstoff
@@ -10905,8 +11101,23 @@ const Flight = {
       if(!this.infinite) bo.fuelLeft -= bo.thrust/(220*G0)*dt;
       if(bo.fuelLeft<0) bo.fuelLeft=0;
     }
-    // Auto-Cutoff am Manöverknoten: exakt das geplante Δv brennen, kein Überschießen
-    if(this.node && this.sas==="node" && thrust>0){
+    // Auto-Cutoff am Manöverknoten: exakt das geplante Δv brennen, kein Überschießen.
+    // ⚠️⚠️ Ob ein Brand ZUM KNOTEN gehört, entscheidet die RICHTUNG – nicht der
+    // SAS-Modus. Vorher stand hier `this.sas==="node"`, und wer von Hand auf das
+    // rosa ✛ zielte (völlig legitim, gerade ohne RCS), bekam WEDER den Schnappschuss
+    // NOCH den Auto-Cutoff: die grüne Plan-Bahn, der Knoten-Marker und nodeDir
+    // rechneten sich bei offener Karte pro Frame neu aus dem LAUFENDEN Zustand.
+    // Gemessen: nodeDir wanderte in 3 s um 6,1° weg und die geplante Inklination
+    // lief von 17,4° auf 22,7° davon – man jagt seinem eigenen Ziel hinterher und
+    // trifft die Wunsch-Inklination nie. (Bei geschlossener Karte fiel es nicht auf,
+    // weil predict() dann gar nicht läuft und nodeDir eingefroren stehen bleibt.)
+    // 0,5 ≈ 60° Toleranz: großzügig genug für Handsteuerung, eng genug, dass ein
+    // völlig anderer Brand (z. B. Landing Burn bei einem Knoten in 40 Minuten)
+    // den Plan NICHT einfriert und nicht ungewollt den Cutoff auslöst.
+    const nodeAim = this.node && thrust>0 &&
+      (this.sas==="node" ||
+       (this.nodeDir && V3(0,1,0).applyQuaternion(this.q).dot(this.nodeDir) > 0.5));
+    if(nodeAim){
       // Zustand VOR der Zündung einfrieren: die grüne Plan-Bahn bleibt so statisch
       if(!this.nodeSnap) this.nodeSnap = {pos:this.pos.clone(), vel:this.vel.clone(), t:this.t};
       this.nodeBurned = (this.nodeBurned||0) + thrust/m*dt;
@@ -11055,6 +11266,15 @@ const Flight = {
         this.t += dt;
         this.pos.copy(bodyPos(lb,this.t)).add(this.landedRel);
         this.vel.copy(bodyVel(lb,this.t));
+        // ⚠️ Auch am BODEN Missionen prüfen! Dieser Zweig kehrt hier zurück, der
+        // checkMissions()-Aufruf weiter unten wird also nie erreicht, solange das
+        // Schiff steht – bisher lief die Prüfung nur in genau dem Frame, in dem
+        // checkContact() die Landung meldete. Folge: ein Experiment [B] auf der
+        // Oberfläche füllte zwar Game.labDone, aber »Wissenschaft unterwegs«
+        // schnappte erst beim nächsten Abheben zu. Wer nach dem Experiment einfach
+        // den Flug beendete (z. B. auf Monti gelandet), ging leer aus – obwohl
+        // Forschung am Boden genauso zählt wie im Orbit.
+        this.checkMissions();
         return;
       }
     }
@@ -11285,7 +11505,20 @@ const Flight = {
   },
   /* Flugende (Karriere): XP verteilen, Gestrandete & Wracks im Save verewigen */
   settleCrewAndAssets(){
-    if(Game.sandbox || !this.flew) return;
+    if(Game.sandbox) return;
+    // ⚠️ NIE GESTARTET? Dann steht die Rakete unversehrt auf der Rampe und wird
+    // einfach wieder abgerüstet – das kostet nichts. Vorher verfiel hier der
+    // komplette Startpreis: einmal versehentlich »Flug beenden« auf der Rampe (oder
+    // ein Blick auf die Rakete und dann doch noch umbauen wollen) und ein gutes
+    // Stück Budget war weg, ohne dass irgendetwas passiert wäre. Erstattet wird
+    // exakt das Abgebuchte (launchCost) – damit ist die Kasse garantiert wieder
+    // auf dem Stand von vor dem Klick auf 🚀 START.
+    if(!this.flew){
+      this.statRefund = this.launchCost || 0;
+      if(this.statRefund) Game.funds += this.statRefund;
+      autoSave();
+      return;
+    }
     const inSpace = !this.landed && !this.crashed;
     // Geld: sicher auf Leibniz gelandet = Rakete wird geborgen (voller Restwert).
     // Crash oder im All zurückgelassen = Totalverlust.
@@ -11294,9 +11527,12 @@ const Flight = {
       this.statRefund = stackCost(this.v.stack);
       Game.funds += this.statRefund;
     }
-    // 📡 Dauerwerbung: jeder Kommerz-Satellit im Orbit zahlt nach jedem Flug
+    // 📡 Dauerwerbung: jeder Kommerz-Satellit im Orbit zahlt nach jedem Flug.
+    // ⚠️ NUR nach einem echten Start von der Rampe. Sonst wäre »Objekt im All
+    // übernehmen → sofort Flug beenden → wieder übernehmen« eine Gelddruck-
+    // maschine: der Flug kostet nichts, dauert zwei Klicks und zahlt jedes Mal.
     const nCom = (Game.assets||[]).filter(a=>a.kind==="sat" && a.com).length;
-    this.statComIncome = nCom*40;
+    this.statComIncome = this.fromAsset ? 0 : nCom*40;
     if(this.statComIncome) Game.funds += this.statComIncome;
     const missionsDone = Game.done.length - this.statMissions;
     // Crew-Erfahrung: fliegen, Orbit, Docking, fremde Welten, heil zurück
@@ -11314,30 +11550,120 @@ const Flight = {
       if(inSpace && !this.docked) a.status = "gestrandet";
       else a.status = "bereit";   // Crash = Schleudersitz, alle kommen heim
     }
-    // Tanker-Starship im stabilen Orbit geparkt → wartet als Tankstelle im All
-    if(inSpace && !this.docked && this.v.stack.includes("starshipTank")){
+    // ---- Orbit-Inventar: was im All bleibt, bleibt ANWÄHLBAR ----------------
+    // Jedes nicht gelandete, nicht angedockte Schiff wandert MIT Bauteilen,
+    // Tankfüllung und Batteriestand nach Game.assets. Über 📂 Hangar →
+    // »🛰️ Objekte im All« lässt es sich später wieder auswählen und – wenn eine
+    // Kommandoeinheit und ein Triebwerk dran sind – weiterfliegen. Vorher
+    // verschwand alles außer Tankern und bemannten Wracks spurlos.
+    if(inSpace && !this.docked){
       const o = this.orbit();
       const bodyKey = Object.keys(BODY_BY_NAME()).find(k=>BODY_BY_NAME()[k]===o.body);
-      if(bodyKey && o.pe > (o.body.atmoH||0) && o.ap > 0){
-        Game.assets = Game.assets||[];
-        Game.assets.push({kind:"tanker", body:bodyKey, alt:Math.round(o.alt),
-          phase:Math.random()*Math.PI*2, name:"Tanker-Starship ⛽"});
-      }
-    }
-    // Schiff mit Crew im Orbit zurückgelassen → Wrack als Rettungsziel speichern
-    if(inSpace && !this.docked && this.crewObjs && this.crewObjs.length){
-      const o = this.orbit();
-      const bodyKey = Object.keys(BODY_BY_NAME()).find(k=>BODY_BY_NAME()[k]===o.body) || "LEIBNIZ";
-      const alt = Math.max(o.body.atmoH ? o.body.atmoH+15000 : 15000, Math.round(o.alt));
+      // ⚠️ Nur STABILE Kreis-/Ellipsenbahnen werden zum Objekt: assetPos() kennt
+      // ausschließlich Kreisbahnen. Ein Schiff auf Flucht- oder Absturzbahn wäre
+      // dort eine Lüge – es ist ehrlicherweise verloren.
+      const stable = bodyKey && o.pe > (o.body.atmoH||0) && o.ap > 0;
+      const snap = this.vesselSnapshot();
       Game.assets = Game.assets||[];
-      Game.assets.push({kind:"wreck", body:bodyKey, alt, phase:Math.random()*Math.PI*2,
-        name:"Wrack ("+this.crewObjs.map(a=>a.name).join(", ")+")",
-        crew:this.crewObjs.map(a=>a.name)});
+      if(this.crewObjs && this.crewObjs.length){
+        // Crew an Bord → Wrack: Rettungsziel wie bisher. Es persistiert IMMER
+        // (auch auf schlechter Bahn), sonst wären die Leute unrettbar verloren.
+        const alt = Math.max(o.body.atmoH ? o.body.atmoH+15000 : 15000, Math.round(o.alt));
+        Game.assets.push(Object.assign({kind:"wreck", body:bodyKey||"LEIBNIZ", alt,
+          phase:Math.random()*Math.PI*2,
+          name:"Wrack ("+this.crewObjs.map(a=>a.name).join(", ")+")",
+          crew:this.crewObjs.map(a=>a.name)}, snap));
+      } else if(this.v.stack.includes("starshipTank") && stable){
+        Game.assets.push(Object.assign({kind:"tanker", body:bodyKey, alt:Math.round(o.alt),
+          phase:Math.random()*Math.PI*2, name:"Tanker-Starship ⛽"}, snap));
+      } else if(stable && this.v.stack.length){
+        // ⚠️ Wie bei den Satelliten gedeckelt: jedes Objekt bekommt in der Flug-
+        // szene ein echtes Raketen-Mesh (spawnAssets). Wer 30 Flüge im Orbit
+        // beendet, hätte sonst 30 Raketen in der Szene – auf einem Schulrechner
+        // spürbar. Das älteste Schiff geht dann "außer Dienst".
+        const ships = Game.assets.filter(x=>x.kind==="ship");
+        if(ships.length >= 8) Game.assets.splice(Game.assets.indexOf(ships[0]), 1);
+        Game.assets.push(Object.assign({kind:"ship", body:bodyKey, alt:Math.round(o.alt),
+          phase:Math.random()*Math.PI*2, name:assetShipName(this.v.stack)}, snap));
+      }
     }
     autoSave();
   },
+  /* Zustands-Schnappschuss fürs Orbit-Inventar: Bauteile, Tankfüllung JE STUFE
+     und Batteriestand. ⚠️ Ohne die Füllstände wäre »Flug beenden und später
+     weiterfliegen« ein Gratis-Tankstopp: ein leergeflogenes Schiff käme mit
+     vollen Tanks und voller Batterie zurück. Die Reihenfolge von v.segs und
+     segments(v.stack) bleibt über Stufentrennung und Aussetzen hinweg gleich
+     (beide werden in stage()/deploySat gemeinsam gepflegt). */
+  vesselSnapshot(){
+    return {stack:[...this.v.stack],
+      fuel: this.v.segs.map(s=>Math.round(s.fuelLeft)),
+      srb:  this.v.segs.map(s=>Math.round(s.srbLeft)),
+      charge: Math.round(this.charge)};
+  },
+  /* Ein Objekt aus dem Orbit-Inventar wieder übernehmen (Hangar → »🛰️ Objekte im
+     All« → Weiterfliegen): Rakete aus den gespeicherten Bauteilen bauen, auf ihre
+     Bahn setzen, Tank- und Batteriestand von damals wiederherstellen.
+     ⚠️ Das Objekt wird VOR Flight.start() aus Game.assets entfernt – start() ruft
+     spawnAssets() auf, sonst schwebte das Schiff als Geister-Doppelgänger
+     unmittelbar neben sich selbst. */
+  startFromAsset(a){
+    const stack = ((a.stack)||[]).filter(id=>PARTS[id]);
+    const b = BODY_BY_NAME()[a.body] || LEIBNIZ;
+    const i = (Game.assets||[]).indexOf(a);
+    if(i>=0) Game.assets.splice(i,1);
+    this.start(VAB.vesselFrom(stack), Game.pad);
+    this.fromAsset = true;      // kein neuer Start von der Rampe (s. Werbeeinnahmen)
+    this.launchCost = 0;        // steht längst im All und ist längst bezahlt
+    // Bahn übernehmen. start() setzt t = 0, die Phase des Objekts passt also.
+    this.pos.copy(this.assetPos(a, 0));
+    this.vel.copy(this.assetVel(a, 0));
+    this.landed = false; this.flew = true;
+    // Nase prograde – sonst schaut man beim Übernehmen rückwärts
+    const relV = this.vel.clone().sub(bodyVel(b, 0));
+    if(relV.lengthSq() > 1)
+      this.q.setFromUnitVectors(V3(0,1,0), relV.clone().normalize());
+    // Tank-, Feststoff- und Batteriestand aus dem Schnappschuss zurückspielen
+    this.v.segs.forEach((s,k)=>{
+      if(a.fuel && a.fuel[k]!==undefined) s.fuelLeft = Math.min(s.fuel,    Math.max(0, a.fuel[k]));
+      if(a.srb  && a.srb[k] !==undefined) s.srbLeft  = Math.min(s.srbFuel, Math.max(0, a.srb[k]));
+    });
+    if(a.charge!==undefined) this.charge = Math.min(this.maxCharge, Math.max(0, a.charge));
+    const act = this.activeSeg();
+    if(act) act.ignited = true;      // im All brennt die Stufe längst – nur eben mit Schub 0
+    this.throttle = 0;
+    // Gestrandete Crew ist noch an Bord: sie fliegt sich jetzt selbst nach Hause.
+    // Eine Landung auf Leibniz zählt damit als Rettung (onLanded → rescueLanded).
+    if(a.crew && a.crew.length && Game.roster){
+      this.crewObjs = a.crew.map(n=>Game.roster.find(x=>x.name===n)).filter(Boolean);
+      this.crew = this.crewObjs.map(x=>
+        ROLES[x.role].icon+" "+x.name+(crewLevel(x)?" "+"⭐".repeat(crewLevel(x)):""));
+      this.rescued = [...a.crew];
+    }
+    autoSave();
+    this.showMsg("🛰️ "+(a.name||"Objekt")+" übernommen – "+
+      (a.alt/1000).toFixed(0)+"-km-Bahn um "+b.name+". Viel Erfolg! 🚀",6);
+  },
   showSummary(){
-    if(!this.flew) return;   // ohne Start kein Bericht
+    // Ohne Start kein Flugbericht – aber die Rückerstattung muss man SEHEN,
+    // sonst sieht »Flug beenden« auf der Rampe wie ein stiller Geldverlust aus.
+    if(!this.flew){
+      if(Game.sandbox || !this.statRefund) return;
+      document.getElementById("modalTitle").innerHTML = "🏗️ Start abgebrochen";
+      document.getElementById("modalText").innerHTML = `
+        <p style="margin-bottom:10px;">Die Rakete stand noch auf der Rampe und wurde wieder
+        abgerüstet – alle Bauteile sind zurück im Lager, die Crew geht Kaffee trinken. ☕</p>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:4px 16px;">
+          <span>Startkosten erstattet</span><b style="color:var(--green)">+${this.statRefund} 🪙</b>
+          <span>Kontostand</span><b>🪙 ${Game.funds}</b>
+        </div>`;
+      const lbl0 = document.getElementById("modalNoShowLabel");
+      if(lbl0) lbl0.style.display = "none";
+      const m0 = document.getElementById("modal");
+      m0.dataset.hint = "__summary";
+      m0.style.display = "flex";
+      return;
+    }
     const sci = Game.science - this.statSci;
     const missions = Game.done.length - this.statMissions;
     const status = this.crashed ? "💥 Verloren (Crash)" :
@@ -11368,6 +11694,13 @@ const Flight = {
   },
   revert(){
     if(Tut.active){ const id = Tut.active.id; Tut.stop(); Tut.start(id); return; }
+    // ⚠️ In der Karriere gibt es kein Zurückspulen (der Knopf ist dort auch gar
+    // nicht sichtbar, s. updateButtons): Er machte jeden Fehlschlag folgenlos –
+    // Startkosten zurück, Mission ungestraft nochmal, Booster-Crash egal.
+    if(!Game.sandbox){
+      this.showMsg("↩ Neustart gibt es nur im Training – in der Karriere zählt jeder Flug!",4);
+      return;
+    }
     this.start(VAB.buildVessel(), this.pad && this.pad.id);
     this.showMsg("↩ Flug zurückgesetzt – bereit für einen neuen Versuch!",3);
   },
@@ -12516,6 +12849,12 @@ const Flight = {
     show("btnModul", !Game.sandbox && has("dock"));
     show("btnBay", has("bay"));
     show("btnExp", has("lab"));
+    // ↩ Neustart nur im Training/Tutorial. In der Karriere hat er den kompletten
+    // Geld- und Missionsdruck ausgehebelt: Rakete verglüht, Mission verpatzt,
+    // Booster zerschellt → Neustart drücken und alles ist ungeschehen, inklusive
+    // der bereits abgebuchten Startkosten. Wer in der Karriere neu anfangen will,
+    // beendet den Flug ganz normal (mit Konsequenzen) und baut wieder auf.
+    show("btnRevert", Game.sandbox || !!(typeof Tut!=="undefined" && Tut.active));
   },
   drawHUD(){
     this.updateButtons();

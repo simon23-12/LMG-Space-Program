@@ -427,7 +427,34 @@ Das Repo raymarcht 3D-Texturen mit TAA und God Rays – für Schulrechner zu teu
 - **Crew-Kader:** `Game.roster` (6 feste Astronaut*innen, `ROLES` pilot/ing/sci, `XP_LEVELS`). Auswahl in `Flight.start` (bereit + wenigste Flüge), Boni via `Flight.crewLvl(role)`: Pilot +8 %/Lvl Agilität, Ing −4 %/Lvl Sprit (`fuelEff`), Sci +10 %/Lvl Experimente. XP in `settleCrewAndAssets()` (endFlight). Im All zurückgelassen → `status:"gestrandet"` + Wrack-Asset.
 - **Funknetz:** `commCheck(stack,pos,t)` – bemannt immer ok; Sonde: Leibniz-SOI ok, sonst Antenne nötig + `commRelays()` (1 = inneres System <2.6e10 m Sonnenabstand, 3 = Newton). Ohne Signal: `commDead` blockt Rotation/Schub/Z/X. Relais = Sat mit Antenne+Solar via [N] (`Game.relays`).
 - **Anomalien:** `ANOMALIES` (8 Stück, `dir` = Einheitsvektor körperfest). Leuchtfeuer-Meshes (`anomalyMeshes`) pro Frame auf Oberfläche. Entdeckung in `onLanded(b)`: Winkel < 0,25 rad. `Game.anomaliesFound`.
-- **Orbit-Inventar:** `Game.assets` ({kind:"sat"|"wreck", body, alt, phase, crew?}) – on rails via `assetPos/assetVel`, gespawnt in `spawnAssets()`. Sats persistieren bei [N] (Cap 12), Wracks mit Crew bei endFlight im All. Rettung `checkRescue()`: Kapsel < 40 m & < 4 m/s → Crew umsteigen; Landung auf Leibniz → `rescueLanded` + Status bereit (in `onLanded`).
+- **Orbit-Inventar:** `Game.assets` ({kind:"ship"|"sat"|"tanker"|"wreck", body, alt, phase, name, crew?, **stack, fuel[], srb[], charge**}) – on rails via `assetPos/assetVel`, gespawnt in `spawnAssets()`. Sats persistieren bei [N] (Cap 12), **Schiffe** (Cap 8) / Tanker / Wracks bei endFlight im All. Rettung `checkRescue()`: Kapsel < 40 m & < 4 m/s → Crew umsteigen; Landung auf Leibniz → `rescueLanded` + Status bereit (in `onLanded`).
+
+### »🛰️ Objekte im All« – zurückgelassenes wieder fliegen
+Was im All bleibt, verschwand früher spurlos (außer Tanker & bemannte Wracks). Jetzt schreibt
+`Flight.vesselSnapshot()` **Bauteile, Tankfüllung JE STUFE und Batteriestand** ins Asset, und der
+zweite Reiter im 📂-Hangar-Modal (`VAB.hangarTab` / `renderAssets`) listet alles auf.
+`Flight.startFromAsset(a)` übernimmt ein Objekt: `VAB.vesselFrom(stack)` baut die Rakete,
+`assetPos/assetVel(a,0)` setzen sie auf ihre Bahn, Füllstände kommen aus dem Schnappschuss,
+aktive Stufe `ignited=true` bei `throttle=0`, `launchCost=0`.
+- ⚠️⚠️ **Asset VOR `Flight.start()` aus `Game.assets` entfernen** – `start()` ruft `spawnAssets()`,
+  sonst schwebt das Schiff als Geister-Doppelgänger direkt neben sich selbst.
+- ⚠️⚠️ **Die Füllstände MÜSSEN mitgespeichert werden**, sonst ist »Flug beenden + später
+  weiterfliegen« ein Gratis-Tankstopp: das leergeflogene Schiff käme mit vollen Tanks zurück.
+- ⚠️⚠️ **`this.fromAsset` schaltet die Werbeeinnahmen ab** (`settleCrewAndAssets`). Sonst ist
+  »übernehmen → sofort beenden → übernehmen« eine Gelddruckmaschine: zwei Klicks, keine Kosten,
+  +40 🪙 je Kommerz-Sat pro Runde. Reset in `start()`.
+- Nur **stabile** Bahnen (`pe > atmoH && ap > 0`) werden zum Objekt – `assetPos` kennt nur
+  Kreisbahnen, ein Schiff auf Flucht-/Absturzbahn wäre dort eine Lüge. Bemannte Wracks
+  persistieren trotzdem immer, sonst wären die Leute unrettbar.
+- `assetFlyReason(a)` = "" oder Klartext-Grund (Kommandoeinheit? Triebwerk? Bauteil-Daten?);
+  ein nackter Satellit bleibt sichtbares Inventar, aber kein Fahrzeug. Alt-Saves ohne `stack`
+  sind »nur beobachten« – nur Tanker bekommen in `migrateGame` `["starshipTank"]` untergeschoben
+  (eindeutig), Wracks bewusst NICHTS (geratene Teile = geschenkte Hardware).
+- Wrack übernehmen = die gestrandete Crew fliegt sich selbst heim: `rescued` wird gesetzt,
+  Landung auf Leibniz zählt als Rettung. Bergung erstattet `stackCost` – unterm Strich also
+  genau das zurück, was der Flug gekostet hat, kein Exploit.
+- Cap 8 für `kind:"ship"`, weil `spawnAssets` jedem Objekt ein **echtes** `buildRocketGroup`-Mesh
+  gibt (Ursprung = Unterkante → `position.y = -stackHeight/2`, sonst hängt der Marker am Fuß).
 - **Missionszentrale:** `renderMissionControl()` hängt an den Missions-Screen Sektionen für Station/Kader/Funknetz/Entdeckungen/Orbit-Inventar an. 10 neue Missionen: relay1/relay3, mod* (5), anomaly1, rescue1.
 
 ### Die Sonne selbst (`makeSunMesh` / `SUN_FRAG`)
@@ -457,7 +484,20 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
 - **Navball-Knoten-✛:** Bei gesetztem Knoten zeichnet drawNavball ein ROSA ✛ auf `nodeDir`; der Anflug-Assistent pausiert solange (ein ✛ zur Zeit). `predict()` liefert `Flight.nodeRelY` (Knotenhöhe über Äquatorebene) und `Flight.nodePlannedInc` (Inklination der geplanten Bahn) – beides fürs Tutorial, nur bei offener Karte aktuell.
 - **Tutorial id "inclination":** startet im 20°-Orbit (`scenario.orbit.inc` in Grad, von Tut.start unterstützt; Startpunkt = aufsteigender Knoten), Ablauf: Karte → Knoten → an Kreuzungspunkt schieben (|nodeRelY| < 40 km) → Normal ±780 m/s bis nodePlannedInc < 5° → SAS-Knoten-Burn. Getestet: 20° → 0,56°, Ring wird grün.
 - **Universum-2D:** zeigt NUR Planeten + Kleinkörper (bewusst reduziert). Bahnhöfe, Station »Große Pause« und das Orbit-Inventar leben in der **Admin-Cam**: `padObjs` (Dots+Label auf `padDir(p)*R`, inertial fix), `stationObj` (stationPos), `rebuildAssets()` (bei `open()`, farbige Dots grün/gelb/rot), Kleinkörper mit Fels-Mesh + Bahnlinie und eigenen **Fokus-Buttons** (Follow-Cam; `setFocus` erkennt sie via `ASTEROIDS.includes`, `frame()` zentriert dann auf `asteroidPos`).
-- **Knoten-Physik (didaktisch korrekt):** `predict()` interpretiert **Normal-Δv als reine Ebenen-DREHUNG** (v um den Ortsvektor rotiert via `applyAxisAngle`, Wert = Bogenlänge) → Ap/Pe der grünen Planbahn bleiben beim Plane-Change unberührt. **Beim Zünden** (SAS Knoten + Schub) friert `Flight.nodeSnap` {pos,vel,t} ein – die grüne Bahn/Marker/nodeDir zeigen den ursprünglichen PLAN statisch, statt während des Burns mitzuwandern (Reset in addNode/removeNode/start).
+- **Knoten-Physik (didaktisch korrekt):** `predict()` interpretiert **Normal-Δv als reine Ebenen-DREHUNG** (v um den Ortsvektor rotiert via `applyAxisAngle`, Wert = Bogenlänge) → Ap/Pe der grünen Planbahn bleiben beim Plane-Change unberührt. **Beim Zünden** friert `Flight.nodeSnap` {pos,vel,t} ein – die grüne Bahn/Marker/nodeDir zeigen den ursprünglichen PLAN statisch, statt während des Burns mitzuwandern (Reset in addNode/removeNode/start).
+  - ⚠️⚠️ **Ob ein Brand »zum Knoten gehört«, entscheidet die RICHTUNG, nicht der SAS-Modus.**
+    Die Bedingung war `this.sas==="node" && thrust>0`; wer von Hand auf das rosa ✛ zielte
+    (völlig legitim, gerade ohne RCS), bekam WEDER Schnappschuss NOCH Auto-Cutoff. Grüne
+    Bahn, Knoten-Marker und `nodeDir` rechneten sich dann bei offener Karte pro Frame neu
+    aus dem LAUFENDEN Zustand: gemessen 6,1° Wanderung in 3 s, geplante Inklination lief
+    17,4° → 22,7° davon – man jagt sein eigenes Ziel und trifft die Wunsch-Inklination nie.
+    Bei GESCHLOSSENER Karte fiel es nicht auf, weil `predict()` dort gar nicht läuft.
+    Jetzt: `sas==="node" || nase·nodeDir > 0.5`. **0,5 ≈ 60°** ist bewusst großzügig
+    (Handsteuerung) und trotzdem eng genug, dass ein völlig anderer Brand (Landing Burn bei
+    einem Knoten in 40 Minuten) den Plan nicht einfriert und den Cutoff nicht auslöst.
+    Verifiziert: SAS-Knoten unverändert · Hand auf dem ✛ und 30° daneben = 0,00° Wanderung,
+    Auto-Cutoff bei exakt 600 von 600 m/s · 90° daneben friert korrekt NICHT ein.
+    ⚠️ `nodeDir` kann null sein, wenn nie eine Karte offen war – Guard nicht entfernen.
 - **Kartenmarker:** `mkMarker(txt,color)` legt den farbigen Punkt EXAKT ins Sprite-Zentrum (= Objektposition), Label rechts daneben; Breite dynamisch (`userData.aspect`), skalieren NUR über `Flight.scaleMarker(m,ms)`. Stationsmarker heißt »Große Pause« (nicht mehr "ISS").
 
 ## Bauteile & Stack
@@ -530,7 +570,23 @@ Dazu weiter: Wirbel-Blobs an Emittern (Heck-Totwasser + Stufen, blähen sich mit
 - SpaceX-Endgame (Tech-Kette reuse→raptorSL→raptorVac→starshipT): `engRapSL`/`engRapVac` (effizienteste Triebwerke), `superheavy` + `starship`/`starshipTank` = **Kombi-Typen** (Tank UND Triebwerk: segStats/validate/radialHostIdx/Flammen-idle behandeln "superheavy"/"starship" mit). Starship: bemannt (crewCapacity 6, `isCrewedStack`), Hitzeschutz (zählt als shield), `flaps:true`; Tanker `tanker:true` = unbemannt, keine Flaps. Bellyflop **[C]** (`toggleBellyflop`/`updateBelly`): flop (Nase horizontal, cdA+56 → Terminal ~85 m/s) → Flip (Trigger `alt ≤ vDown·2.6+burnDist·1.4+40`; unter ~200 m aktiviert = Crash) → Hoverslam; übersteuert Handsteuerung+SAS. Tanker: `settleCrewAndAssets` parkt ihn als Asset kind:"tanker", `checkTanker()` betankt <60 m/<4 m/s alle Segs voll & verbraucht ihn. Tutorial id "starship".
 - Karriere-Intro: `INTRO_PAGES`/`showIntro()` (Flugleiterin Lotte), einmalig via `Game.introSeen` beim ersten `UI.startCareer()`.
 - `Flight.step(dt)`: semi-implizit Euler; Warp `WARPS`, adaptives `maxDt`; Steuereingabe bricht Warp>2 ab; in der Atmosphäre max. 50× (`canWarp` + Auto-Drossel in `step`); Drag-Clamp `min(fd/(m*v), 0.5/dt)`; Auto-Cutoff am Manöverknoten (`nodeBurned`).
-- Agilität: `0.12 + 0.78*nRcs` (Rotation UND SAS-Slerp) – ohne RCS bewusst sehr träge.
+- Agilität: `0.12 + 0.78*nRcs` (Rotation UND SAS) – ohne RCS bewusst sehr träge.
+  - ⚠️⚠️ **SAS dreht mit GENAU derselben Rate wie die Handsteuerung.** Der Slerp-Faktor ist
+    `agility*dt / Restwinkel`, nicht `agility*1.6*dt`: ein Slerp-Faktor ist ein ANTEIL der
+    Reststrecke, kein Winkel – bei 180° Abweichung waren das π·1,6 ≈ **5×** die
+    WASD-Rate, eine Rakete ohne RCS ruderte per [T] also flott herum und per Hand zäh.
+    Restwinkel steckt im w-Anteil (`2·acos|w|`; **`|w|`, weil ±q dieselbe Drehung meinen**).
+    Verifiziert: Hand 2 s = SAS 2 s = 13,75° ohne RCS; aus 180° konvergiert SAS mit RCS in
+    < 5 s auf 0,003° ohne Überschwingen.
+- ⚠️⚠️ **Der Strom-Haushalt läuft VOR dem Steuerblock in `step()`, nicht danach.** Vorher richtete
+  SAS bei leerer Batterie noch EINEN Schritt lang aus, bevor die Bilanz es abschaltete – wer [T]
+  erneut drückte (oder aus dem Warp auf 1× zurückging, wo der Steuerblock überhaupt erst wieder
+  anläuft), bekam beliebig viel Gratis-Ausrichtung: **gemessen 161° in 5 s mit 0 ⚡**. Dazu die
+  zweite Sicherung `this.charge > 0` am SAS-Zweig und ein Guard in `toggleSAS()`.
+  Gegenprobe: 0 ⚡ → 0,000° in 300 Schritten, auch über den Warp-Umweg.
+  (Bewusst **nicht** geändert: eine bemannte Kapsel darf bei 0 ⚡ weiter mit WASD drehen –
+  `powerDead` gilt nach wie vor nur für Sonden. Sonst wäre ein leerer Akku im Orbit ein
+  garantiertes Todesurteil, weil auch der Retro-Burn unmöglich würde.)
 - **⚠️ Start-Lage der Rakete = `padQ`** (`this.q.copy(padQ)` in `start()`, dieselbe Basis wie Rampe/Boden: **X=Ost, Y=hoch (Nase), Z=Süd**). Die Steuerung dreht im KÖRPERFRAME (`this.q.multiply(dq)`), also legt der Rollwinkel auf der Rampe fest, welche Taste in welche Himmelsrichtung neigt. Damit gilt an JEDER Rampe: **[D] → Osten (90°)** · [A] → Westen · [W] → Süden · [S] → Norden. Verifiziert: Ost-Start nur mit [D] ergibt Inklination 0,0° (Äquator) bzw. 55,0° (LMG). ⚠️ Vorher stand hier `setFromUnitVectors(V3(0,1,0), pd)` – das ist die MINIMAL-Drehung und lässt den Rollwinkel willkürlich; [D] neigte dadurch nach SÜDEN und [S] nach Osten, obwohl Tutorials (`orbit`, `booster`) und der Hilfetext ausdrücklich »[D] nach Osten« sagen. Die NASE zeigt in beiden Varianten senkrecht nach oben – nur der Roll unterscheidet sich, Orbit-Start-Tutorials sind also unberührt.
 - Temperatur (didaktisch, HUD): `ambTemp()` (−6,5 °C/km, All −270 °C) + `updateTemps(dt)` → `shipTemp` (Atmo: Staupunkt `amb + v²/2050`, dichtegewichtet `min(1,rho/2e-3)`; Vakuum: Schwarzkörper ∝ 1/√Sonnenabstand, bei Leibniz ≈ +5 °C; träge Annäherung `k=0.03+2rho`).
 - Komplett-Satelliten `satW`/`satR`/`satS`/`satT`/`satD` (type "sat", passen in Buchten): [N] ruft `deploySpecialSat()` – prüft Orbit-Anforderung (satW stabil · satR Pe>250 km · satS Pe>70/Ap<130 km · satT Pe>250 km · **satD Pe>200 km UND Inklination>75°**), setzt Flags `satWeather/satRad/satSpy/scopeUp/surveyUp` für die Missionen satWetter/satStrahlung/satSpion/scope1/scope2. `probeS` = flacher Sondenbus (type "probe", wird NIE ausgesetzt). ⚠️ Der Mesh-Zweig in `buildPartMesh` ist eine if/else-Kette; wer keinen eigenen Zweig hat, landet im `else` und bekommt den dunklen Späh-Tubus (so teilen sich satS und satT einen Look). `satD` hat bewusst den Gegenentwurf: kurz und WEIT statt lang und dünn, mit offener Spiegel-Öffnung und halb offener Sonnenhaube (⚠️ offener Zylinder = `side:DoubleSide`, sonst fehlt die Innenseite).
@@ -540,6 +596,28 @@ Dazu weiter: Wirbel-Blobs an Emittern (Heck-Totwasser + Stufen, blähen sich mit
 - Tutorials: `Tut.start(id)` erzwingt Sandbox + ∞-Strom; Szenario: `stack`, `orbit:{body,alt,pe?}` oder `nearStation:<m hinter Station>`; Checks `check(o,F)` laufen pro Frame.
 - Admin-Cam: `AdminCam` (eigene Three-Szene, echte Ephemeriden, Fokus-Buttons, Zeitraffer) – Vollbild aus dem Universum-Screen. Start-Zeitraffer `speedI:0` = **1 min/s** (mit 1 h/s wirbelten die inneren Planeten los, bevor man überhaupt hingesehen hat). ⚠️ **Die Bahnhof-Marker hängen als KINDER am Leibniz-Mesh** und erben dessen sichtbare Drehung (`rotation.y` in `frame()`); als Szenen-Kinder auf `padDir(p)·R` blieben sie stur im Weltraum-Frame stehen und wanderten über fremde Kontinente. Für die Physik sind die Rampen weiterhin inertial fix – die Admin-Cam ist ein Schaukasten, kein Simulationsschritt. Die Station bleibt Szenen-Kind (echter Orbit, on rails).
 - localStorage: `lmgAutoSave`, `lmgMusic`, `lmgSettings` (Grafik/Lautstärke, s. Optionen-Abschnitt), `lmgLoadedOnce`, `lmgHint_*`, `tutsDone` im Save, `lmgRockets` (💾/📂-Hangar: gespeicherte Raketen `{name,stack}`; Laden in Karriere nur mit erforschten Teilen).
+- **Solarpanele nur im Vakuum** (`PANEL_SAFE_ALT` = 50 km über Leibniz): `togglePanels` verweigert
+  das Ausfahren darunter, `step()` klappt sie beim Sinkflug automatisch ein. Der alte
+  Abriss-Mechanismus (`panelsBroken` bei `rho·v² > 12000`, greift ~35–40 km) bleibt als letzte
+  Instanz stehen, ist im Normalbetrieb aber nicht mehr erreichbar – dafür bräuchte es > 8700 m/s
+  oberhalb von 50 km (Rückkehr aus dem interplanetaren Raum). Einklappen geht IMMER.
+- ⚠️ **Ein Start, der nie stattfand, kostet nichts.** `settleCrewAndAssets` stieg früher bei
+  `!this.flew` sofort aus – die in `UI.launch` abgebuchten Startkosten verfielen damit
+  ersatzlos: einmal auf der Rampe versehentlich »Flug beenden« (oder Rakete anschauen und
+  doch umbauen wollen) und ein gutes Stück Budget war weg, ohne dass irgendetwas passiert
+  wäre. Jetzt wird exakt `launchCost` zurückgebucht (garantiert netto ±0) und `showSummary`
+  zeigt statt des Flugberichts ein kurzes »🏗️ Start abgebrochen«. Gegenprobe: wer wirklich
+  startet und die Rakete im All verliert, zahlt weiterhin voll.
+- ⚠️ **»↩ Neustart« gibt es nur in Sandbox/Tutorial** (`updateButtons` blendet `#btnRevert` aus,
+  `revert()` hat einen eigenen Guard). In der Karriere war er ein Freifahrtschein: Rakete
+  verglüht, Mission verpatzt, Booster zerschellt → Neustart, und die abgebuchten Startkosten
+  waren wieder da.
+- ⚠️ **`step()` prüft Missionen auch am BODEN.** Der `landed`-Zweig kehrt vorzeitig zurück, der
+  `checkMissions()`-Aufruf am Ende von `step()` wird also nie erreicht, solange das Schiff steht –
+  die Prüfung lief bisher nur in genau dem Frame, in dem `checkContact()` die Landung meldete.
+  Folge: ein Experiment [B] auf der Oberfläche füllte `Game.labDone`, aber »Wissenschaft
+  unterwegs« (`lab1`) schnappte erst beim nächsten Abheben zu – wer danach den Flug beendete
+  (z. B. auf Monti gelandet), ging leer aus.
 
 ## Tastenkürzel
 Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · F Fairing · N Satellit · G Panele · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · V EVA · K Knoten · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp · WASD/QE drehen · ↑↓ Schub · **Z auf Rampe = Orbit-Ziel wählen (nur Äquator-Rampe)**, im Flug Vollgas · X Schub aus
