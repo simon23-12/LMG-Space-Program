@@ -32,8 +32,13 @@ button{cursor:pointer;font-family:inherit;}
 #menu .version{position:absolute;bottom:10px;right:14px;color:var(--muted);font-size:12px;}
 #menu .tip{position:absolute;bottom:10px;color:var(--muted);font-size:13px;}
 #vab{flex-direction:row;}
+/* ⚠️ Die Halle muss vom 27"-Schreibtisch bis zum 13"-Schul-Laptop passen.
+   Die Seitenspalten sind deshalb per clamp() an die Fensterbreite gekoppelt
+   (feste 250/270 px fressen auf 1280 px zusammen mit der Werkzeugleiste
+   mehr Platz, als da ist) – Untergrenze so gewählt, dass die Teile-Karten
+   noch zweizeilig lesbar bleiben. */
 .vab-col{display:flex;flex-direction:column;background:var(--panel);overflow-y:auto;flex-shrink:0;}
-#partList{width:250px;padding:10px;gap:8px;border-right:2px solid var(--blue-dark);}
+#partList{width:clamp(198px,15.5vw,250px);padding:clamp(6px,.7vw,10px);gap:8px;border-right:2px solid var(--blue-dark);}
 #partList h3,#vabInfo h3{color:var(--orange);font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:6px 0;}
 .part-btn{display:flex;flex-direction:column;text-align:left;background:var(--panel2);color:var(--text);
   border:1px solid #2a3a64;border-radius:6px;padding:8px;font-size:13px;}
@@ -41,12 +46,39 @@ button{cursor:pointer;font-family:inherit;}
 .part-btn.locked{opacity:.35;cursor:default;}
 .part-btn small{color:var(--muted);}
 #vabCenter{flex:1;display:flex;flex-direction:column;min-width:0;background:#0e1526;}
-#vabTop{display:flex;gap:10px;padding:10px;align-items:center;background:rgba(0,0,0,.3);z-index:2;}
-#vabTop .title{font-weight:800;color:var(--orange);font-size:18px;margin-right:auto;}
-#vab3d{flex:1;min-height:0;position:relative;}
-#vab3d canvas{position:absolute;inset:0;}
+/* ⚠️ `flex-wrap:wrap` ist die HARTE Garantie gegen Überlappung: #vabCenter hat
+   `min-width:0`, die Leiste ragt sonst einfach rechts heraus und legt sich
+   (z-index:2!) übers Info-Panel. In der Karriere braucht sie mit voller
+   Button-Größe 1340 px – auf einem 1440er Laptop stehen ihr aber nur 965 zu.
+   Die clamp()-Werte drücken sie dort auf 926 px, sodass sie einzeilig bleibt;
+   erst unter ~1270 px Fensterbreite rutscht wirklich etwas in Zeile 2. */
+#vabTop{display:flex;flex-wrap:wrap;gap:clamp(4px,.7vw - 3px,10px);padding:clamp(5px,.6vw,10px);
+  align-items:center;background:rgba(0,0,0,.3);z-index:2;}
+/* Die Steigungen sind so gelegt, dass die Leiste ab ~1900 px wieder ihre alte,
+   großzügige Größe hat (16 px Schrift, 22 px Innenabstand) und nach unten hin
+   mitschrumpft: gemessen 926 von 965 px bei 1440, 853 von 858 bei 1280.
+   `white-space:nowrap` ist Pflicht – sonst bricht ausgerechnet der Titel
+   zweizeilig um und macht die Leiste doppelt so hoch, statt schmaler. */
+#vabTop .btn{padding:clamp(6px,.45vw,10px) clamp(7px,1.2vw - 8px,22px);
+  font-size:clamp(11.5px,.5vw + 5.5px,16px);white-space:nowrap;}
+#vabTop .scibadge{padding:clamp(4px,.45vw,6px) clamp(7px,.9vw - 5px,16px);
+  font-size:clamp(11.5px,.5vw + 5.5px,16px);white-space:nowrap;}
+#vabTop .title{font-weight:800;color:var(--orange);font-size:clamp(13px,.6vw + 4.5px,18px);
+  white-space:nowrap;margin-right:auto;}
+#vab3d{flex:1;min-height:0;position:relative;overflow:hidden;}
+/* ⚠️⚠️ `width/height:100%` sind PFLICHT, nicht Deko: `setSize(w,h,false)` lässt
+   die CSS-Größe bewusst in Ruhe und setzt nur den Zeichenpuffer auf
+   w·devicePixelRatio. Ein <canvas> ist ein ERSETZTES Element – ohne gesetzte
+   Breite gewinnt seine INTRINSISCHE Größe (= die Puffergröße in px) gegen
+   `inset:0`, und `right`/`bottom` werden schlicht ignoriert. Auf jedem
+   HiDPI-Schirm (Simon: dpr 1,75) war die Leinwand also 1,75× zu groß, hing
+   links oben fest und schob sich über das rechte Info-Panel – genau das
+   "die rechte Seite ist abgeschnitten". Zusätzlich sah man nur den linken
+   oberen Ausschnitt des Bildes (Rakete sichtbar aus der Mitte gerückt). */
+#vab3d canvas{position:absolute;inset:0;width:100%;height:100%;}
 #vabHint{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);color:var(--muted);font-size:12px;}
-#vabInfo{width:270px;padding:12px;border-left:2px solid var(--blue-dark);font-size:14px;gap:4px;}
+#vabInfo{width:clamp(215px,17.5vw,270px);padding:clamp(8px,.85vw,12px);
+  border-left:2px solid var(--blue-dark);font-size:clamp(12px,.95vw,14px);gap:4px;}
 #vabInfo .stat{display:flex;justify-content:space-between;padding:2px 0;}
 #vabInfo .stat span:last-child{color:var(--orange);font-weight:600;}
 .stage-box{background:var(--panel2);border:1px solid #2a3a64;border-radius:6px;padding:6px 8px;margin:4px 0;font-size:12px;}
@@ -55,8 +87,8 @@ button{cursor:pointer;font-family:inherit;}
   background:var(--panel2);border:1px solid #2a3a64;border-radius:5px;padding:4px 8px;margin:3px 0;font-size:12px;}
 #stackList .stack-item button{background:none;border:none;color:var(--red);font-size:14px;font-weight:bold;}
 #flight{flex-direction:column;}
-#flight3d{position:absolute;inset:0;}
-#flight3d canvas{position:absolute;inset:0;}
+#flight3d{position:absolute;inset:0;overflow:hidden;}
+#flight3d canvas{position:absolute;inset:0;width:100%;height:100%;}   /* s. #vab3d canvas */
 .hud{position:absolute;background:rgba(10,16,32,.82);border:1px solid var(--blue-dark);
   border-radius:8px;padding:10px 14px;font-size:14px;backdrop-filter:blur(3px);}
 #hudLeft{top:12px;left:12px;min-width:210px;}
@@ -2377,7 +2409,7 @@ function universeFrame(){
 /* ---------- Admin-Cam: Vollbild-3D-Planetenbetrachter ----------
    Echte Ephemeriden (bodyPos), echte Radien & Texturen, freier Orbit-Blick. */
 const AdminCam = {
-  ready:false, runningId:null, t:0, speedI:1, focus:null,   // Default: 1 h/s
+  ready:false, runningId:null, t:0, speedI:0, focus:null,   // Default: 1 min/s
   az:0.7, el:0.3, dist:0, minDist:1,
   SPEEDS:[[60,"1 min/s"],[3600,"1 h/s"],[21600,"6 h/s"],[86400,"1 Tag/s"],[864000,"10 Tage/s"]],
   init(){
@@ -2446,7 +2478,14 @@ const AdminCam = {
       spr.userData.aspect = c.width/c.height;
       return spr;
     };
-    // Weltraumbahnhöfe auf Leibniz (Rampen sind inertial fix – wie im Spiel)
+    // Weltraumbahnhöfe auf Leibniz.
+    // ⚠️ Die Marker hängen als KINDER am Leibniz-Mesh, nicht in der Szene: das
+    // Mesh dreht sich hier sichtbar (rotation.y in frame()), und ein Bahnhof,
+    // der stur im Weltraum-Frame stehen bleibt, wandert dabei über Ozeane und
+    // fremde Kontinente. Als Kind erbt er die Drehung und klebt auf SEINER
+    // Küste. (Für die Physik sind die Rampen weiterhin inertial fix – die
+    // Admin-Cam ist ein Schaukasten, kein Simulationsschritt.)
+    const leibnizMesh = this.meshes.get(LEIBNIZ);
     this.padObjs = PADS.map(p=>{
       const g = new THREE.Group();
       const dot = new THREE.Mesh(new THREE.SphereGeometry(9000, 12, 8),
@@ -2455,7 +2494,8 @@ const AdminCam = {
       const spr = makeLabel(p.icon+" "+p.name);
       const h = 42000; spr.scale.set(h*spr.userData.aspect, h, 1);
       spr.position.y = 40000; g.add(spr);
-      this.scene.add(g);
+      g.position.copy(padDir(p)).multiplyScalar(LEIBNIZ.R);   // einmal, danach trägt das Mesh
+      leibnizMesh.add(g);
       return [p, g];
     });
     // Raumstation »Große Pause« (100-km-Orbit)
@@ -2583,10 +2623,8 @@ const AdminCam = {
       m.rotation.y += 0.12*(this.SPEEDS[this.speedI][0]/86400);
       m.rotation.x += 0.05*(this.SPEEDS[this.speedI][0]/86400);
     }
-    // Bahnhöfe kleben auf Leibniz (inertial fix), Station & Inventar on rails
-    const lpA = bodyPos(LEIBNIZ, this.t);
-    for(const [p,g] of this.padObjs)
-      g.position.copy(lpA).addScaledVector(padDir(p), LEIBNIZ.R);
+    // Die Bahnhöfe hängen am Leibniz-Mesh und drehen sich mit (s. init()) –
+    // hier ist nur noch die Station zu setzen, die läuft on rails.
     this.stationObj.position.copy(stationPos(this.t));
     for(const o of (this.assetDots||[])){
       const r = o.b.R + o.d.alt, w = Math.sqrt(o.b.mu/Math.pow(r,3));

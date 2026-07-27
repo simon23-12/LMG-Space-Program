@@ -24,6 +24,16 @@ Screen `#options` (Hauptmenü »⚙️ Optionen«, im VAB der ⚙️-Knopf), ger
   auf jedem HiDPI-Bildschirm (Simons Rechner: devicePixelRatio 1,75) rendert das Spiel in
   ~57 % Linearauflösung und wird hochskaliert. Das war der »irgendwie matschig«-Eindruck.
   Doppelte dpr = **vierfache** Pixelmenge, deshalb gedeckelt.
+- ⚠️⚠️ **Dazu gehört zwingend `width:100%;height:100%` im CSS jedes Renderer-Canvas**
+  (`#vab3d canvas`, `#flight3d canvas`). `setSize(w,h,false)` lässt die CSS-Größe absichtlich
+  in Ruhe und setzt nur den Zeichenpuffer auf w·dpr – ein `<canvas>` ist aber ein **ersetztes**
+  Element: ohne gesetzte Breite gewinnt seine INTRINSISCHE Größe (= Puffergröße in px) gegen
+  `inset:0`, `right`/`bottom` werden ignoriert. Folge auf JEDEM HiDPI-Schirm: die Leinwand ist
+  dpr-mal zu groß, hängt links oben fest, man sieht nur ihren linken oberen Ausschnitt (Bild
+  wirkt herangezoomt und aus der Mitte gerückt) – und in der Halle schob sie sich über das
+  rechte Info-Panel (»die rechte Seite ist abgeschnitten«, Bug-Report Simon, 13"). Das
+  Lens-Flare-Overlay ist 1:1 groß und lag deshalb auch nicht mehr auf der sichtbaren Sonne.
+  Gegenprobe: `canvas.getBoundingClientRect()` MUSS `#vab3d`/`#flight3d` exakt entsprechen.
 - Wolkenzahl über `geo.instanceCount` (Puffer bleibt voll, gezeichnet wird nur der Anfang) →
   live umschaltbar ohne Neubau. Bäume über `Settings.q.trees` in `placeTrees`; `applyGraphics`
   ruft `placeTrees` sofort neu auf, wenn eine Bodenszene steht (sonst wirkt der Regler erst
@@ -283,6 +293,20 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
 `PARTS` (Reihenfolge im Stack: Index 0 = SPITZE). **Radialteile** (`isRadial`: fin, sb2/sb4) belegen KEINE Stack-Höhe (`stackHeight()` statt Summe!) und werden in `buildRocketGroup` an den benachbarten Tank montiert (`radialHost`: erst darunter, dann darüber; `buildPartMesh(id, {r,h})`). **Sidebooster = Pool PRO STUFE** (`seg.boost` in buildVessel, kein globales v.boost mehr!): zünden mit IHRER Stufe (Zündung/Stufentrennung setzt `n.boost.ignited`) oder [R] (aktive Stufe), [J] wirft NUR die Booster der aktiven Stufe ab (nächstes [J] nach der Trennung = nächste Stufe); abgeworfene Stufen nehmen ihren Pool automatisch mit (hängt am Segment). Physik/HUD/Gauge/Flammen lesen `activeSeg().boost`; Flammen von Oberstufen-Boostern via `bflame.userData.upper` aus (gesetzt in buildRocketGroup, wenn Decoupler darunter). Trümmer-Mesh = `buildStrapOnMesh(strapOnHeight(stack,i))` – NICHT das srb-Mesh (Formwechsel-Bug). Servicebuchten (`bayCoverage()`): `bay` = »M« verkleidet 2 Teile darüber, `bayS` 1 (`PARTS[..].covers`) – aber NUR Typen aus `BAY_FITS` (battery/solar/probe/antenna/lab), sonst "verschluckt" die Bucht z. B. Oberstufen-Triebwerke; geschlossene Bucht schützt Solarpanele vor Fahrtwind, [G] öffnet sie automatisch mit. Oberstufen-Triebwerke (Decoupler darunter) kriegen `flame.userData.idle` – `setFlames` lässt sie aus, bis sie unterste Stufe sind. VAB-Info: Seitenbooster zählen zu Gesamtmasse + TWR IHRER Stufe (nicht Δv, `segBoost[]`); jede Stufe zeigt Leergewicht, Rakete gesamt »Leergewicht (Tanks leer)«. Solarflügel (`name:"wing"`) starten eingefahren (scale.x 0.1) – für Orbit-Sats `deployWings()`. Fairing verkleidet alles darüber.
 
 ## Montagehalle (VAB-3D-Szene)
+### Layout: passt sich der Fensterbreite an (13"-Laptop bis 27"-Schreibtisch)
+Drei Spalten (`#partList` · `#vabCenter` · `#vabInfo`), Breiten und die Größen in der
+Werkzeugleiste `#vabTop` per `clamp()` an `vw` gekoppelt.
+- ⚠️ **`#vabTop{flex-wrap:wrap}` ist die HARTE Garantie gegen Überlappung.** `#vabCenter` hat
+  `min-width:0`; ohne Umbruch ragt die Leiste einfach rechts heraus und legt sich (z-index:2!)
+  über `#vabInfo`. In der Karriere braucht sie mit den alten festen Button-Maßen **1340 px**,
+  auf einem 1440er Laptop stehen ihr aber nur 965 zu.
+- Gemessen nach dem Umbau: 926 von 965 px bei 1440, 853 von 858 bei 1280 (beides einzeilig,
+  Leistenhöhe 95 → 49 px), zweizeilig erst unter ~1270 px. Ab ~1900 px ist die Leiste wieder
+  so groß wie vorher – die clamp()-Steigungen sind dafür gelegt, nicht für eine feste Stufe.
+- ⚠️ `white-space:nowrap` auf Titel/Badge/Buttons: sonst bricht ausgerechnet »🏗️ Montagehalle«
+  zweizeilig um und macht die Leiste **höher** statt schmaler.
+- Der eigentliche »rechte Seite abgeschnitten«-Bug war aber **nicht** das Layout, sondern die
+  Canvas-Größe – s. `gfxPixelRatio()` im Optionen-Abschnitt.
 - **Halle:** Betonboden (`makeHallFloorTex`, Kachel 3×3 versetzt gezeichnet; ⚠️ Materialfarbe dunkelt ab – ungetönt brennt der Beton unter Hallen- und Himmelslicht auf ~#b0bdea aus und die Halle sieht aus wie ein Leuchtkasten), Trapezblech-Wände (`makeHallWallTex`), Warnstreifen-Sicherheitszone (`makeHazardTex`), Hallentor + LMG-Schild **mittig über dem Tor**, Fachwerkbinder, Kranbahn, Hochregale, Werkbänke, Servicegerüst neben der Rakete.
 - ⚠️ **RingGeometry-UVs sind PLANAR** (u aus x, v aus y) – für die Warnstreifen müssen sie polar neu gesetzt werden, sonst laufen die Streifen quer durchs Bild statt um den Kreis. u aus dem Scheitel-**Index** (nicht aus `atan2`), dann ist die Naht bei 0°/360° mit ganzzahligem `repeat` unsichtbar.
 - ⚠️ **Draw-Call-Budget:** ALLES Inventar (Regalpfosten, -böden, Kisten, Werkbänke, Gerüst, Geländer, Wandstützen, Tor) sammeln `box()`/`cyl()` in zwei Arrays; `flushProps()` baut daraus **zwei InstancedMeshes** (Einheitswürfel + Zylinder, Größe und Farbe pro Instanz via Matrix + `setColorAt`). Einzelmeshes wären ~200 Draw-Calls für ein paar Regale; so sind es insgesamt 40–120.
@@ -343,7 +367,7 @@ Dazu weiter: Wirbel-Blobs an Emittern (Heck-Totwasser + Stufen, blähen sich mit
 - Fairing: `buildFairingShell(r,H,phiStart?,phiLength?)` (Lathe-Ogive); [F] spawnt 2 Halbschalen als Debris (seitlich + Spin).
 - Partikel-Pool (110 Sprites, `fresh`-Flag, altern mit Sim-Zeit `simmed`), Rauch nur in Atmosphäre.
 - Tutorials: `Tut.start(id)` erzwingt Sandbox + ∞-Strom; Szenario: `stack`, `orbit:{body,alt,pe?}` oder `nearStation:<m hinter Station>`; Checks `check(o,F)` laufen pro Frame.
-- Admin-Cam: `AdminCam` (eigene Three-Szene, echte Ephemeriden, Fokus-Buttons, Zeitraffer) – Vollbild aus dem Universum-Screen.
+- Admin-Cam: `AdminCam` (eigene Three-Szene, echte Ephemeriden, Fokus-Buttons, Zeitraffer) – Vollbild aus dem Universum-Screen. Start-Zeitraffer `speedI:0` = **1 min/s** (mit 1 h/s wirbelten die inneren Planeten los, bevor man überhaupt hingesehen hat). ⚠️ **Die Bahnhof-Marker hängen als KINDER am Leibniz-Mesh** und erben dessen sichtbare Drehung (`rotation.y` in `frame()`); als Szenen-Kinder auf `padDir(p)·R` blieben sie stur im Weltraum-Frame stehen und wanderten über fremde Kontinente. Für die Physik sind die Rampen weiterhin inertial fix – die Admin-Cam ist ein Schaukasten, kein Simulationsschritt. Die Station bleibt Szenen-Kind (echter Orbit, on rails).
 - localStorage: `lmgAutoSave`, `lmgMusic`, `lmgSettings` (Grafik/Lautstärke, s. Optionen-Abschnitt), `lmgLoadedOnce`, `lmgHint_*`, `tutsDone` im Save, `lmgRockets` (💾/📂-Hangar: gespeicherte Raketen `{name,stack}`; Laden in Karriere nur mit erforschten Teilen).
 
 ## Tastenkürzel
