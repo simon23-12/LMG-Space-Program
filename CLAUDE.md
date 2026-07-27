@@ -241,14 +241,48 @@ Kepler-Gleichung `M = E − e·sin E` per Newton-Verfahren (5 Schritte). `cometA
 - 2D-Karte: echte Ellipse (`mapPos` schickt den Bahnradius durch dieselbe stilisierte Skala
   `uniR` wie alle anderen) + gemalte Schweife.
 
-### Entdeckung per Weltraumteleskop (`telescopeUp` / `bodyKnown` / `FAR_BODIES`)
+### Entdeckung per Teleskop – ZWEI Stufen (`telescopeUp`/`surveyUp` / `bodyKnown` / `smallBodyKnown`)
 In der Karriere sind Kepler, Huygens (+ Monde), Newton und ALLE Kleinkörper anfangs `???` –
-Karten wie 2D-Ansicht zeigen nur einen szintillierenden Lichtpunkt. Freigeschaltet vom Part
-`satT` »Weltraumteleskop »Weitblick«« (Tech `fine`, 780 🪙), ausgesetzt [N] in einem
-Leibniz-Orbit mit **Pe > 250 km** → `Game.telescope`, Mission `scope1`. Didaktik: Warum steht
-Hubble im All? Weil die Luft jedes Bild verwackelt. Sandbox/Tutorial sind immer offen.
-⚠️ `migrateGame` schenkt Bestands-Saves die Entdeckung, wenn sie schon bei Minzi waren oder
-Kleinkörper gescannt haben – sonst nimmt ein Update ihnen rückwirkend den halben Bildschirm weg.
+2D-Karte und Universum-Karten zeigen nur einen szintillierenden Lichtpunkt. Sichtbar bleiben
+mit bloßem Auge nur Leibniz, Monti und Minzi. Zwei getrennte Teleskope, zwei Flags,
+zwei Missionen – **Planeten und Kleinkörper werden bewusst NICHT gemeinsam aufgedeckt**:
+- **`Game.telescope`** ← Part `satT` »Weltraumteleskop »Weitblick«« (Tech `fine`, 780 🪙),
+  ausgesetzt [N] in einem Leibniz-Orbit mit **Pe > 250 km**. Mission `scope1`. Deckt
+  `FAR_BODIES` auf (Kepler, Huygens + 3 Monde, Newton). Didaktik: Warum steht Hubble im All?
+  Weil die Luft jedes Bild verwackelt.
+- **`Game.survey`** ← Part `satD` »Durchmusterungs-Teleskop »Rundumblick««(Tech `fine`, 700 🪙),
+  ausgesetzt [N] in einem **POLARORBIT** (`SURVEY_PE` 200 km Pe, `SURVEY_INC` 75° Inklination –
+  EINE Quelle für Teil-Text, Mission, Zielring und Auswertung). Mission `scope2` (req `scope1`).
+  Deckt `ASTEROIDS` auf (Gauß, Emmy, Halley, Komet Whipple). Didaktik: Ein Asteroid ist selbst
+  im größten Spiegel nur ein Pünktchen – man findet ihn nicht am Bild, sondern daran, dass er
+  zwischen zwei Aufnahmen WANDERT. Dafür muss der Suchstreifen die ganze Himmelskugel
+  überstreichen, und das kann nur eine Bahn über die Pole (echte Vorbilder: NEOWISE, NEO
+  Surveyor). Am einfachsten von der Polarstation »Skihütte« (Tech `padPolar`, 86° N).
+  ⚠️ Der Ost-Start allein reicht nicht – die Bahn muss AUCH hoch genug sein; die
+  Fehlermeldung beim Aussetzen unterscheidet »zu tief« und »zu wenig geneigt«.
+- Sandbox/Tutorial sind immer offen. `Flight.scopeUp`/`Flight.surveyUp` sind die Flugflags
+  (Reset in `start()`), `state.scopeUp`/`state.surveyUp` die Missions-Checks.
+- ⚠️ `migrateGame` schenkt Bestands-Saves die Entdeckung, wenn sie schon bei Minzi waren
+  (`telescope`) bzw. schon Kleinkörper gescannt haben (`survey`) – sonst nimmt ein Update
+  ihnen rückwirkend den halben Bildschirm weg. **`scope1` allein schaltet `survey` NICHT
+  frei**, sonst hätte jeder Bestandsspieler die neue Mission schon bei ihrer Einführung erledigt.
+
+#### ⚠️ Die Admin-Cam darf nicht spoilern (`AdminCam.isKnown` / `refreshFocusBtns`)
+Die Admin-Cam hatte den ganzen ???-Nebel unterlaufen: Alle Fokus-Knöpfe waren immer da und
+alle Meshes standen in der Szene. Jetzt:
+- `refreshFocusBtns()` (bei jedem `open()`, weil zwischen zwei Besuchen ein Teleskop
+  ausgesetzt worden sein kann) macht aus unentdeckten Knöpfen ein gesperrtes »❔ ???« mit
+  `title`-Hinweis. Der Knopf bleibt bewusst STEHEN – man soll sehen, dass da noch etwas
+  wartet, nur nicht was. Dafür merkt sich `this.focusBtns` `[körper, btn, label, hint]` und
+  der Grundstil liegt in `btn.dataset.base`.
+- `setFocus` hat einen eigenen Guard, und ein Fokus auf einem unbekannten Körper fällt auf
+  LEIBNIZ zurück – `AdminCam.focus` überlebt sonst den Wechsel Sandbox → Karriere.
+- ⚠️⚠️ **Meshes/Bahnlinien/Kometen-FX werden in `frame()` unsichtbar geschaltet, NICHT in
+  `refreshFocusBtns()`**: (a) ein gesperrter Knopf allein genügt nicht, weil die Kamera bis
+  2e11 herauszoomt und dann das halbe Sonnensystem im Bild läge; (b) `updateCometFx()` setzt
+  `visible` pro Frame selbst – in refreshFocusBtns gesetzt ginge die Sperre sofort wieder auf.
+  Deshalb hängen die Kleinkörper-Bahnlinien jetzt als 4. Element in `astMeshes`.
+- `#admLocked` unten rechts sagt, WAS noch fehlt und WOMIT man es findet.
 
 ## Raumstation »Große Pause«
 `STATION` + `stationPos(t)`/`stationVel(t)`: exakter 100-km-Kreisorbit um Leibniz (on rails), immer da (Karriere/Sandbox/Tutorial). Docking: Part `dock`, Taste **[L]**: < 30 m & < 3 m/s = sofort; **30–200 m (rel < 25 m/s) = Docking-Autopilot** `autoDock`/`updateAutoDock` (RCS-Magie: Sollgeschw. min(3, d/25) auf die Station zu, dockt < 26 m via `dockNow()`; [L] bricht ab; übersteuert Handsteuerung, Warp≤2, Abbruch > 500 m). Angedockt = `Flight.docked`: Schiff folgt Station on rails (`dockOffset`). SAS-Modus `"tgt"` (ZIEL-BREMSE, < 50 km) bremst relativ zum **gewählten Ziel** (sonst Station). Türkiser ◆-Navball-Marker < 50 km (folgt `Flight.target`), HUD-Zielzeile < 400 km, Kartenmarker »Große Pause«. **Rosa ✛ = Anflug-Assistent** (drawNavball, 40 m–50 km): optimale Brennrichtung `norm(dirZiel·vWant − relVel)` mit `vWant=clamp(d/60, 2, 45)` – Nase draufhalten + Schub = automatisch lenkendes UND bremsendes Rendezvous ohne Vorbeischießen (getestet: 3 km→190 m in ~3,5 min, Ankunft 3,5 m/s). Rendezvous-Tutorial nutzt NUR noch das ✛ (keine ZIEL-BREMSE-Choreografie mehr).
@@ -485,7 +519,7 @@ Dazu weiter: Wirbel-Blobs an Emittern (Heck-Totwasser + Stufen, blähen sich mit
 - Agilität: `0.12 + 0.78*nRcs` (Rotation UND SAS-Slerp) – ohne RCS bewusst sehr träge.
 - **⚠️ Start-Lage der Rakete = `padQ`** (`this.q.copy(padQ)` in `start()`, dieselbe Basis wie Rampe/Boden: **X=Ost, Y=hoch (Nase), Z=Süd**). Die Steuerung dreht im KÖRPERFRAME (`this.q.multiply(dq)`), also legt der Rollwinkel auf der Rampe fest, welche Taste in welche Himmelsrichtung neigt. Damit gilt an JEDER Rampe: **[D] → Osten (90°)** · [A] → Westen · [W] → Süden · [S] → Norden. Verifiziert: Ost-Start nur mit [D] ergibt Inklination 0,0° (Äquator) bzw. 55,0° (LMG). ⚠️ Vorher stand hier `setFromUnitVectors(V3(0,1,0), pd)` – das ist die MINIMAL-Drehung und lässt den Rollwinkel willkürlich; [D] neigte dadurch nach SÜDEN und [S] nach Osten, obwohl Tutorials (`orbit`, `booster`) und der Hilfetext ausdrücklich »[D] nach Osten« sagen. Die NASE zeigt in beiden Varianten senkrecht nach oben – nur der Roll unterscheidet sich, Orbit-Start-Tutorials sind also unberührt.
 - Temperatur (didaktisch, HUD): `ambTemp()` (−6,5 °C/km, All −270 °C) + `updateTemps(dt)` → `shipTemp` (Atmo: Staupunkt `amb + v²/2050`, dichtegewichtet `min(1,rho/2e-3)`; Vakuum: Schwarzkörper ∝ 1/√Sonnenabstand, bei Leibniz ≈ +5 °C; träge Annäherung `k=0.03+2rho`).
-- Komplett-Satelliten `satW`/`satR`/`satS` (type "sat", passen in Buchten): [N] ruft `deploySpecialSat()` – prüft Orbit-Anforderung (satW stabil · satR Pe>250 km · satS Pe>70/Ap<130 km), setzt Flags `satWeather/satRad/satSpy` für die Missionen satWetter/satStrahlung/satSpion. `probeS` = flacher Sondenbus (type "probe", wird NIE ausgesetzt).
+- Komplett-Satelliten `satW`/`satR`/`satS`/`satT`/`satD` (type "sat", passen in Buchten): [N] ruft `deploySpecialSat()` – prüft Orbit-Anforderung (satW stabil · satR Pe>250 km · satS Pe>70/Ap<130 km · satT Pe>250 km · **satD Pe>200 km UND Inklination>75°**), setzt Flags `satWeather/satRad/satSpy/scopeUp/surveyUp` für die Missionen satWetter/satStrahlung/satSpion/scope1/scope2. `probeS` = flacher Sondenbus (type "probe", wird NIE ausgesetzt). ⚠️ Der Mesh-Zweig in `buildPartMesh` ist eine if/else-Kette; wer keinen eigenen Zweig hat, landet im `else` und bekommt den dunklen Späh-Tubus (so teilen sich satS und satT einen Look). `satD` hat bewusst den Gegenentwurf: kurz und WEIT statt lang und dünn, mit offener Spiegel-Öffnung und halb offener Sonnenhaube (⚠️ offener Zylinder = `side:DoubleSide`, sonst fehlt die Innenseite).
 - **Stufenadapter** (`interXS`/`inter`/`interL`, type "inter", Ø 8/10/12): offene Röhre (`shroudH` 10/16/18) wächst von der Unterkante nach OBEN über Stufentrenner + Oberstufen-Triebwerk (belegt selbst nur h≈3 Stack-Höhe, Radius ×1.06 gegen Z-Fighting). Direkt UNTER den Decoupler bauen → gehört zum unteren Segment (segments() teilt NACH dem Decoupler) und bleibt wie der Falcon-9-Interstage auf der abgeworfenen Stufe. Rein strukturell (nur Masse). Tutorials orbit/launchwindow/booster haben ihn im Stack.
 - Fairing: `buildFairingShell(r,H,phiStart?,phiLength?)` (Lathe-Ogive); [F] spawnt 2 Halbschalen als Debris (seitlich + Spin).
 - Partikel-Pool (110 Sprites, `fresh`-Flag, altern mit Sim-Zeit `simmed`), Rauch nur in Atmosphäre.

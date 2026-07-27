@@ -375,6 +375,9 @@ input[type=file]{display:none;}
     <button class="btn orange" onclick="AdminCam.close()">✕ Schließen [Esc]</button>
   </div>
   <div id="admInfo" class="hud" style="position:absolute;left:12px;bottom:12px;z-index:2;font-size:13px;"></div>
+  <!-- Hinweis, solange noch ??? -Knöpfe in der Leiste stehen (s. refreshFocusBtns) -->
+  <div id="admLocked" class="hud" style="position:absolute;right:12px;bottom:12px;z-index:2;
+    font-size:12.5px;max-width:340px;line-height:1.45;display:none;"></div>
 </div>
 
 <!-- TUTORIALS -->
@@ -1035,7 +1038,9 @@ const PARTS = {
   satK:   {name:"Kommerz-Satellit »Werbefunk«", type:"sat", cat:"sat", mass:220, w:8,h:6, tech:"payload", com:true,
            info:"Für die 📡 Satelliten-Aufträge in der Missionszentrale: im GEFORDERTEN Orbit aussetzen [N] = Prämie kassieren. Funkt danach dauerhaft Werbung → 🪙 nach jedem Flug!"},
   satT:   {name:"Weltraumteleskop »Weitblick«", type:"sat", cat:"sat", mass:520, w:10,h:11, tech:"fine",
-           info:"Der große Spiegel – unser »Hubble«. Vom Boden aus verwackelt die Luft jedes Bild; erst ÜBER der Atmosphäre wird es scharf. In einem hohen Orbit aussetzen (Pe > 250 km) [N] – danach sind die fernen Planeten und Kleinkörper im Universum-Bildschirm keine ??? mehr!"},
+           info:"Der große Spiegel – unser »Hubble«. Vom Boden aus verwackelt die Luft jedes Bild; erst ÜBER der Atmosphäre wird es scharf. In einem hohen Orbit aussetzen (Pe > 250 km) [N] – danach sind die fernen PLANETEN und ihre MONDE im Universum-Bildschirm keine ??? mehr! (Für die winzigen Kleinkörper reicht selbst dieser Spiegel nicht – dafür gibt es den »Rundumblick«.)"},
+  satD:   {name:"Durchmusterungs-Teleskop »Rundumblick«", type:"sat", cat:"sat", mass:460, w:10,h:10, tech:"fine",
+           info:"Kein großer Spiegel, dafür ein RIESIGES Blickfeld: Diese Kamera fotografiert nicht EIN Ziel, sondern nach und nach den ganzen Himmel und vergleicht die Bilder – was sich zwischen den Sternen bewegt, ist ein Kleinkörper. Dafür muss sie über die POLE fliegen: In einem Polarorbit (Bahnneigung > 75°, Pe > 200 km) wandert der Streifen, den sie absucht, über die ganze Himmelskugel. Aussetzen: [N]"},
   fairing:{name:"Nutzlast-Fairing",          type:"fairing",cat:"sat", mass:120, w:12,h:5, tech:"payload", info:"Halber Luftwiderstand. Mit [F] absprengen!"},
   tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"fine", info:"0,7 t für Satelliten-Manöver."},
   engT:   {name:"Triebwerk »Floh«",          type:"engine", cat:"sat", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"fine", info:"Winziges Manövriertriebwerk (8 kN)."},
@@ -1088,7 +1093,7 @@ const PART_COSTS = {
   tankS:100, engS:220, engStd:300, tankM:180, engVac:420, engNuc:1400, engIon:900, tankXL:700,
   decoupler:40, interXS:30, inter:50, interL:90, legs:90, rcs:130, srb:150, fin:25, gridfin:240, tankL:350, engMain:650, srbL:300,
   sb2:260, sb4:500, probe:180, solar:70, battery:50, bay:80, bayS:50, antenna:60,
-  satW:320, satR:420, satS:550, satK:380, satT:780, fairing:80, tankXS:70, engT:120, dock:100,
+  satW:320, satR:420, satS:550, satK:380, satT:780, satD:700, fairing:80, tankXS:70, engT:120, dock:100,
   engRapSL:900, engRapVac:1100, superheavy:2600, starship:4200, starshipTank:3200
 };
 for(const [id,c] of Object.entries(PART_COSTS)) if(PARTS[id]) PARTS[id].cost = c;
@@ -1374,18 +1379,34 @@ function asteroidScanned(id){ return (Game.asteroidsScanned||[]).includes(id); }
 
 /* ---------- Entdeckung: erst das Teleskop macht aus ??? einen Planeten ------
    Vom Boden aus verwackelt die Luft jedes Bild – deshalb steht Hubble im All.
-   In der Karriere sind die fernen Welten anfangs nur namenlose Lichtpunkte;
-   das Weltraumteleskop »Weitblick« (Part `satT`, Mission `scope1`) in einem
-   hohen Leibniz-Orbit schaltet ihre Daten frei. Nah und mit bloßem Auge
-   sichtbar bleiben Leibniz, sein Mond Monti und der Nachbar Minzi.
+   In der Karriere sind die fernen Welten anfangs nur namenlose Lichtpunkte.
+   ZWEI Teleskope, zwei Aufgaben – genau wie in echt:
+   1. »Weitblick« (Part `satT`, Mission `scope1`): der große Spiegel in einem
+      HOHEN Orbit. Er löst die fernen PLANETEN und ihre MONDE auf.
+   2. »Rundumblick« (Part `satD`, Mission `scope2`): die Weitwinkel-Kamera im
+      POLARORBIT. Kleinkörper sind zu winzig, um sie als Scheibchen zu sehen –
+      man findet sie nur, indem man den GANZEN Himmel wieder und wieder
+      abfotografiert und schaut, welcher Punkt sich bewegt hat. Genau das kann
+      nur eine Bahn über die Pole, deren Suchstreifen die ganze Himmelskugel
+      überstreicht (in echt: NEOWISE & der NEO Surveyor).
+   Nah und mit bloßem Auge sichtbar bleiben Leibniz, sein Mond Monti und der
+   Nachbar Minzi.
    ⚠️ Sandbox & Tutorials sind IMMER offen – dort geht es ums Ausprobieren. */
 const FAR_BODIES = [KEPLER, HUYGENS, NEWTON, ...HUYGENS_MOONS];
 function telescopeUp(){ return Game.sandbox || !!Game.telescope; }
+function surveyUp(){ return Game.sandbox || !!Game.survey; }
 function bodyKnown(b){ return telescopeUp() || !FAR_BODIES.includes(b); }
-function smallBodyKnown(){ return telescopeUp(); }   // Asteroiden, Meteoroid, Komet
+function smallBodyKnown(){ return surveyUp(); }      // Asteroiden, Meteoroid, Komet
 const UNKNOWN_HINT = "🔭 Noch unerforscht: Von der Oberfläche aus ist das nur ein "+
   "flackernder Lichtpunkt. Bring das Weltraumteleskop »Weitblick« in einen hohen "+
   "Orbit um Leibniz (Pe > 250 km, aussetzen mit [N]) – über der Atmosphäre wird das Bild scharf.";
+const UNKNOWN_HINT_SMALL = "🛰 Noch unentdeckt: Kleinkörper sind viel zu winzig für "+
+  "ein Planeten-Teleskop – man findet sie nur, indem man den GANZEN Himmel immer wieder "+
+  "fotografiert und schaut, welcher Lichtpunkt gewandert ist. Dafür braucht es das "+
+  "Durchmusterungs-Teleskop »Rundumblick« in einem POLARORBIT (Bahnneigung > 75°, Pe > 200 km).";
+/* Anforderungen des »Rundumblick«: hoch genug für eine stabile Bahn UND wirklich
+   über die Pole – EINE Quelle für Teil-Text, Mission, Zielring und Auswertung. */
+const SURVEY_PE = 200000, SURVEY_INC = 75;
 
 /* ---------- Synchronbahn (»geostationär«): 1 Umlauf = 1 Leibniz-Tag ----------
    Die Wolken von Leibniz drehen mit ~14.000 s – unser "Schultag". In ≈2000 km
@@ -1535,9 +1556,12 @@ const MISSIONS = [
   {id:"satStrahlung", name:"Strahlungsgürtel kartieren", desc:"Bring den Forschungssatelliten »Strahlenspäher« in einen HOHEN Orbit (Periapsis > 250 km) und setze ihn dort aus [N]. Nur dort oben lässt sich die kosmische Strahlung sauber messen.", sci:50,
    req:["satWetter","highOrbit"], check:s=>s.satRad,
    orbitGoal:{body:"LEIBNIZ", alt:300000, peMin:250000, label:"Hoher Orbit (Pe > 250 km)"}},
-  {id:"scope1", name:"Weltraumteleskop »Weitblick«", desc:"Warum steht Hubble im All und nicht auf einem Berg? Weil die Luft über uns jedes Sternbild verwackelt. Bring das Weltraumteleskop »Weitblick« in einen HOHEN Orbit (Periapsis > 250 km) und setze es dort aus [N] – danach verschwinden im Universum-Bildschirm alle ??? und du siehst Kepler, Huygens mit seinen drei Monden, Newton und die Kleinkörper.", sci:70,
+  {id:"scope1", name:"Weltraumteleskop »Weitblick«", desc:"Warum steht Hubble im All und nicht auf einem Berg? Weil die Luft über uns jedes Sternbild verwackelt. Bring das Weltraumteleskop »Weitblick« in einen HOHEN Orbit (Periapsis > 250 km) und setze es dort aus [N] – danach siehst du im Universum-Bildschirm und in der Admin-Cam die fernen Welten: Kepler, den Ringplaneten Huygens mit seinen drei Monden und Newton.", sci:70,
    req:["highOrbit","sat1"], check:s=>s.scopeUp,
    orbitGoal:{body:"LEIBNIZ", alt:320000, peMin:250000, label:"Teleskop-Orbit (Pe > 250 km)"}},
+  {id:"scope2", name:"Himmelsdurchmusterung »Rundumblick«", desc:"Die Planeten sind gefunden – aber zwischen ihnen fliegen Felsbrocken, die noch niemand kennt. Asteroiden sind zu winzig für einen Spiegel; man findet sie nur, indem man den GANZEN Himmel wieder und wieder fotografiert und schaut, welcher Lichtpunkt gewandert ist. Dafür muss das Durchmusterungs-Teleskop über die POLE fliegen: Setze den »Rundumblick« in einem Polarorbit aus (Bahnneigung > 75°, Periapsis > 200 km) [N]. Tipp: Ein Ost-Start von der Polarstation »Skihütte« landet fast von allein in dieser Bahn.", sci:80,
+   req:["scope1"], check:s=>s.surveyUp,
+   orbitGoal:{body:"LEIBNIZ", alt:300000, peMin:SURVEY_PE, incMin:SURVEY_INC, label:"Polarer Suchorbit (>75°, Pe > 200 km)"}},
   {id:"satSpion", name:"Geheimauftrag »Adlerauge«", desc:"Die Schulleitung will wissen, was auf dem Pausenhof der Nachbarschule vor sich geht… Setze den Spähsatelliten in einem TIEFEN Orbit aus (Pe > 70 km, Ap < 130 km) [N]. Pssst!", sci:55,
    req:["satWetter"], check:s=>s.satSpy,
    orbitGoal:{body:"LEIBNIZ", alt:100000, apMax:130000, label:"Späh-Orbit (70–130 km)"}},
@@ -1657,7 +1681,8 @@ function newGame(){
     anomaliesFound:[],               // entdeckte Anomalien
     asteroidsScanned:[],             // gescannte Kleinkörper (Asteroiden/Meteoroid)
     pad:"lmg",                       // gewählte Startrampe
-    telescope:false,                 // »Weitblick« im Orbit? → Universum ohne ???
+    telescope:false,                 // »Weitblick« im Orbit? → Planeten & Monde ohne ???
+    survey:false,                    // »Rundumblick« im Polarorbit? → Kleinkörper ohne ???
     assets:[]};                      // zurückgelassene Sats/Wracks im Orbit
 }
 /* Alte Spielstände auf neue Felder heben (Geld, Mehrfach-Missionen) */
@@ -1690,6 +1715,15 @@ function migrateGame(){
   if(typeof Game.telescope !== "boolean")
     Game.telescope = Game.done.includes("minziSoi") || Game.done.includes("scope1") ||
                      (Game.asteroidsScanned||[]).length > 0;
+  /* Bestands-Saves: Die Kleinkörper hingen früher AM »Weitblick« mit dran; jetzt
+     braucht es dafür den »Rundumblick« im Polarorbit. Wer sie nachweislich schon
+     kannte (Scan-Vorbeiflug oder erledigte Kleinkörper-Mission), behält sie –
+     ein Update darf niemandem den halben Universum-Bildschirm wieder zuklappen.
+     ⚠️ Der »Weitblick« allein reicht dafür bewusst NICHT: Sonst hätte jeder mit
+     `scope1` die neue Mission `scope2` schon bei ihrer Einführung erledigt. */
+  if(typeof Game.survey !== "boolean")
+    Game.survey = Game.done.includes("scope2") || (Game.asteroidsScanned||[]).length > 0 ||
+                  ["ast1","comet1","astAll"].some(id=>Game.done.includes(id));
 }
 /* Auto-Save: Fortschritt überlebt das Schließen des Browsers.
    (Der JSON-Download bleibt für Backups & Rechnerwechsel.) */
@@ -2399,13 +2433,13 @@ function bodyStats(b){
 }
 /* Karte für einen noch unentdeckten Körper: Name und ALLE Daten bleiben ???.
    Das ist der halbe Reiz – man sieht, DASS da etwas ist, aber nicht was. */
-function unknownCard(){
+function unknownCard(hint){
   const row = l=>`<div style="display:flex;justify-content:space-between"><span>${l}</span><b>???</b></div>`;
   const div = document.createElement("div");
   div.className = "tech-node"; div.style.cssText = "width:300px;opacity:.72;";
   div.innerHTML = `<h3 style="color:var(--muted)">❔ ???</h3>
     ${row("Art")}${row("Radius")}${row("Schwerkraft")}${row("Umlaufzeit")}
-    <p style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4">${UNKNOWN_HINT}</p>`;
+    <p style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4">${hint||UNKNOWN_HINT}</p>`;
   return div;
 }
 function renderUniverse(){
@@ -2418,7 +2452,19 @@ function renderUniverse(){
         Mond Monti und den Nachbarplaneten Minzi. Alles andere flackert als Lichtpunkt –
         die Luft über dir verwackelt jedes Bild. Bring das Weltraumteleskop
         <b>»Weitblick«</b> in einen hohen Orbit (Pe &gt; 250 km) und setze es dort mit [N]
-        aus: Über der Atmosphäre wird der Blick scharf und alle ??? füllen sich.</div>
+        aus: Über der Atmosphäre wird der Blick scharf und die fernen Planeten und Monde
+        bekommen ihre Namen.</div>
+      </div>`);
+  if(!surveyUp())
+    cards.insertAdjacentHTML("beforeend",
+      `<div class="opt-card" style="max-width:none;width:100%;margin-bottom:4px;">
+        <h3>🛰 Die Kleinkörper sind noch nicht gefunden</h3>
+        <div class="sub" style="margin:0">Ein Asteroid ist selbst im größten Spiegel nur ein
+        Pünktchen – man erkennt ihn nicht am Bild, sondern daran, dass er WANDERT. Dafür muss
+        jemand geduldig den ganzen Himmel abfotografieren und die Aufnahmen vergleichen.
+        Genau das macht das Durchmusterungs-Teleskop <b>»Rundumblick«</b> – aber nur aus einem
+        <b>Polarorbit</b> (Bahnneigung &gt; ${SURVEY_INC}°, Pe &gt; ${SURVEY_PE/1000} km), denn nur
+        dort wandert sein Suchstreifen über die ganze Himmelskugel. Aussetzen mit [N].</div>
       </div>`);
   for(const b of ORBIT_BODIES){
     if(!bodyKnown(b)){ cards.appendChild(unknownCard()); continue; }
@@ -2441,7 +2487,7 @@ function renderUniverse(){
   }
   // Kleinkörper: Asteroiden & Meteoroid (Vorbeiflug-Scan bringt Wissenschaft)
   for(const a of ASTEROIDS){
-    if(!smallBodyKnown()){ cards.appendChild(unknownCard()); continue; }
+    if(!smallBodyKnown()){ cards.appendChild(unknownCard(UNKNOWN_HINT_SMALL)); continue; }
     const scanned = asteroidScanned(a.id);
     const div = document.createElement("div");
     div.className = "tech-node"+(scanned?" unlocked":""); div.style.width = "300px";
@@ -2703,11 +2749,12 @@ const AdminCam = {
       this.scene.add(m);
       let fx = null;
       if(a.tail){ fx = buildCometFx(); this.scene.add(fx); }
-      this.astMeshes.push([a, m, fx]);
       const apts = [], NP = a.ecc ? 512 : 256;
       for(let i=0;i<NP;i++) apts.push(asteroidPos(a, i/NP*a.period));
-      this.scene.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(apts),
-        new THREE.LineBasicMaterial({color:a.tail?0x6f95b5:0x8a7a55, transparent:true, opacity:.5})));
+      const aring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(apts),
+        new THREE.LineBasicMaterial({color:a.tail?0x6f95b5:0x8a7a55, transparent:true, opacity:.5}));
+      this.scene.add(aring);
+      this.astMeshes.push([a, m, fx, aring]);
     }
     // Text-Label als Sprite (für Bahnhöfe & Station – nur in der Admin-Cam sichtbar)
     const makeLabel = (txt)=>{
@@ -2768,24 +2815,31 @@ const AdminCam = {
     // Nebel-Kulisse: gleiche Fotos wie im Flug, nur weiter draußen skaliert
     // (Radius jenseits von Newton & Max-Zoom, innerhalb der Far-Plane 4e11)
     addNebulae(this.scene, 1.8e11, 2.6, 0.85);
-    // Fokus-Buttons (Planeten + Kleinkörper als Follow-Cam)
+    /* Fokus-Buttons (Planeten + Kleinkörper als Follow-Cam).
+       ⚠️ Die Admin-Cam darf die Entdeckung nicht vorwegnehmen: Was im
+       Universum-Bildschirm noch ??? ist, ist hier ein gesperrter »❔ ???«-Knopf
+       (und das zugehörige Mesh ist unsichtbar, s. refreshKnown). Der Knopf
+       bleibt bewusst STEHEN – man soll sehen, dass da draußen noch etwas
+       wartet, nur eben nicht was. Aktualisiert wird das bei jedem open(). */
     const span = document.getElementById("admFocusBtns");
+    this.focusBtns = [];
     for(const b of [SUN, KEPLER, LEIBNIZ, MONTI, MINZI, HUYGENS, ...HUYGENS_MOONS, NEWTON]){
       const btn = document.createElement("button");
       btn.className = "btn";
       // Huygens-Monde optisch eingerückt: sie gehören zum Gasriesen davor
-      btn.style.cssText = "padding:5px 10px;font-size:12px;"+
+      btn.dataset.base = "padding:5px 10px;font-size:12px;"+
         (b.parent===HUYGENS ? "border-color:#8f7f5a;opacity:.9;" : "");
-      btn.textContent = BODY_ICON[b.name]+" "+b.name;
       btn.onclick = ()=>this.setFocus(b);
       span.appendChild(btn);
+      this.focusBtns.push([b, btn, BODY_ICON[b.name]+" "+b.name, UNKNOWN_HINT]);
     }
     for(const a of ASTEROIDS){
       const btn = document.createElement("button");
-      btn.className = "btn"; btn.style.cssText = "padding:5px 10px;font-size:12px;border-color:#8a7a55;";
-      btn.textContent = a.icon+" "+a.name.replace(/[»«]/g,"");
+      btn.className = "btn";
+      btn.dataset.base = "padding:5px 10px;font-size:12px;border-color:#8a7a55;";
       btn.onclick = ()=>this.setFocus(a);
       span.appendChild(btn);
+      this.focusBtns.push([a, btn, a.icon+" "+a.name.replace(/[»«]/g,""), UNKNOWN_HINT_SMALL]);
     }
     // Maus: ziehen = drehen, Rad = Zoom
     const el = this.renderer.domElement;
@@ -2806,7 +2860,40 @@ const AdminCam = {
     });
     this.ready = true;
   },
+  /* Kennt der Spielstand diesen Körper schon? Kleinkörper hängen am
+     »Rundumblick«, ferne Planeten & Monde am »Weitblick« (s. bodyKnown). */
+  isKnown(x){ return ASTEROIDS.includes(x) ? smallBodyKnown() : bodyKnown(x); },
+  /* Fokus-Knöpfe an den Entdeckungsstand anpassen. Läuft bei jedem open(),
+     weil zwischen zwei Besuchen ein Teleskop ausgesetzt worden sein kann. */
+  refreshFocusBtns(){
+    if(!this.ready) return;
+    for(const [x, btn, label, hint] of this.focusBtns){
+      const k = this.isKnown(x);
+      btn.disabled = !k;
+      btn.textContent = k ? label : "❔ ???";
+      btn.title = k ? "" : hint;
+      btn.style.cssText = btn.dataset.base +
+        (k ? "" : "opacity:.45;border-style:dashed;cursor:not-allowed;");
+    }
+    // Der Fokus überlebt den Bildschirmwechsel (und die Sandbox!) – wer dort
+    // Newton angesehen hat, dürfte ihn sonst in der Karriere weiter sehen.
+    if(this.focus && this.focus!==SUN && !this.isKnown(this.focus)) this.setFocus(LEIBNIZ);
+    // Merkzettel unten rechts: WAS fehlt und WOMIT man es findet
+    const nWorlds = FAR_BODIES.length, nSmall = ASTEROIDS.length;
+    const miss = [];
+    if(!telescopeUp()) miss.push(`<b style="color:var(--orange)">🔭 ${nWorlds} ferne Welten</b>
+      warten noch: Kepler, Huygens mit seinen Monden und Newton. Das Weltraumteleskop
+      <b>»Weitblick«</b> in einen hohen Orbit (Pe &gt; 250 km) bringen und [N] drücken.`);
+    if(!surveyUp()) miss.push(`<b style="color:var(--orange)">🛰 ${nSmall} Kleinkörper</b>
+      sind noch nicht gefunden. Sie sind zu winzig für einen Spiegel – erst das
+      Durchmusterungs-Teleskop <b>»Rundumblick«</b> im <b>Polarorbit</b>
+      (&gt; ${SURVEY_INC}°, Pe &gt; ${SURVEY_PE/1000} km) fotografiert den ganzen Himmel ab.`);
+    const box = document.getElementById("admLocked");
+    box.style.display = miss.length ? "" : "none";
+    box.innerHTML = miss.join('<div style="height:8px"></div>');
+  },
   setFocus(b){
+    if(b!==SUN && !this.isKnown(b)) return;   // gesperrt, bis das Teleskop oben ist
     this.focus = b;
     this.minDist = b.R*1.6;
     this.dist = b===SUN ? SUN.R*9 : b.R*4.5;
@@ -2872,7 +2959,8 @@ const AdminCam = {
   speed(d){ this.speedI = Math.max(0, Math.min(this.SPEEDS.length-1, this.speedI+d)); },
   open(){
     this.init();
-    this.rebuildAssets();   // Orbit-Inventar kann sich zwischen Besuchen ändern
+    this.rebuildAssets();      // Orbit-Inventar kann sich zwischen Besuchen ändern
+    this.refreshFocusBtns();   // …und der Entdeckungsstand auch
     document.getElementById("adminCam").style.display = "block";
     if(!this.focus) this.setFocus(LEIBNIZ);
     if(this.runningId===null){
@@ -2893,15 +2981,25 @@ const AdminCam = {
     // Granulation der Photosphäre brodelt. ⚠️ Zeit wrappen – bei 10 Tagen/s
     // wird `t` sonst so groß, dass float32 die Rauschkoordinaten zerlegt.
     this.sunMesh.material.uniforms.uTime.value = (this.t/3600) % 4096;
+    /* ⚠️ Unentdecktes bleibt UNSICHTBAR – ein gesperrter Knopf allein genügt
+       nicht: Die Admin-Cam zoomt bis 2e11 heraus, dann läge das halbe
+       Sonnensystem trotzdem im Bild. Die Sichtbarkeit steht bewusst hier statt
+       in refreshFocusBtns(), weil updateCometFx() `visible` pro Frame selbst
+       setzt und die Sperre sonst jeden Frame wieder aufginge. */
+    const smallKnown = smallBodyKnown();
     for(const [b,m] of this.meshes){
       if(b===SUN) continue;
+      m.visible = bodyKnown(b);
       m.position.copy(bodyPos(b, this.t));
       m.rotation.y += 0.02*(this.SPEEDS[this.speedI][0]/86400);
     }
-    for(const [b,ring] of this.rings)
+    for(const [b,ring] of this.rings){
+      ring.visible = bodyKnown(b);
       ring.position.copy(b.parent && b.parent!==SUN ? bodyPos(b.parent, this.t) : V3());
+    }
     // Kleinkörper folgen ihren Bahnen (und trudeln langsam)
-    for(const [a,m,fx] of this.astMeshes){
+    for(const [a,m,fx,aring] of this.astMeshes){
+      m.visible = smallKnown; aring.visible = smallKnown;
       const ap = asteroidPos(a, this.t);
       m.position.copy(ap);
       m.rotation.y += 0.12*(this.SPEEDS[this.speedI][0]/86400);
@@ -2909,7 +3007,10 @@ const AdminCam = {
       // Hier ist der Komet am schönsten: einmal im Zeitraffer mitlaufen und
       // zusehen, wie die Schweife am Perihel aufblühen und immer von der
       // Sonne wegzeigen.
-      if(fx) updateCometFx(fx, a, ap, this.t, 1);
+      if(fx){
+        if(smallKnown) updateCometFx(fx, a, ap, this.t, 1);
+        else fx.visible = false;
+      }
     }
     // Die Bahnhöfe hängen am Leibniz-Mesh und drehen sich mit (s. init()) –
     // hier ist nur noch die Station zu setzen, die läuft on rails.
@@ -3013,6 +3114,37 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       board.position.set(0, h*0.55, p.w*0.34); g.add(board);
       add(cylinder(0.15,0.15,h*0.6,MAT.gray,6), h*1.0);
       wing(-1, p.w*0.85); wing(1, p.w*0.85);
+    } else if(id==="satD"){
+      /* Durchmusterungs-Teleskop: kurz und WEIT statt lang und dünn – genau
+         andersherum als der Spähsatellit daneben. Ein Weitwinkel-Instrument
+         hat eine kleine Brennweite, dafür eine riesige offene Öffnung, und
+         darüber sitzt die schräge Sonnenblende, die das Streulicht abhält
+         (wie bei NEOWISE). Am Rumpf klebt der Sternsensor: Erst er sagt der
+         Kamera, wohin sie gerade zeigt – ohne ihn wäre jedes Fundstück ein
+         Punkt ohne Adresse. */
+      add(cylinder(r*0.9, r*0.75, h*0.5, MAT.white, 20), h*0.3);
+      add(cylinder(r*0.92, r*0.92, h*0.1, MAT.orange, 20), h*0.5);
+      // offene Öffnung: dunkler Ring mit tief liegendem Spiegel
+      add(cylinder(r*0.88, r*0.88, h*0.12, MAT.dark, 20), h*0.62);
+      const mirror = new THREE.Mesh(new THREE.CircleGeometry(r*0.78, 22),
+        new THREE.MeshStandardMaterial({color:0xcfd8e8, roughness:.08, metalness:.9,
+          side:THREE.DoubleSide}));
+      mirror.rotation.x = -Math.PI/2; mirror.position.y = h*0.6; g.add(mirror);
+      /* Sonnenblende als halb offene Haube auf dem Öffnungsrand (wie bei
+         NEOWISE): Sie schirmt das Streulicht der Sonne ab, lässt aber ein
+         breites Fenster frei – ein Weitwinkel-Gerät darf sich sein Blickfeld
+         nicht selbst zubauen. ⚠️ Offener Zylinder = DoubleSide, sonst
+         verschwindet die Innenseite der Haube. */
+      const hood = new THREE.Mesh(
+        new THREE.CylinderGeometry(r*0.88, r*0.88, h*0.42, 20, 1, true,
+          Math.PI*0.35, Math.PI*1.3),
+        new THREE.MeshStandardMaterial({color:0xcdb84f, roughness:.4, metalness:.6,
+          side:THREE.DoubleSide}));
+      hood.position.y = h*0.85; g.add(hood);
+      // Sternsensor am Rumpf
+      const star = cylinder(r*0.16, r*0.16, h*0.3, MAT.gray, 10);
+      star.position.set(r*0.7, h*0.34, 0); star.rotation.z = -0.35; g.add(star);
+      wing(-1, p.w*1.0); wing(1, p.w*1.0);
     } else {
       // Spähsatellit: dunkler Tubus mit großer Linse – unauffällig…
       add(cylinder(r*0.55, r*0.55, h*0.85, MAT.dark, 18), h*0.45);
@@ -8553,7 +8685,7 @@ const Flight = {
     this.sats.forEach(s=>this.world.remove(s.mesh));
     this.sats = []; this.satL=false; this.satM=false; this.visitedMonti=false;
     this.satWeather=false; this.satRad=false; this.satSpy=false; this.satPolar=false;
-    this.scopeUp=false;
+    this.scopeUp=false; this.surveyUp=false;
     this.shipTemp = 15;   // startet bei Bodentemperatur
     // Booster-Autopilot & Bellyflop aufräumen (Mesh, Fenster, Statistik)
     if(this.booster && this.booster.mesh) this.world.remove(this.booster.mesh);
@@ -10448,11 +10580,38 @@ const Flight = {
         if(!Game.sandbox && !Game.telescope){
           Game.telescope = true; autoSave();
           msg = "🔭 »WEITBLICK« IST OFFEN! Der Spiegel richtet sich aus… und aus den flackernden "+
-            "Lichtpunkten werden Welten: Kepler, Huygens mit seinen drei Monden, Newton und die "+
-            "Kleinkörper sind jetzt im Universum-Bildschirm zu sehen!";
+            "Lichtpunkten werden Welten: Kepler, der Ringplanet Huygens mit seinen drei Monden "+
+            "und Newton stehen jetzt im Universum-Bildschirm – und in der Admin-Cam!";
         } else msg += " 🔭 Der Spiegel ist offen – freie Sicht!";
       }
       else msg += " ⚠️ Zu tief! Ein Teleskop braucht Pe > 250 km – tiefer verwackelt die Restluft das Bild und die Bahn zerfällt.";
+    }
+    if(satId==="satD"){
+      /* Das Durchmusterungs-Teleskop findet Kleinkörper NICHT durchs Heranzoomen,
+         sondern durch Vergleichen: Es fotografiert immer denselben Streifen
+         Himmel, und was zwischen zwei Bildern gewandert ist, ist ein Brocken.
+         Damit dieser Streifen die GANZE Himmelskugel überstreicht, muss die
+         Bahn über die Pole laufen – deshalb ist die Inklination hier Pflicht
+         und nicht Deko (echtes Vorbild: NEOWISE, NEO Surveyor). */
+      const inc = this.orbitInc();
+      const highEnough = o.body===LEIBNIZ && o.pe>SURVEY_PE && o.ap>0;
+      const polar = highEnough && inc>SURVEY_INC;
+      if(polar){
+        this.surveyUp = true;
+        if(!Game.sandbox && !Game.survey){
+          Game.survey = true; autoSave();
+          msg = "🛰 »RUNDUMBLICK« SUCHT! Bahn über die Pole steht, die Weitwinkel-Kamera "+
+            "beginnt zu fotografieren… und schon auf den ersten Bildpaaren wandern Punkte: "+
+            "Gauß, Emmy, Halley und der Komet Whipple haben jetzt Namen und Bahnen!";
+        } else msg += " 🛰 Die Durchmusterung läuft – der ganze Himmel im Blick!";
+      }
+      else if(highEnough)
+        msg += " ⚠️ Nur "+inc.toFixed(0)+"° Bahnneigung! Von dieser Bahn aus sieht die Kamera immer "+
+               "denselben Himmelsstreifen. Für die Durchmusterung braucht sie einen POLARORBIT "+
+               "(> "+SURVEY_INC+"° – am einfachsten von der Polarstation »Skihütte«).";
+      else
+        msg += " ⚠️ Zu tief! Die Durchmusterung dauert Monate – dafür braucht die Bahn Pe > "+
+               (SURVEY_PE/1000)+" km, sonst bremst die Restluft sie vorher weg.";
     }
     if(satId==="satK"){
       // Kommerz-Satellit: passt der Orbit zu einem offenen Auftrag → Prämie!
@@ -11074,7 +11233,7 @@ const Flight = {
       landed:this.landed, flew:this.flew,
       satL:this.satL, satM:this.satM, visitedMonti:this.visitedMonti,
       satWeather:this.satWeather, satRad:this.satRad, satSpy:this.satSpy,
-      scopeUp:!!this.scopeUp,
+      scopeUp:!!this.scopeUp, surveyUp:!!this.surveyUp,
       satPolar:!!this.satPolar, pad:this.pad ? this.pad.id : "lmg",
       docked:!!this.docked,
       inc:this.orbitInc(),
