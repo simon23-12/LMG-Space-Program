@@ -217,8 +217,10 @@ input[type=file]{display:none;}
       <input type="range" min="0" max="100" id="optSfx" oninput="Settings.setVol('sfx', this.value/100)">
       <span class="val" id="optSfxVal"></span>
     </label>
-    <div class="opt-note">Geräusche = das Triebwerksrumpeln im Flug (wird lauter, je mehr Schub
-      und je dichter die Luft – im Vakuum bleibt es still, das ist Absicht).</div>
+    <div class="opt-note">Geräusche = das Triebwerk im Flug: Originalmitschnitt eines
+      <b>Raptor</b>-Triebwerks mit Turbopumpen-Spin-up beim Zünden, darunter ein tiefes
+      Rumpeln. Wird lauter, je mehr Schub und je dichter die Luft – im Vakuum bleibt fast
+      nur das Rumpeln übrig, das ist Absicht.</div>
   </div>
 </div>
 
@@ -598,27 +600,55 @@ function applyGraphics(){
 /* ---------- Himmelskörper ---------- */
 /* Heliozentrisches System: Sonne im Zentrum, Leibniz (mit Mond Monti)
    und der Eisplanet Minzi umkreisen sie. */
-const SUN = {name:"Sonne", R:2.616e8, mu:1.1723e18, atmoH:0, soi:Infinity};
+/* ⚠️ `kind` ist die didaktische Zusatzdimension im Universum-Bildschirm:
+   "fest" = man kann landen, "gas" = es GIBT keine Oberfläche. Bei einem
+   Gasriesen ist das keine Kosmetik, sondern Spielregel (s. `onLanded`):
+   wer hineinfliegt, wird zerdrückt – seine Monde sind die echten Ziele,
+   genau wie Titan und Enceladus bei Saturn. */
+const SUN = {name:"Sonne", R:2.616e8, mu:1.1723e18, atmoH:0, soi:Infinity, kind:"stern"};
 const LEIBNIZ = {name:"Leibniz", R:600000, mu:3.5316e12, atmoH:70000, rho0:1.2, scaleH:5600,
-  parent:SUN, orbitR:1.36e10, incl:0, phase:0};
-const MONTI   = {name:"Monti",   R:200000, mu:6.5138e10, atmoH:0,
+  parent:SUN, orbitR:1.36e10, incl:0, phase:0, kind:"fest"};
+const MONTI   = {name:"Monti",   R:200000, mu:6.5138e10, atmoH:0, kind:"fest",
   parent:LEIBNIZ, orbitR:12000000, incl:0, phase:0,
   shade2D:["#d3d8e0","#8d95a3","#4a505c"]};
-const MINZI   = {name:"Minzi",   R:60000,  mu:1.766e9,   atmoH:0,
+const MINZI   = {name:"Minzi",   R:60000,  mu:1.766e9,   atmoH:0, kind:"fest",
   parent:SUN, orbitR:2.05e10, incl:3*Math.PI/180, phase:1.7,
   shade2D:["#dff5ea","#a9d8c2","#5d8f78"]};
-const KEPLER  = {name:"Kepler",  R:250000, mu:1.686e11,  atmoH:0,   // heißer Felsplanet innen
+const KEPLER  = {name:"Kepler",  R:250000, mu:1.686e11,  atmoH:0, kind:"fest",  // heißer Felsplanet innen
   parent:SUN, orbitR:5.3e9, incl:4*Math.PI/180, phase:4.4,
   shade2D:["#e8a06a","#a54a2a","#5e2412"]};
-const NEWTON  = {name:"Newton",  R:900000, mu:8.9e12,    atmoH:0,   // Eisriese weit draußen
+const NEWTON  = {name:"Newton",  R:900000, mu:8.9e12,    atmoH:0, kind:"fest",  // gefrorene Eiswelt weit draußen
   parent:SUN, orbitR:6.9e10, incl:1.5*Math.PI/180, phase:0.8,
   shade2D:["#9fd8e8","#4a7fd8","#22397e"]};
-const HUYGENS = {name:"Huygens", R:480000, mu:2.1e12,    atmoH:0,   // Ringplanet (benannt nach dem Entdecker der Saturnringe!)
+const HUYGENS = {name:"Huygens", R:480000, mu:2.1e12,    atmoH:0, kind:"gas",   // GASRIESE mit Ring (benannt nach dem Entdecker der Saturnringe!)
   parent:SUN, orbitR:4.1e10, incl:2*Math.PI/180, phase:2.6,
   shade2D:["#f2dcae","#d8b370","#9a7b45"], ring:true};
-const MOONS = [MONTI, MINZI, KEPLER, HUYGENS, NEWTON];      // kleine Körper (Meshes, Ringe, Kontakt)
-const GRAV_BODIES = [SUN, LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON];  // alles, was zieht
-for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON]){
+/* --- Die drei Monde von Huygens (wie Titan, Enceladus & Co. bei Saturn) ---
+   Alle drei liegen weit AUSSERHALB des Rings (der endet bei 2,9 Planetenradien
+   = 1,39 Mio. m) und weit INNERHALB der Huygens-Sphäre (2,06e8 m); ihre eigenen
+   Gravitationssphären überlappen sich nicht – nachgerechnet in dieser Reihenfolge:
+   Cassini [2,6…4,6e6], Herschel [5,5…6,9e6], Ada [10,0…11,0e6]. */
+const CASSINI  = {name:"Cassini",  R:260000, mu:9.5e10, atmoH:0, kind:"fest",
+  parent:HUYGENS, orbitR:3.6e6,  incl:0, phase:0.4,
+  shade2D:["#e6b98a","#b97f4e","#5f3d22"]};
+const HERSCHEL = {name:"Herschel", R:150000, mu:7.9e9,  atmoH:0, kind:"eis",
+  parent:HUYGENS, orbitR:6.2e6,  incl:5*Math.PI/180, phase:2.9,
+  shade2D:["#f2fbff","#bfe2f5","#6f9dc0"]};
+const ADA      = {name:"Ada",      R:90000,  mu:1.1e9,  atmoH:0, kind:"fest",
+  parent:HUYGENS, orbitR:1.05e7, incl:9*Math.PI/180, phase:5.1,
+  shade2D:["#b8b0a4","#6f6960","#2f2c28"]};
+const HUYGENS_MOONS = [CASSINI, HERSCHEL, ADA];
+const MOONS = [MONTI, MINZI, KEPLER, HUYGENS, NEWTON, ...HUYGENS_MOONS];   // kleine Körper (Meshes, Ringe, Kontakt)
+const GRAV_BODIES = [SUN, LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON, ...HUYGENS_MOONS];  // alles, was zieht
+const ORBIT_BODIES = [LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON, ...HUYGENS_MOONS];
+/* EINE Quelle für die Symbole – Universum-Karten, Admin-Cam-Buttons und HUD
+   sollen denselben Körper nicht mit verschiedenen Emojis zeigen. */
+const BODY_ICON = {Sonne:"☀️", Leibniz:"🌍", Monti:"🌗", Minzi:"🍬", Kepler:"🔥",
+  Huygens:"🪐", Newton:"🔵", Cassini:"🟠", Herschel:"🧊", Ada:"⚫"};
+/* Didaktische Kurzform der `kind`-Dimension (Universum-Bildschirm) */
+const KIND_LABEL = {fest:"fest (Gestein)", eis:"fest (Eis & Wasser)",
+  gas:"gasförmig – keine Oberfläche!", stern:"Stern (Plasma)"};
+for(const b of ORBIT_BODIES){
   b.period = 2*Math.PI*Math.sqrt(Math.pow(b.orbitR,3)/b.parent.mu);
   b.soi = b.orbitR*Math.pow(b.mu/b.parent.mu, 2/5);
 }
@@ -1004,6 +1034,8 @@ const PARTS = {
            info:"Streng geheim! Scharfe Fotos gelingen nur im TIEFEN Orbit (Pe > 70 km, Ap < 130 km). Aussetzen: [N]"},
   satK:   {name:"Kommerz-Satellit »Werbefunk«", type:"sat", cat:"sat", mass:220, w:8,h:6, tech:"payload", com:true,
            info:"Für die 📡 Satelliten-Aufträge in der Missionszentrale: im GEFORDERTEN Orbit aussetzen [N] = Prämie kassieren. Funkt danach dauerhaft Werbung → 🪙 nach jedem Flug!"},
+  satT:   {name:"Weltraumteleskop »Weitblick«", type:"sat", cat:"sat", mass:520, w:10,h:11, tech:"fine",
+           info:"Der große Spiegel – unser »Hubble«. Vom Boden aus verwackelt die Luft jedes Bild; erst ÜBER der Atmosphäre wird es scharf. In einem hohen Orbit aussetzen (Pe > 250 km) [N] – danach sind die fernen Planeten und Kleinkörper im Universum-Bildschirm keine ??? mehr!"},
   fairing:{name:"Nutzlast-Fairing",          type:"fairing",cat:"sat", mass:120, w:12,h:5, tech:"payload", info:"Halber Luftwiderstand. Mit [F] absprengen!"},
   tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"fine", info:"0,7 t für Satelliten-Manöver."},
   engT:   {name:"Triebwerk »Floh«",          type:"engine", cat:"sat", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"fine", info:"Winziges Manövriertriebwerk (8 kN)."},
@@ -1015,18 +1047,23 @@ const PARTS = {
            info:"Riesige Glocke, Isp 380 s im Vakuum – das effizienteste Oberstufen-Triebwerk überhaupt."},
   superheavy:{name:"Superheavy-Booster",     type:"superheavy", cat:"lower", mass:3600, fuel:26000, thrust:4600000, isp:330, w:14,h:68, tech:"raptorSL",
            info:"Riesentank + 33 Raptoren in EINEM Teil (26 t Treibstoff, 4600 kN). Mit Gitterflossen ausrüsten – dann landet ihn der Autopilot!"},
-  starship:{name:"Starship",                 type:"starship", cat:"cmd", mass:5200, fuel:9500, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:900, flaps:true,
-           info:"Das ultimative Schiff: 6 Crew ODER große Nutzlast, Hitzeschutz-Kacheln, Bellyflop-Landung mit [C] (mindestens 200 m Höhe!)."},
-  starshipTank:{name:"Tanker-Starship",      type:"starship", cat:"cmd", mass:4400, fuel:16000, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:400, tanker:true,
-           info:"Starship ohne Flaps, dafür voller Tanks: Im Orbit parken (Flug dort beenden) – das nächste Schiff tankt bei ihm auf (< 60 m, < 4 m/s). Unbemannt, keine Bellyflop-Landung!"}
+  starship:{name:"Starship",                 type:"starship", cat:"cmd", mass:5200, fuel:9500, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:900, flaps:true, bay:2500,
+           info:"Das ultimative Schiff: 6 Crew ODER große Nutzlast, Hitzeschutz-Kacheln, Bellyflop-Landung mit [C] (mindestens 200 m Höhe!). Frachtraum: 2,5 t Satelliten (PEZ-Dispenser, seitlicher Auswurf mit [N])."},
+  starshipTank:{name:"Tanker-Starship",      type:"starship", cat:"cmd", mass:4400, fuel:16000, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:400, tanker:true, bay:0,
+           info:"Starship ohne Flaps, dafür voller Tanks: Im Orbit parken (Flug dort beenden) – das nächste Schiff tankt bei ihm auf (< 60 m, < 4 m/s). Unbemannt, keine Bellyflop-Landung, KEIN Frachtraum – da sitzen die Tanks!"}
 };
 /* Radialteile (Flossen, Seitenbooster): hängen seitlich am Nachbartank
    und belegen KEINE eigene Höhe im Stack – wie in echt. */
 function isRadial(id){ const t = PARTS[id] && PARTS[id].type; return t==="fin" || t==="sideboost" || t==="gridfin"; }
-/* Sitzt ein Starship im Stack, reisen Satelliten IM Frachtraum (PEZ-Dispenser
-   wie bei Starlink): sie belegen dann keine Stack-Höhe und werden nicht gemalt. */
+/* Sitzt ein Starship MIT Frachtraum im Stack, reisen Satelliten darin
+   (PEZ-Dispenser wie bei Starlink): sie belegen dann keine Stack-Höhe und
+   werden nicht gemalt. ⚠️ Der Tanker hat `bay:0` – bei ihm stapeln sich
+   Satelliten ganz normal oben drauf, sonst schmuggelt man Nutzlast an der
+   Höhen- UND der Frachtraum-Grenze vorbei. Wie viel hineinpasst, prüft
+   `VAB.bayError` schon in der Halle. */
 function satInStarship(stack, id){
-  return PARTS[id].type==="sat" && stack.some(x=>PARTS[x].type==="starship");
+  return PARTS[id].type==="sat" &&
+         stack.some(x=>PARTS[x].type==="starship" && PARTS[x].bay > 0);
 }
 function stackHeight(stack){
   return stack.reduce((a,id)=>a+(isRadial(id)||satInStarship(stack,id)?0:PARTS[id].h),0);
@@ -1051,7 +1088,7 @@ const PART_COSTS = {
   tankS:100, engS:220, engStd:300, tankM:180, engVac:420, engNuc:1400, engIon:900, tankXL:700,
   decoupler:40, interXS:30, inter:50, interL:90, legs:90, rcs:130, srb:150, fin:25, gridfin:240, tankL:350, engMain:650, srbL:300,
   sb2:260, sb4:500, probe:180, solar:70, battery:50, bay:80, bayS:50, antenna:60,
-  satW:320, satR:420, satS:550, satK:380, fairing:80, tankXS:70, engT:120, dock:100,
+  satW:320, satR:420, satS:550, satK:380, satT:780, fairing:80, tankXS:70, engT:120, dock:100,
   engRapSL:900, engRapVac:1100, superheavy:2600, starship:4200, starshipTank:3200
 };
 for(const [id,c] of Object.entries(PART_COSTS)) if(PARTS[id]) PARTS[id].cost = c;
@@ -1259,7 +1296,7 @@ const ANOMALIES = [
   {id:"newtonWrack",body:"NEWTON", name:"Uraltes Raumschiffwrack", icon:"🚀", sci:75,
    dir:[0.10, -0.35, 0.93], hint:"Newton – Südhalbkugel"}
 ];
-const BODY_BY_NAME = ()=>({LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON});
+const BODY_BY_NAME = ()=>({LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON, CASSINI, HERSCHEL, ADA});
 function anomalyFound(id){ return (Game.anomaliesFound||[]).includes(id); }
 
 /* ---------- Kleinkörper: Asteroiden & Meteoroid (Vorbeiflug-Scan) ----------
@@ -1274,16 +1311,69 @@ const ASTEROIDS = [
    info:"M-Typ-Brocken aus fast reinem Metall, benannt nach der Mathematikerin Emmy Noether. Glänzt im Teleskop wie ein Spiegel – eine fliegende Schatzkammer aus Eisen und Nickel."},
   {id:"metHalley", name:"»Halley«", icon:"☄️", kind:"Meteoroid", sci:110, R:500,
    orbitR:9.2e9, incl:14*Math.PI/180, phase:5.5, color:0xd8c8a8,
-   info:"Winziger, flinker Meteoroid INNERHALB der Leibniz-Bahn – rast mit über 11 km/s um die Sonne. Benannt nach Edmond Halley, der als Erster die Wiederkehr eines Kometen vorhersagte."}
+   info:"Winziger, flinker Meteoroid INNERHALB der Leibniz-Bahn – rast mit über 11 km/s um die Sonne. Benannt nach Edmond Halley, der als Erster die Wiederkehr eines Kometen vorhersagte."},
+  /* Der Komet: als EINZIGER Kleinkörper auf einer stark elliptischen Bahn
+     (ecc 0,72). Genau das macht einen Kometen aus – draußen ist er ein toter
+     Eisbrocken, nahe der Sonne verdampft das Eis und bläst die beiden
+     Schweife auf. `orbitR` ist hier die große HALBACHSE. */
+  {id:"comWhipple", name:"»Whipple«", icon:"💫", kind:"Komet", sci:140, R:900,
+   orbitR:4.0e10, ecc:0.72, argP:2.3, incl:18*Math.PI/180, phase:2.05, color:0x8fa2b8,
+   tail:true,
+   info:"Ein »schmutziger Schneeball« aus Eis, Staub und Gestein – so nannte Fred Whipple 1950 die Kometen, und genau so ist es. Seine Bahn ist eine lange Ellipse: Im Aphel weit hinter Newton ist er dunkel und tot, im Perihel INNERHALB der Leibniz-Bahn kocht das Eis und er bekommt zwei Schweife. ⚠️ Beide zeigen IMMER von der Sonne weg – nicht nach hinten! Der bläuliche Ionenschweif steht kerzengerade im Sonnenwind, der helle Staubschweif bleibt gekrümmt hinter der Bahn zurück."}
 ];
+/* ⚠️ Bei der Ellipse ist `orbitR` die große Halbachse – Kepler III gilt
+   trotzdem unverändert, die Umlaufzeit hängt NUR von ihr ab (nicht von der
+   Exzentrizität). Schöner Nebeneffekt fürs Unterrichtsgespräch. */
 for(const a of ASTEROIDS) a.period = 2*Math.PI*Math.sqrt(Math.pow(a.orbitR,3)/SUN.mu);
+for(const a of ASTEROIDS){
+  a.periR = a.orbitR*(1-(a.ecc||0));    // Perihel (sonnennächster Punkt)
+  a.apoR  = a.orbitR*(1+(a.ecc||0));    // Aphel
+}
 const AST_SCAN_DIST = 1e6;   // Vorbeiflug-Scan zündet unter 1000 km Abstand
+/* Ort eines Kleinkörpers. Kreisbahnen (ecc 0) nehmen die billige Formel;
+   für die Ellipse wird die KEPLER-GLEICHUNG M = E − e·sin E numerisch nach E
+   aufgelöst (Newton-Verfahren, 5 Schritte reichen bis e = 0,9 auf Maschinen-
+   genauigkeit). Daraus wahre Anomalie und Radius – exakt dieselbe Rechnung,
+   mit der Halley 1705 seine Wiederkehr vorhergesagt hat. */
 function asteroidPos(a, t){
-  const w = 2*Math.PI*t/a.period + a.phase;
+  const M = 2*Math.PI*t/a.period + a.phase;
+  const e = a.ecc || 0;
+  let w, r;
+  if(e === 0){ w = M; r = a.orbitR; }
+  else {
+    let E = M;
+    for(let k=0;k<5;k++) E -= (E - e*Math.sin(E) - M)/(1 - e*Math.cos(E));
+    w = 2*Math.atan2(Math.sqrt(1+e)*Math.sin(E/2), Math.sqrt(1-e)*Math.cos(E/2))
+        + (a.argP || 0);
+    r = a.orbitR*(1 - e*Math.cos(E));
+  }
   const ci = Math.cos(a.incl), si = Math.sin(a.incl);
-  return V3(a.orbitR*Math.cos(w), a.orbitR*Math.sin(w)*si, a.orbitR*Math.sin(w)*ci);
+  return V3(r*Math.cos(w), r*Math.sin(w)*si, r*Math.sin(w)*ci);
+}
+/* Aktivität eines Kometen: 0 = toter Eisbrocken weit draußen, 1 = voll
+   ausgeblasene Schweife am Perihel. Die Verdampfungsrate skaliert in echt
+   ungefähr mit 1/r² (Sonneneinstrahlung), deshalb hier dieselbe Kurve. */
+function cometActivity(a, t){
+  const r = asteroidPos(a, t).length();
+  const k = (2.6e10/Math.max(r, 6e9));
+  return Math.max(0, Math.min(1, (k*k - 0.35)/1.6));
 }
 function asteroidScanned(id){ return (Game.asteroidsScanned||[]).includes(id); }
+
+/* ---------- Entdeckung: erst das Teleskop macht aus ??? einen Planeten ------
+   Vom Boden aus verwackelt die Luft jedes Bild – deshalb steht Hubble im All.
+   In der Karriere sind die fernen Welten anfangs nur namenlose Lichtpunkte;
+   das Weltraumteleskop »Weitblick« (Part `satT`, Mission `scope1`) in einem
+   hohen Leibniz-Orbit schaltet ihre Daten frei. Nah und mit bloßem Auge
+   sichtbar bleiben Leibniz, sein Mond Monti und der Nachbar Minzi.
+   ⚠️ Sandbox & Tutorials sind IMMER offen – dort geht es ums Ausprobieren. */
+const FAR_BODIES = [KEPLER, HUYGENS, NEWTON, ...HUYGENS_MOONS];
+function telescopeUp(){ return Game.sandbox || !!Game.telescope; }
+function bodyKnown(b){ return telescopeUp() || !FAR_BODIES.includes(b); }
+function smallBodyKnown(){ return telescopeUp(); }   // Asteroiden, Meteoroid, Komet
+const UNKNOWN_HINT = "🔭 Noch unerforscht: Von der Oberfläche aus ist das nur ein "+
+  "flackernder Lichtpunkt. Bring das Weltraumteleskop »Weitblick« in einen hohen "+
+  "Orbit um Leibniz (Pe > 250 km, aussetzen mit [N]) – über der Atmosphäre wird das Bild scharf.";
 
 /* ---------- Synchronbahn (»geostationär«): 1 Umlauf = 1 Leibniz-Tag ----------
    Die Wolken von Leibniz drehen mit ~14.000 s – unser "Schultag". In ≈2000 km
@@ -1433,6 +1523,9 @@ const MISSIONS = [
   {id:"satStrahlung", name:"Strahlungsgürtel kartieren", desc:"Bring den Forschungssatelliten »Strahlenspäher« in einen HOHEN Orbit (Periapsis > 250 km) und setze ihn dort aus [N]. Nur dort oben lässt sich die kosmische Strahlung sauber messen.", sci:50,
    req:["satWetter","highOrbit"], check:s=>s.satRad,
    orbitGoal:{body:"LEIBNIZ", alt:300000, peMin:250000, label:"Hoher Orbit (Pe > 250 km)"}},
+  {id:"scope1", name:"Weltraumteleskop »Weitblick«", desc:"Warum steht Hubble im All und nicht auf einem Berg? Weil die Luft über uns jedes Sternbild verwackelt. Bring das Weltraumteleskop »Weitblick« in einen HOHEN Orbit (Periapsis > 250 km) und setze es dort aus [N] – danach verschwinden im Universum-Bildschirm alle ??? und du siehst Kepler, Huygens mit seinen drei Monden, Newton und die Kleinkörper.", sci:70,
+   req:["highOrbit","sat1"], check:s=>s.scopeUp,
+   orbitGoal:{body:"LEIBNIZ", alt:320000, peMin:250000, label:"Teleskop-Orbit (Pe > 250 km)"}},
   {id:"satSpion", name:"Geheimauftrag »Adlerauge«", desc:"Die Schulleitung will wissen, was auf dem Pausenhof der Nachbarschule vor sich geht… Setze den Spähsatelliten in einem TIEFEN Orbit aus (Pe > 70 km, Ap < 130 km) [N]. Pssst!", sci:55,
    req:["satWetter"], check:s=>s.satSpy,
    orbitGoal:{body:"LEIBNIZ", alt:100000, apMax:130000, label:"Späh-Orbit (70–130 km)"}},
@@ -1500,12 +1593,20 @@ const MISSIONS = [
    req:["minziSoi"], check:s=>s.body===KEPLER},
   {id:"keplerLand",name:"Kepler-Landung",    desc:"Lande auf dem Glutplaneten (2,7 m/s² – aber ohne Atmosphäre zum Bremsen).", sci:110,
    req:["keplerSoi","montiLand"], check:s=>s.landed && s.body===KEPLER},
-  {id:"huygensSoi",name:"Ringplanet Huygens", desc:"Erreiche den Ringplaneten Huygens – benannt nach Christiaan Huygens, der die Saturnringe entdeckte. Flieg NAH ran und bestaune den Ring!", sci:75,
+  {id:"huygensSoi",name:"Ringplanet Huygens", desc:"Erreiche den Ringplaneten Huygens – benannt nach Christiaan Huygens, der die Saturnringe entdeckte. Flieg NAH ran und bestaune den Ring! Achtung: Huygens ist ein GASRIESE, dort kann man nicht landen.", sci:75,
    req:["minziSoi"], check:s=>s.body===HUYGENS},
+  {id:"huygensMoon",name:"Die Monde des Gasriesen", desc:"Huygens hat keine Oberfläche – aber DREI Monde: den großen Felsmond »Cassini«, den Eismond »Herschel« und den kleinen dunklen »Ada«. Erreiche die Gravitationssphäre von einem der drei.", sci:90,
+   req:["huygensSoi"], check:s=>HUYGENS_MOONS.includes(s.body)},
+  {id:"cassiniLand",name:"Landung auf Cassini", desc:"»Cassini« ist der größte Huygens-Mond (260 km Radius, 1,4 m/s²) – benannt nach Giovanni Cassini, der vier Saturnmonde und die Lücke im Ring entdeckte. Setze dort sanft auf!", sci:120,
+   req:["huygensMoon","montiLand"], check:s=>s.landed && s.body===CASSINI},
+  {id:"herschelLand",name:"Eismond »Herschel«", desc:"Unter der aufgeplatzten Eiskruste von »Herschel« schwappt ein Ozean aus flüssigem Wasser – wie bei Saturns Enceladus, den Wilhelm Herschel entdeckte. Lande auf dem Eis (nur 0,35 m/s² – ganz sachte!) und mach dort ein Experiment [B].", sci:150,
+   req:["cassiniLand"], check:s=>s.landed && s.body===HERSCHEL},
   {id:"ast1",   name:"Kleinkörper-Jäger", desc:"Zwischen den Planeten kreisen zwei Asteroiden und ein Meteoroid… Fliege mit einer Sonde auf unter 1000 km an einen von ihnen heran (Vorbeiflug-Scan). Ihre Bahnen siehst du in der Orbitkarte [M] und im Universum-Bildschirm!", sci:60,
    req:["minziSoi"], check:s=>s.asteroids>=1},
-  {id:"astAll", name:"Kleinkörper-Katalog komplett", desc:"Scanne ALLE drei Kleinkörper: den Kohlenstoff-Asteroiden »Gauß«, den Metallbrocken »Emmy« und den flinken Meteoroiden »Halley« innen bei der Sonne. Ein Lebenswerk für Sonden-Profis!", sci:130,
-   req:["ast1"], check:s=>s.asteroids>=3},
+  {id:"comet1", name:"Rendezvous mit »Whipple«", desc:"Der Komet »Whipple« läuft auf einer langen Ellipse: 537 Tage, im Aphel hinter Newton, im Perihel INNERHALB der Leibniz-Bahn. Flieg mit einer Sonde auf unter 1000 km an ihn heran und scanne den »schmutzigen Schneeball«. Tipp: Warte in der Orbitkarte [M], bis er nach innen kommt – dann ist er nah UND hat seine beiden Schweife ausgefahren.", sci:140,
+   req:["ast1"], check:s=>s.cometScanned},
+  {id:"astAll", name:"Kleinkörper-Katalog komplett", desc:"Scanne ALLE Kleinkörper: den Kohlenstoff-Asteroiden »Gauß«, den Metallbrocken »Emmy«, den flinken Meteoroiden »Halley« – und den Kometen »Whipple«. Ein Lebenswerk für Sonden-Profis!", sci:170,
+   req:["comet1"], check:s=>s.asteroids>=4},
   {id:"newtonSoi",name:"Expedition Newton",  desc:"Erreiche den Eisriesen Newton am Rand des Systems – die weiteste Reise (Atomantrieb empfohlen!).", sci:85,
    req:["minziSoi"], check:s=>s.body===NEWTON},
   {id:"newtonLand",name:"Newton-Landung",    desc:"Lande auf dem Eisriesen – 11 m/s² Schwerkraft verlangen ALLES von deinem Lander!", sci:130,
@@ -1544,6 +1645,7 @@ function newGame(){
     anomaliesFound:[],               // entdeckte Anomalien
     asteroidsScanned:[],             // gescannte Kleinkörper (Asteroiden/Meteoroid)
     pad:"lmg",                       // gewählte Startrampe
+    telescope:false,                 // »Weitblick« im Orbit? → Universum ohne ???
     assets:[]};                      // zurückgelassene Sats/Wracks im Orbit
 }
 /* Alte Spielstände auf neue Felder heben (Geld, Mehrfach-Missionen) */
@@ -1570,6 +1672,12 @@ function migrateGame(){
   // seinem Baum plötzlich ein gesperrter Knoten mitten in einer erforschten Kette.
   if(Game.unlocked.includes("advProp") && !Game.unlocked.includes("propI"))
     Game.unlocked.push("propI");
+  // Bestands-Saves: Der ???-Nebel im Universum-Bildschirm ist neu. Wer schon
+  // draußen war (Minzi-Sphäre erreicht) oder gar Kleinkörper gescannt hat, hat
+  // diese Welten längst gesehen – dem sie jetzt wieder wegzunehmen wäre albern.
+  if(typeof Game.telescope !== "boolean")
+    Game.telescope = Game.done.includes("minziSoi") || Game.done.includes("scope1") ||
+                     (Game.asteroidsScanned||[]).length > 0;
 }
 /* Auto-Save: Fortschritt überlebt das Schließen des Browsers.
    (Der JSON-Download bleibt für Backups & Rechnerwechsel.) */
@@ -1607,7 +1715,13 @@ const UI = {
     if(id==="options") renderOptions();
     if(id==="menu") this.inGame = false;
     updateMusic();
-    if(id!=="flight" && typeof Flight!=="undefined" && Flight.setRumble) Flight.setRumble(0);
+    // Beim Verlassen der Flugansicht verstummt das Triebwerk sofort – der
+    // Raptor hat keine laufende Frame-Schleife mehr, die ihn ausblenden könnte.
+    if(id!=="flight" && typeof Flight!=="undefined" && Flight.setRumble){
+      Flight.setRumble(0);
+      Flight.setRaptor(0);
+      Flight.stopRaptor();
+    }
   },
   back(){
     const cur = document.querySelector(".screen.active");
@@ -2271,31 +2385,63 @@ function bodyStats(b){
   const dv = b===LEIBNIZ ? vOrb+1150 : vOrb*1.12;
   return {g, orbAlt, vOrb, dv};
 }
+/* Karte für einen noch unentdeckten Körper: Name und ALLE Daten bleiben ???.
+   Das ist der halbe Reiz – man sieht, DASS da etwas ist, aber nicht was. */
+function unknownCard(){
+  const row = l=>`<div style="display:flex;justify-content:space-between"><span>${l}</span><b>???</b></div>`;
+  const div = document.createElement("div");
+  div.className = "tech-node"; div.style.cssText = "width:300px;opacity:.72;";
+  div.innerHTML = `<h3 style="color:var(--muted)">❔ ???</h3>
+    ${row("Art")}${row("Radius")}${row("Schwerkraft")}${row("Umlaufzeit")}
+    <p style="font-size:12px;color:var(--muted);margin-top:8px;line-height:1.4">${UNKNOWN_HINT}</p>`;
+  return div;
+}
 function renderUniverse(){
   const cards = document.getElementById("universeCards"); cards.innerHTML = "";
-  const icons = {Leibniz:"🌍", Monti:"🌗", Minzi:"🍬", Kepler:"🔥", Huygens:"🪐", Newton:"🔵"};
-  for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON]){
+  if(!telescopeUp())
+    cards.insertAdjacentHTML("beforeend",
+      `<div class="opt-card" style="max-width:none;width:100%;margin-bottom:4px;">
+        <h3>🔭 Der Himmel ist noch unscharf</h3>
+        <div class="sub" style="margin:0">Mit bloßem Auge siehst du von Leibniz aus nur den
+        Mond Monti und den Nachbarplaneten Minzi. Alles andere flackert als Lichtpunkt –
+        die Luft über dir verwackelt jedes Bild. Bring das Weltraumteleskop
+        <b>»Weitblick«</b> in einen hohen Orbit (Pe &gt; 250 km) und setze es dort mit [N]
+        aus: Über der Atmosphäre wird der Blick scharf und alle ??? füllen sich.</div>
+      </div>`);
+  for(const b of ORBIT_BODIES){
+    if(!bodyKnown(b)){ cards.appendChild(unknownCard()); continue; }
     const s = bodyStats(b);
     const div = document.createElement("div");
     div.className = "tech-node unlocked"; div.style.width = "300px";
-    div.innerHTML = `<h3>${icons[b.name]} ${b.name}</h3>
+    const gas = b.kind==="gas";
+    div.innerHTML = `<h3>${BODY_ICON[b.name]} ${b.name}</h3>
+      <div style="display:flex;justify-content:space-between"><span>Art</span><b style="${
+        gas?"color:#e8b45e":""}">${KIND_LABEL[b.kind]||"fest"}</b></div>
       <div style="display:flex;justify-content:space-between"><span>Radius</span><b>${(b.R/1000).toFixed(0)} km</b></div>
       <div style="display:flex;justify-content:space-between"><span>Schwerkraft</span><b>${s.g.toFixed(2)} m/s²</b></div>
       <div style="display:flex;justify-content:space-between"><span>Atmosphäre</span><b>${b.atmoH?`bis ${b.atmoH/1000} km`:"keine"}</b></div>
       ${b.parent?`<div style="display:flex;justify-content:space-between"><span>Umlaufzeit um ${b.parent.name}</span><b>${b.period>1e6?(b.period/86400).toFixed(0)+" Tage":(b.period/3600).toFixed(1)+" h"}</b></div>`:""}
       <div style="display:flex;justify-content:space-between"><span>Orbitgeschwindigkeit</span><b>${s.vOrb.toFixed(0)} m/s</b></div>
-      <div style="display:flex;justify-content:space-between;color:var(--orange)"><span><b>Δv bis zum Orbit</b></span><b>≈ ${Math.round(s.dv/10)*10} m/s</b></div>`;
+      <div style="display:flex;justify-content:space-between;color:var(--orange)"><span><b>Δv bis zum Orbit</b></span><b>≈ ${Math.round(s.dv/10)*10} m/s</b></div>
+      ${gas?`<p style="font-size:12px;color:#e8b45e;margin-top:8px;line-height:1.4">💨 Gasriese: Es gibt <b>keine Oberfläche</b> – nach unten wird das Gas nur immer dichter, bis es ein Schiff zerdrückt. Landen kann man hier nie, dafür auf seinen Monden.</p>`:""}
+      ${b.kind==="eis"?`<p style="font-size:12px;color:#9fd8f0;margin-top:8px;line-height:1.4">🧊 Eismond: kilometerdicke Wasser-Eis-Kruste, darunter ein flüssiger Ozean. Landen geht – aber ganz sachte.</p>`:""}`;
     cards.appendChild(div);
   }
   // Kleinkörper: Asteroiden & Meteoroid (Vorbeiflug-Scan bringt Wissenschaft)
   for(const a of ASTEROIDS){
+    if(!smallBodyKnown()){ cards.appendChild(unknownCard()); continue; }
     const scanned = asteroidScanned(a.id);
     const div = document.createElement("div");
     div.className = "tech-node"+(scanned?" unlocked":""); div.style.width = "300px";
     div.innerHTML = `<h3>${a.icon} ${a.kind} ${a.name} ${scanned?"✅":""}</h3>
       <p style="font-size:12.5px;color:var(--muted);margin:4px 0 8px;">${a.info}</p>
       <div style="display:flex;justify-content:space-between"><span>Durchmesser</span><b>${(a.R*2/1000).toFixed(1)} km</b></div>
-      <div style="display:flex;justify-content:space-between"><span>Sonnenabstand</span><b>${(a.orbitR/1e9).toFixed(1)} Mio. km</b></div>
+      ${a.ecc
+        ? `<div style="display:flex;justify-content:space-between"><span>Perihel (sonnennah)</span><b>${(a.periR/1e9).toFixed(1)} Mio. km</b></div>
+           <div style="display:flex;justify-content:space-between"><span>Aphel (sonnenfern)</span><b>${(a.apoR/1e9).toFixed(1)} Mio. km</b></div>
+           <div style="display:flex;justify-content:space-between"><span>Exzentrizität</span><b>${a.ecc.toFixed(2)}</b></div>`
+        : `<div style="display:flex;justify-content:space-between"><span>Sonnenabstand</span><b>${(a.orbitR/1e9).toFixed(1)} Mio. km</b></div>`}
+      <div style="display:flex;justify-content:space-between"><span>Umlaufzeit</span><b>${(a.period/86400).toFixed(0)} Tage</b></div>
       <div style="display:flex;justify-content:space-between"><span>Bahnneigung</span><b>${Math.round(a.incl*180/Math.PI)}°</b></div>
       <div style="display:flex;justify-content:space-between;color:var(--orange)"><span><b>Vorbeiflug-Scan (&lt; 1000 km)</b></span><b>${scanned?"erledigt":"+"+a.sci+" 🧪"}</b></div>`;
     cards.appendChild(div);
@@ -2344,24 +2490,58 @@ function universeFrame(){
   ctx.strokeStyle="rgba(150,160,190,.35)";
   for(const rr of [r0,r1,r2,r2b,r3]){ ctx.beginPath(); ctx.arc(cx,cy,rr,0,7); ctx.stroke(); }
   const t = performance.now()/1000;
+  /* Unentdeckt = flackernder Lichtpunkt statt Planetenscheibe. Bewusst NICHT
+     komplett unsichtbar: Man soll sehen, DASS da etwas kreist – genau das war
+     ja historisch der Anlass, genauer hinzuschauen. */
+  const unknownDot = (x,y,rp)=>{
+    const tw = 0.72 + 0.28*Math.sin(t*3.1 + x*0.05);   // Szintillation
+    const g = ctx.createRadialGradient(x,y,0,x,y,rp*1.5);
+    g.addColorStop(0,"rgba(220,228,244,"+(0.85*tw).toFixed(2)+")");
+    g.addColorStop(0.45,"rgba(150,165,200,"+(0.35*tw).toFixed(2)+")");
+    g.addColorStop(1,"rgba(120,135,170,0)");
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,rp*1.5,0,7); ctx.fill();
+  };
+  const drawBody = (b,x,y,rp)=>{
+    if(bodyKnown(b)) drawPlanetSurface(ctx,b,x,y,rp,t);
+    else unknownDot(x,y,Math.max(3, rp*0.42));
+  };
+  const labelOf = b=>bodyKnown(b) ? b.name : "???";
   // Kepler (innen, schnell) & Newton (außen, träge)
   const aK = t*2*Math.PI/26 + 1.1;
   const kx=cx+Math.cos(aK)*r0, ky=cy+Math.sin(aK)*r0;
-  drawPlanetSurface(ctx,KEPLER,kx,ky,orbPx*0.045,t);
+  drawBody(KEPLER,kx,ky,orbPx*0.045);
   const aN = t*2*Math.PI/260 + 3.6;
   const nwx=cx+Math.cos(aN)*r3, nwy=cy+Math.sin(aN)*r3;
-  drawPlanetSurface(ctx,NEWTON,nwx,nwy,orbPx*0.085,t);
+  drawBody(NEWTON,nwx,nwy,orbPx*0.085);
   // Huygens: der Ringplanet zwischen Minzi und Newton
   const aH = t*2*Math.PI/170 + 0.8;
   const hx=cx+Math.cos(aH)*r2b, hy=cy+Math.sin(aH)*r2b;
-  ctx.strokeStyle="rgba(226,200,150,.75)"; ctx.lineWidth=3;
-  ctx.beginPath(); ctx.ellipse(hx,hy,orbPx*0.125,orbPx*0.042,-0.35,0,7); ctx.stroke();
-  ctx.lineWidth=1;
-  drawPlanetSurface(ctx,HUYGENS,hx,hy,orbPx*0.06,t);
+  const huyKnown = bodyKnown(HUYGENS);
+  if(huyKnown){
+    ctx.strokeStyle="rgba(226,200,150,.75)"; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.ellipse(hx,hy,orbPx*0.125,orbPx*0.042,-0.35,0,7); ctx.stroke();
+    ctx.lineWidth=1;
+  }
+  drawBody(HUYGENS,hx,hy,orbPx*0.06);
+  // Die drei Monde von Huygens (stilisierte Abstände wie überall auf dieser
+  // Karte – echte 3,6/6,2/10,5 Mio. m wären hier ein Pixel breit).
+  if(huyKnown){
+    ctx.font="10px sans-serif"; ctx.textAlign="center";
+    HUYGENS_MOONS.forEach((m,i)=>{
+      const rr = orbPx*(0.105 + i*0.043), per = 9 + i*7;
+      ctx.strokeStyle="rgba(150,160,190,.22)";
+      ctx.beginPath(); ctx.arc(hx,hy,rr,0,7); ctx.stroke();
+      const am = t*2*Math.PI/per + m.phase;
+      const mx2 = hx+Math.cos(am)*rr, my2 = hy+Math.sin(am)*rr;
+      drawPlanetSurface(ctx,m,mx2,my2,orbPx*(0.020-i*0.004),t);
+      ctx.fillStyle = "#cdd6e6";
+      ctx.fillText(m.name, mx2, my2-orbPx*0.024);
+    });
+  }
   ctx.fillStyle="#e8ecf5"; ctx.font="12px sans-serif"; ctx.textAlign="center";
-  ctx.fillText("Kepler",kx,ky+orbPx*0.045+13);
-  ctx.fillText("Newton",nwx,nwy+orbPx*0.085+14);
-  ctx.fillText("Huygens",hx,hy+orbPx*0.13+12);
+  ctx.fillText(labelOf(KEPLER),kx,ky+orbPx*0.045+13);
+  ctx.fillText(labelOf(NEWTON),nwx,nwy+orbPx*0.085+14);
+  ctx.fillText(labelOf(HUYGENS),hx,hy+(huyKnown?orbPx*0.19:orbPx*0.06)+12);
   // Sonne mit Glow
   const sg = ctx.createRadialGradient(cx,cy,4,cx,cy,orbPx*0.22);
   sg.addColorStop(0,"rgba(255,244,200,1)"); sg.addColorStop(0.4,"rgba(255,220,130,.5)");
@@ -2388,18 +2568,79 @@ function universeFrame(){
   ctx.fillText("Leibniz",lx,ly+orbPx*0.13+16);
   ctx.fillText("Monti",mx,my-orbPx*0.05-8);
   ctx.fillText("Minzi",nx,ny+orbPx*0.06+16);
-  // --- Kleinkörper: Asteroiden & Meteoroid auf ihren (geneigten) Bahnen ---
+  // --- Kleinkörper: Asteroiden, Meteoroid & Komet auf ihren Bahnen ---
   ctx.font="11px sans-serif";
+  const smallKnown = smallBodyKnown();
+  /* Der Ort eines Kleinkörpers in KARTEN-Pixeln. Für die Ellipse des Kometen
+     wird die echte Bahn gerechnet und ihr Radius durch dieselbe stilisierte
+     Skala `uniR` geschickt wie bei allen anderen – nur so bleibt "innerhalb
+     der Leibniz-Bahn" auch auf der Karte innerhalb der Leibniz-Bahn. */
+  const mapPos = (a, tt)=>{
+    const per = 60*(a.period/LEIBNIZ.period);   // Zeitskala: 60 s = 1 Leibniz-Jahr
+    if(!a.ecc){
+      const w = tt*2*Math.PI/per + a.phase, rr = orbPx*uniR(a.orbitR);
+      return [cx+Math.cos(w)*rr, cy+Math.sin(w)*rr];
+    }
+    const M = tt*2*Math.PI/per + a.phase, e = a.ecc;
+    let E = M;
+    for(let k=0;k<5;k++) E -= (E - e*Math.sin(E) - M)/(1 - e*Math.cos(E));
+    const w = 2*Math.atan2(Math.sqrt(1+e)*Math.sin(E/2), Math.sqrt(1-e)*Math.cos(E/2)) + (a.argP||0);
+    const rr = orbPx*uniR(a.orbitR*(1 - e*Math.cos(E)));
+    return [cx+Math.cos(w)*rr, cy+Math.sin(w)*rr];
+  };
   ASTEROIDS.forEach((a,i)=>{
-    const rA = orbPx*uniR(a.orbitR);
-    ctx.strokeStyle="rgba(200,180,140,.3)"; ctx.setLineDash([4,5]);
-    ctx.beginPath(); ctx.arc(cx,cy,rA,0,7); ctx.stroke(); ctx.setLineDash([]);
-    const perDisp = 60*(a.period/LEIBNIZ.period);        // gleiche Zeitskala wie Leibniz (60 s/Jahr)
-    const aa = t*2*Math.PI/perDisp + a.phase;
-    const ax=cx+Math.cos(aa)*rA, ay=cy+Math.sin(aa)*rA;
-    ctx.fillStyle = asteroidScanned(a.id) ? "#5fc46a" : "#d8c39a";
+    const perDisp = 60*(a.period/LEIBNIZ.period);
+    const [ax, ay] = mapPos(a, t);
+    if(smallKnown){
+      ctx.strokeStyle = a.tail ? "rgba(160,205,235,.34)" : "rgba(200,180,140,.3)";
+      ctx.setLineDash([4,5]); ctx.beginPath();
+      if(a.ecc){
+        for(let k=0;k<=180;k++){
+          const [px2,py2] = mapPos(a, k/180*perDisp);
+          if(k) ctx.lineTo(px2,py2); else ctx.moveTo(px2,py2);
+        }
+        ctx.closePath();
+      } else ctx.arc(cx,cy, orbPx*uniR(a.orbitR), 0, 7);
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    if(!smallKnown){ unknownDot(ax,ay,3); ctx.fillStyle="#9aa5bd"; ctx.fillText("???", ax, ay-9); return; }
+    // Komet: die beiden Schweife auch auf der Karte – sie zeigen von der
+    // Sonne (Bildmitte) weg, der Staubschweif zusätzlich gekrümmt.
+    if(a.tail){
+      const act = cometActivity(a, t/60*LEIBNIZ.period);
+      if(act > 0.01){
+        const dx = ax-cx, dy = ay-cy, dl = Math.hypot(dx,dy)||1;
+        const ux = dx/dl, uy = dy/dl;
+        const [bx,by] = mapPos(a, t-0.35);
+        let lx2 = ax-bx, ly2 = ay-by;
+        const ll = Math.hypot(lx2,ly2)||1; lx2/=ll; ly2/=ll;   // Rückwärtsrichtung
+        const Li = orbPx*0.24*act, Ld = orbPx*0.17*act;
+        // Ionenschweif: schmaler blauer Keil, kerzengerade
+        let gI = ctx.createLinearGradient(ax,ay, ax+ux*Li, ay+uy*Li);
+        gI.addColorStop(0,"rgba(150,215,255,"+(0.55*act).toFixed(2)+")");
+        gI.addColorStop(1,"rgba(120,190,255,0)");
+        ctx.strokeStyle=gI; ctx.lineWidth=3; ctx.lineCap="round";
+        ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(ax+ux*Li, ay+uy*Li); ctx.stroke();
+        // Staubschweif: breiter, heller, gekrümmt (quadratisch nach hinten)
+        let gD = ctx.createLinearGradient(ax,ay, ax+ux*Ld, ay+uy*Ld);
+        gD.addColorStop(0,"rgba(255,238,200,"+(0.5*act).toFixed(2)+")");
+        gD.addColorStop(1,"rgba(255,225,170,0)");
+        ctx.strokeStyle=gD; ctx.lineWidth=7;
+        ctx.beginPath(); ctx.moveTo(ax,ay);
+        for(let k=1;k<=10;k++){
+          const s2=k/10;
+          ctx.lineTo(ax+ux*Ld*s2 - lx2*Ld*0.55*s2*s2, ay+uy*Ld*s2 - ly2*Ld*0.55*s2*s2);
+        }
+        ctx.stroke(); ctx.lineWidth=1;
+        // Koma
+        const gc = ctx.createRadialGradient(ax,ay,0, ax,ay, 7+5*act);
+        gc.addColorStop(0,"rgba(235,250,255,.95)"); gc.addColorStop(1,"rgba(160,215,255,0)");
+        ctx.fillStyle=gc; ctx.beginPath(); ctx.arc(ax,ay,7+5*act,0,7); ctx.fill();
+      }
+    }
+    ctx.fillStyle = asteroidScanned(a.id) ? "#5fc46a" : (a.tail ? "#dff0ff" : "#d8c39a");
     ctx.beginPath(); ctx.arc(ax,ay,3,0,7); ctx.fill();
-    ctx.fillStyle="#d8c39a";
+    ctx.fillStyle = a.tail ? "#bfe0f5" : "#d8c39a";
     ctx.fillText(a.icon+" "+a.name, ax, ay-8);
   });
   ctx.textAlign="left";
@@ -2428,7 +2669,7 @@ const AdminCam = {
     this.scene.add(sun);
     this.sunMesh = sun;
     this.meshes = new Map([[SUN, sun]]);
-    for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON]){
+    for(const b of ORBIT_BODIES){
       const m = new THREE.Mesh(new THREE.SphereGeometry(b.R, 96, 48),
         new THREE.MeshStandardMaterial({map:makeBodyTexture(b), roughness:.9}));
       if(b.ring) m.add(buildRingMesh(b));
@@ -2436,7 +2677,7 @@ const AdminCam = {
     }
     // Bahnlinien (bei Kindkörpern pro Frame um den wandernden Parent zentriert)
     this.rings = [];
-    for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON]){
+    for(const b of ORBIT_BODIES){
       const pts = [];
       for(let i=0;i<256;i++) pts.push(bodyLocalPos(b, i/256*b.period));
       const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
@@ -2458,11 +2699,14 @@ const AdminCam = {
       geo.computeVertexNormals();
       const m = new THREE.Mesh(geo,
         new THREE.MeshStandardMaterial({color:a.color, roughness:.95, flatShading:true}));
-      this.scene.add(m); this.astMeshes.push([a, m]);
-      const apts = [];
-      for(let i=0;i<256;i++) apts.push(asteroidPos(a, i/256*a.period));
+      this.scene.add(m);
+      let fx = null;
+      if(a.tail){ fx = buildCometFx(); this.scene.add(fx); }
+      this.astMeshes.push([a, m, fx]);
+      const apts = [], NP = a.ecc ? 512 : 256;
+      for(let i=0;i<NP;i++) apts.push(asteroidPos(a, i/NP*a.period));
       this.scene.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(apts),
-        new THREE.LineBasicMaterial({color:0x8a7a55, transparent:true, opacity:.5})));
+        new THREE.LineBasicMaterial({color:a.tail?0x6f95b5:0x8a7a55, transparent:true, opacity:.5})));
     }
     // Text-Label als Sprite (für Bahnhöfe & Station – nur in der Admin-Cam sichtbar)
     const makeLabel = (txt)=>{
@@ -2524,12 +2768,14 @@ const AdminCam = {
     // (Radius jenseits von Newton & Max-Zoom, innerhalb der Far-Plane 4e11)
     addNebulae(this.scene, 1.8e11, 2.6, 0.85);
     // Fokus-Buttons (Planeten + Kleinkörper als Follow-Cam)
-    const icons = {Sonne:"☀️", Leibniz:"🌍", Monti:"🌗", Minzi:"🍬", Kepler:"🔥", Huygens:"🪐", Newton:"🔵"};
     const span = document.getElementById("admFocusBtns");
-    for(const b of [SUN, KEPLER, LEIBNIZ, MONTI, MINZI, HUYGENS, NEWTON]){
+    for(const b of [SUN, KEPLER, LEIBNIZ, MONTI, MINZI, HUYGENS, ...HUYGENS_MOONS, NEWTON]){
       const btn = document.createElement("button");
-      btn.className = "btn"; btn.style.cssText = "padding:5px 10px;font-size:12px;";
-      btn.textContent = icons[b.name]+" "+b.name;
+      btn.className = "btn";
+      // Huygens-Monde optisch eingerückt: sie gehören zum Gasriesen davor
+      btn.style.cssText = "padding:5px 10px;font-size:12px;"+
+        (b.parent===HUYGENS ? "border-color:#8f7f5a;opacity:.9;" : "");
+      btn.textContent = BODY_ICON[b.name]+" "+b.name;
       btn.onclick = ()=>this.setFocus(b);
       span.appendChild(btn);
     }
@@ -2618,10 +2864,15 @@ const AdminCam = {
     for(const [b,ring] of this.rings)
       ring.position.copy(b.parent && b.parent!==SUN ? bodyPos(b.parent, this.t) : V3());
     // Kleinkörper folgen ihren Bahnen (und trudeln langsam)
-    for(const [a,m] of this.astMeshes){
-      m.position.copy(asteroidPos(a, this.t));
+    for(const [a,m,fx] of this.astMeshes){
+      const ap = asteroidPos(a, this.t);
+      m.position.copy(ap);
       m.rotation.y += 0.12*(this.SPEEDS[this.speedI][0]/86400);
       m.rotation.x += 0.05*(this.SPEEDS[this.speedI][0]/86400);
+      // Hier ist der Komet am schönsten: einmal im Zeitraffer mitlaufen und
+      // zusehen, wie die Schweife am Perihel aufblühen und immer von der
+      // Sonne wegzeigen.
+      if(fx) updateCometFx(fx, a, ap, this.t, 1);
     }
     // Die Bahnhöfe hängen am Leibniz-Mesh und drehen sich mit (s. init()) –
     // hier ist nur noch die Station zu setzen, die läuft on rails.
@@ -3489,13 +3740,18 @@ function makeSunMesh(R, opt){
    ================================================================= */
 let _leibnizTex = null;
 function makeBodyTexture(b){
-  // Leibniz' Textur ist die teuerste (prozedurales Terrain) und wird von
-  // Flug-Szene UND AdminCam gebraucht – einmal bauen, zweimal benutzen.
+  // ⚠️ ALLE Texturen werden gecacht: Flug-Szene und Admin-Cam bauen dieselben
+  // Körper auf, und seit die Welten prozedural sind (statt gemalter Ellipsen)
+  // kostet jeder Neubau dreistellige Millisekunden.
   if(b===LEIBNIZ && _leibnizTex) return _leibnizTex;
+  if(b._tex) return b._tex;
   // Nur Leibniz bekommt die doppelte Auflösung (1,8 statt 3,7 km je Texel):
   // Man fliegt dort bis auf 16 km heran, wo die Kugelansicht die Bodenszene
   // ablöst – jede Stufe Schärfe macht den Übergang weicher. 8 MB, 230 ms.
-  const W = b===LEIBNIZ ? 2048 : 1024, HH = W/2;
+  // Auflösung nach NÄHE im Spiel, nicht nach Größe: Auf Monti landet man
+  // (und sieht die Krater aus 2 km), die fernen Welten sieht man fast immer
+  // als Scheibe – 512 reicht dort und spart das Vierfache an Rechenzeit.
+  const W = b===LEIBNIZ ? 2048 : (b===MONTI ? 1024 : 512), HH = W/2;
   const c = document.createElement("canvas"); c.width=W; c.height=HH;
   const x = c.getContext("2d");
   if(b===LEIBNIZ){
@@ -3615,86 +3871,365 @@ function makeBodyTexture(b){
       }
     }
     x.putImageData(img, 0, 0);
-  } else if(b===KEPLER){
-    // Glutplanet: verbrannter Fels mit Lavaadern
-    x.fillStyle="#a54a2a"; x.fillRect(0,0,1024,512);
-    const rnd = seededRand(77);
-    for(let k=0;k<40;k++){
-      const cx=rnd()*1024, cy=rnd()*512, rr=15+rnd()*70;
-      x.fillStyle = k%3 ? "rgba(94,36,18,.6)" : "rgba(232,160,106,.5)";
-      x.beginPath(); x.ellipse(cx,cy,rr,rr*0.6,rnd()*3,0,7); x.fill();
-    }
-    for(let k=0;k<22;k++){
-      const cx=rnd()*1024, cy=rnd()*512;
-      x.strokeStyle="rgba(255,120,40,.7)"; x.lineWidth=1.5+rnd()*2;
-      x.beginPath(); x.moveTo(cx,cy);
-      let px=cx, py=cy;
-      for(let s2=0;s2<6;s2++){ px+=(rnd()-0.5)*60; py+=(rnd()-0.5)*30; x.lineTo(px,py); }
-      x.stroke();
-    }
-  } else if(b===NEWTON){
-    // Eisriese: horizontale Wolkenbänder
-    const bands=["#4a7fd8","#57c7d8","#3a5fc8","#7fd8e8","#2a4fa8","#57c7d8","#4a7fd8","#22397e"];
-    const rnd = seededRand(88);
-    let yy=0;
-    for(let k=0;k<bands.length;k++){
-      const bh = 40+rnd()*50;
-      x.fillStyle = bands[k];
-      x.fillRect(0, yy, 1024, bh+8);
-      yy += bh;
-    }
-    x.fillStyle = bands[0]; x.fillRect(0, yy, 1024, 512-yy);
-    for(let k=0;k<14;k++){
-      x.fillStyle="rgba(255,255,255,.18)";
-      x.beginPath(); x.ellipse(rnd()*1024, rnd()*512, 40+rnd()*80, 8+rnd()*10, 0, 0, 7); x.fill();
-    }
-  } else if(b===HUYGENS){
-    // Ringplanet: warme, sandfarbene Wolkenbänder wie Saturn
-    const bands=["#e8cf9d","#f2dcae","#d8b370","#c9a05c","#f0e2bd","#b98f4e","#e2c48a","#d8b370"];
-    const rnd = seededRand(55);
-    let yy=0;
-    for(let k=0;k<bands.length;k++){
-      const bh = 40+rnd()*55;
-      x.fillStyle = bands[k];
-      x.fillRect(0, yy, 1024, bh+8);
-      yy += bh;
-    }
-    x.fillStyle = bands[1]; x.fillRect(0, yy, 1024, 512-yy);
-    for(let k=0;k<10;k++){
-      x.fillStyle="rgba(255,250,235,.2)";
-      x.beginPath(); x.ellipse(rnd()*1024, rnd()*512, 50+rnd()*90, 7+rnd()*9, 0, 0, 7); x.fill();
-    }
-  } else if(b===MINZI){
-    // Minzgrüner Eismond: glatte, helle Flächen
-    x.fillStyle="#bfe8d5"; x.fillRect(0,0,1024,512);
-    const rnd = seededRand(44);
-    for(let k=0;k<26;k++){
-      const cx=rnd()*1024, cy=rnd()*512, r=22+rnd()*80;
-      x.fillStyle = k%3 ? "rgba(143,202,178,.55)" : "rgba(235,250,243,.7)";
-      x.beginPath(); x.ellipse(cx,cy,r,r*0.6,rnd()*3,0,7); x.fill();
-    }
-    for(let k=0;k<18;k++){
-      const cx=rnd()*1024, cy=rnd()*512, r=3+rnd()*9;
-      x.fillStyle="rgba(93,143,120,.5)";
-      x.beginPath(); x.arc(cx,cy,r,0,7); x.fill();
-    }
   } else {
-    x.fillStyle="#8d95a3"; x.fillRect(0,0,1024,512);
-    const rnd = seededRand(99);
-    for(let k=0;k<60;k++){
-      const cx=rnd()*1024, cy=rnd()*512, r=6+rnd()*34;
-      x.fillStyle="rgba(70,76,90,.6)";
-      x.beginPath(); x.arc(cx,cy,r,0,7); x.fill();
-      x.fillStyle="rgba(205,212,224,.5)";
-      x.beginPath(); x.arc(cx-r*0.15,cy-r*0.15,r*0.75,0,7); x.fill();
-      x.fillStyle="rgba(120,127,140,1)";
-      x.beginPath(); x.arc(cx,cy,r*0.55,0,7); x.fill();
-    }
+    paintProceduralBody(b, x, W, HH);
   }
   const tex = new THREE.CanvasTexture(c);
   if(b===LEIBNIZ) _leibnizTex = tex;
+  else b._tex = tex;         // Flug-Szene UND Admin-Cam brauchen dieselbe
   return tex;
 }
+
+/* =================================================================
+   PROZEDURALE WELTEN (alles außer Leibniz)
+   -----------------------------------------------------------------
+   Vorher waren das gemalte Ellipsen und waagerechte Farbstreifen auf
+   einem Canvas – daher der »8-bit«-Eindruck. Jetzt dasselbe Rezept wie
+   bei Leibniz, nur ohne Meer:
+     1. HÖHENFELD aus fraktalem Rauschen
+     2. KRATER als echte Dellen INS Höhenfeld gestempelt (Boden + Wall)
+     3. SCHUMMERUNG aus dem Gradienten des Höhenfelds
+     4. FARBRAMPE nach Höhe/Maske, pro Körper eigen
+   ⚠️⚠️ Das Rauschen wird in 3D auf der EINHEITSKUGEL abgetastet, nicht im
+   UV-Rechteck. Nur so gibt es (a) keine Naht an der Datumsgrenze und (b)
+   kein Gequetsche an den Polen – zwei Dinge, die 2D-Planetentexturen sofort
+   verraten. Dieselbe UV-Konvention wie bei Leibniz benutzen, sonst passt
+   die Karte nicht zur Kugel: x = −cos(φ)·sin(θ), y = cos(θ), z = sin(φ)·sin(θ).
+   ⚠️ Die SCHUMMERUNG trägt fast die ganze Plastizität. Sie ist aber ALBEDO –
+   das Sonnenlicht kommt in der Szene noch dazu, deshalb nur ±35 %.
+   ================================================================= */
+/* FBM in [0,1]; `seed` verschiebt das Gitter, damit zwei Felder desselben
+   Körpers nicht deckungsgleich liegen. */
+function _pFbm(x, y, z, oct, f0, seed){
+  let f = f0, a = 1, sum = 0, norm = 0;
+  for(let i=0;i<oct;i++){
+    const o = i*37.13 + seed;
+    sum  += a*_tNoise(x*f + 11.3 + o, y*f + 47.9 + o*1.7, z*f + 23.1 + o*2.3);
+    norm += a; f *= 2; a *= 0.5;
+  }
+  return sum/norm;
+}
+/* Ridged FBM in [0,1]: scharfe Grate/Risse statt runder Hügel. */
+function _pRidge(x, y, z, oct, f0, seed){
+  let f = f0, a = 1, sum = 0, norm = 0;
+  for(let i=0;i<oct;i++){
+    const o = i*29.71 + seed;
+    let n = _tNoise(x*f + 3.7 + o, y*f + 19.3 + o*1.3, z*f + 61.1 + o*2.1);
+    n = 1 - Math.abs(2*n - 1);
+    sum += a*n*n; norm += a;
+    f *= 2.03; a *= 0.5;
+  }
+  return sum/norm;
+}
+/* Krater ins Höhenfeld stempeln.
+   ⚠️ Pro KRATER rastern, nicht pro Texel alle Krater prüfen: 500 000 Texel ×
+   200 Krater wären 100 Mio. Winkelabstände. So sind es nur die paar hundert
+   Texel, die ein Krater wirklich berührt.
+   Profil: abgesenkter Boden + gaußförmig aufgeworfener Wall – die Schummerung
+   macht daraus von allein einen beleuchteten Krater mit Schattenrand.
+   Größenverteilung ∝ rnd^2.4: viele kleine, wenige große (wie in echt). */
+function _stampCraters(hBuf, W, H, n, seed, rMin, rMax, depth){
+  const rnd = seededRand(seed);
+  for(let k=0;k<n;k++){
+    const uy = rnd()*2-1, th = rnd()*2*Math.PI, s = Math.sqrt(Math.max(0,1-uy*uy));
+    const cxv = s*Math.cos(th), cyv = uy, czv = s*Math.sin(th);
+    const rho = rMin + (rMax-rMin)*Math.pow(rnd(), 2.4);
+    const dep = depth*(0.6 + 0.8*rnd());
+    const lat0 = Math.asin(cyv);
+    const reach = rho*1.35;
+    const py0 = Math.max(0, Math.floor((0.5 - (lat0+reach)/Math.PI)*H));
+    const py1 = Math.min(H-1, Math.ceil((0.5 - (lat0-reach)/Math.PI)*H));
+    const clat = Math.max(0.03, Math.cos(lat0));
+    const halfPx = Math.min(W/2, Math.ceil(reach/clat/(2*Math.PI)*W)+2);
+    const ph0 = Math.atan2(czv, -cxv);
+    const px0 = Math.round(((ph0/(2*Math.PI))%1+1)%1*W);
+    for(let py=py0; py<=py1; py++){
+      const lat = (0.5-(py+0.5)/H)*Math.PI, cl = Math.cos(lat), sl = Math.sin(lat);
+      for(let dx=-halfPx; dx<=halfPx; dx++){
+        const px = ((px0+dx)%W+W)%W;
+        const ph = (px+0.5)/W*2*Math.PI;
+        const dot = (-cl*Math.cos(ph))*cxv + sl*cyv + (cl*Math.sin(ph))*czv;
+        const ang = Math.acos(Math.max(-1, Math.min(1, dot)));
+        const t = ang/rho;
+        if(t > 1.35) continue;
+        const bowl = t < 0.85 ? 1 - (t/0.85)*(t/0.85) : 0;
+        const rim  = Math.exp(-((t-0.97)/0.24)*((t-0.97)/0.24));
+        hBuf[py*W+px] += dep*(rim*0.55 - bowl*0.9);
+      }
+    }
+  }
+}
+/* Der gemeinsame Maler.
+   ⚠️⚠️ Das Rauschen läuft in HALBER Auflösung, genau wie beim Relief von
+   Leibniz: Gebirge, Bänder und Rissfelder sind viel glatter als ein Texel,
+   und `_tNoise` ist mit Abstand der teuerste Teil (gemessen 185 von 280 ms
+   bei 1024²). Vierfach weniger Abtastungen = vierfach billiger, ohne dass
+   man es sieht. Scharf bleibt, was scharf sein muss: die Krater werden in
+   VOLLER Auflösung gestempelt, und die Schummerung rechnet auf dem vollen
+   Höhenfeld (sie braucht kein Rauschen, kostet also fast nichts).
+   ⚠️ Genauso wichtig: Alle Rauschfelder, die auch die FARBE braucht (Mare,
+   Lavarisse, Tigerstreifen …), werden in `calc` EINMAL berechnet und im
+   Feldpuffer abgelegt. Sie im Farbdurchgang nachzurechnen hat die Textur
+   glatt verdoppelt – derselbe Fehler, den die Leibniz-Textur mit `lh` schon
+   einmal gemacht hat. */
+function paintProceduralBody(b, ctx, W, H){
+  const spec = BODY_PAINT[b.name] || BODY_PAINT._default;
+  const n = spec.n || 1;
+  const RW = W>>1, RH = H>>1;
+  const fld = new Float32Array(RW*RH*n);
+  const u = {x:0, y:0, z:0};
+  // --- 1) Rausch-Felder in halber Auflösung ------------------------
+  for(let ry=0; ry<RH; ry++){
+    const lat = (0.5-(ry+0.5)/RH)*Math.PI, cl = Math.cos(lat), sl = Math.sin(lat);
+    for(let rx=0; rx<RW; rx++){
+      const ph = (rx+0.5)/RW*2*Math.PI;
+      u.x = -cl*Math.cos(ph); u.y = sl; u.z = cl*Math.sin(ph);
+      spec.calc(u, lat, fld, (ry*RW+rx)*n);
+    }
+  }
+  // --- 2) Höhenfeld auf volle Auflösung + Krater -------------------
+  const hBuf = new Float32Array(W*H);
+  for(let py=0; py<H; py++){
+    const ro = Math.min(RH-1, py>>1)*RW;
+    for(let px=0; px<W; px++) hBuf[py*W+px] = fld[(ro + (px>>1))*n];
+  }
+  if(spec.craters) spec.craters.forEach(c=>_stampCraters(hBuf, W, H, c[0], c[1], c[2], c[3], c[4]));
+  // --- 3) Schummerung ----------------------------------------------
+  // Gasriesen bekommen keine: Wolken werfen keine Bergschatten.
+  const shade = new Float32Array(W*H);
+  if(spec.gas) shade.fill(1);
+  else {
+    const at = (px,py)=>hBuf[Math.max(0,Math.min(H-1,py))*W + ((px%W)+W)%W];
+    for(let py=0; py<H; py++){
+      const lat = (0.5-(py+0.5)/H)*Math.PI;
+      // ⚠️ Am Pol schrumpfen die Zellen in Ost-Richtung gegen 0, der Gradient
+      // würde also gegen unendlich laufen und die letzten Zeilen als helles
+      // Band ausbrennen. Deckel bei cos = 0,35 (≈ 2,9×) – die Polkappe ist auf
+      // der Kugel ohnehin ein Punkt, dort ist Genauigkeit wertlos.
+      const kx = 1/Math.max(0.35, Math.cos(lat));
+      for(let px=0; px<W; px++){
+        const gx = (at(px+1,py)-at(px-1,py))*0.5*kx;
+        const gy = (at(px,py+1)-at(px,py-1))*0.5;
+        shade[py*W+px] = Math.max(0.55, Math.min(1.35,
+          1 + (spec.relief||26)*(-gx*0.62 + gy*0.78)));
+      }
+    }
+  }
+  // --- 4) Farbe ----------------------------------------------------
+  const img = ctx.createImageData(W, H), d = img.data;
+  const out = [0,0,0];
+  for(let py=0; py<H; py++){
+    const lat = (0.5-(py+0.5)/H)*Math.PI;
+    const ro = Math.min(RH-1, py>>1)*RW;
+    for(let px=0; px<W; px++){
+      const i = py*W+px;
+      spec.color(hBuf[i], fld, (ro + (px>>1))*n, lat, shade[i], out);
+      const o = i*4;
+      d[o]   = out[0]<0?0:out[0]>255?255:out[0];
+      d[o+1] = out[1]<0?0:out[1]>255?255:out[1];
+      d[o+2] = out[2]<0?0:out[2]>255?255:out[2];
+      d[o+3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+/* Hilfen für die Farbrampen */
+function _sm(a, bb, t){ t = Math.max(0, Math.min(1, (t-a)/(bb-a))); return t*t*(3-2*t); }
+function _mix(o, r, g, bl, k){ o[0]+=(r-o[0])*k; o[1]+=(g-o[1])*k; o[2]+=(bl-o[2])*k; }
+/* Rezeptbuch. Vertrag je Körper:
+     n         – Floats je Texel im Feldpuffer (f[i] = Höhe, danach Hilfsfelder)
+     calc(u, lat, f, i)                – füllt den Feldpuffer (halbe Auflösung)
+     color(h, f, i, lat, shade, out)   – Albedo aus Höhe + Hilfsfeldern
+     craters   – [Anzahl, Seed, minWinkel, maxWinkel, Tiefe]
+     relief    – Verstärkung der Schummerung
+   Alle Frequenzen sind so gewählt, dass die feinste Oktave über der
+   HALBEN Texelauflösung bleibt – sonst rauscht es statt zu strukturieren.
+   ⚠️ Schwellen für Risse/Adern liegen bei ~0,80, NICHT bei 0,55: `_pRidge`
+   ist normiert und liegt im Mittel schon bei 0,53 – gemessen sind 52 % der
+   Oberfläche über 0,52. Mit der niedrigen Schwelle war der halbe Planet
+   schwach eingefärbt statt ein paar Adern kräftig; genau deshalb sah man
+   Keplers Lava überhaupt nicht. Über 0,80 liegen nur noch die Gratlinien. */
+const BODY_PAINT = {
+  /* Monti – unser Mond: helles Hochland, dunkle Mare (erstarrte Lavaebenen),
+     dicht gesät mit Kratern. Die Mare sind FLACHER als das Hochland: junge
+     Basaltdecken haben die alten Krater zugeschüttet. */
+  Monti:{
+    n:3, relief:34,
+    craters:[[220, 4101, 0.010, 0.075, 0.55], [70, 4102, 0.02, 0.16, 0.42]],
+    calc:(u, lat, f, i)=>{
+      const mare = _sm(0.53, 0.44, _pFbm(u.x,u.y,u.z, 3, 1.7, 0));   // 1 = Mare
+      const rough = _pFbm(u.x,u.y,u.z, 5, 5, 90);
+      f[i]   = 0.45 + rough*0.5*(1-0.72*mare) - mare*0.20;
+      f[i+1] = mare;
+      f[i+2] = _pRidge(u.x,u.y,u.z, 3, 22, 300);                     // Auswurfstrahlen
+    },
+    color:(h, f, i, lat, sh, o)=>{
+      const g = 150 + (h-0.5)*90;
+      o[0]=g*1.02; o[1]=g; o[2]=g*1.06;
+      _mix(o, 88, 92, 104, f[i+1]*0.78);                             // Basalt
+      _mix(o, 232, 236, 244, Math.max(0, f[i+2]-0.80)*3.0);
+      o[0]*=sh; o[1]*=sh; o[2]*=sh;
+    }},
+  /* Minzi – Eisplanet in Minzgrün: glatte Firnfelder, dazwischen Spalten,
+     an den Polen fast weiß. */
+  Minzi:{
+    n:2, relief:30,
+    craters:[[90, 4411, 0.012, 0.08, 0.38]],
+    calc:(u, lat, f, i)=>{
+      const cr = _pRidge(u.x,u.y,u.z, 5, 4, 12);
+      f[i]   = 0.5 + _pFbm(u.x,u.y,u.z, 5, 3, 40)*0.42 - cr*cr*0.30;
+      f[i+1] = cr;
+    },
+    color:(h, f, i, lat, sh, o)=>{
+      const t = _sm(0.22, 0.85, h);
+      o[0]=150+t*104; o[1]=200+t*54; o[2]=176+t*74;
+      _mix(o,  92, 148, 126, Math.max(0, f[i+1]-0.76)*3.4);          // Spalten
+      _mix(o, 244, 252, 248, _sm(0.95, 1.35, Math.abs(lat)));        // Polkappen
+      o[0]*=sh; o[1]*=sh; o[2]*=sh;
+    }},
+  /* Kepler – Glutplanet dicht an der Sonne: verbrannte Kruste aus dunklem
+     Basalt, in den Rissen glüht Lava durch. ⚠️ Die Glut sitzt in den TIEFEN
+     Stellen des Höhenfelds – so laufen die Adern durch die Täler, statt
+     zufällig über Berge zu klettern. */
+  Kepler:{
+    n:2, relief:30,
+    craters:[[60, 7701, 0.012, 0.07, 0.4]],
+    calc:(u, lat, f, i)=>{
+      const crack = _pRidge(u.x,u.y,u.z, 5, 6, 55);
+      f[i]   = 0.5 + _pFbm(u.x,u.y,u.z, 5, 3.5, 7)*0.55 - crack*0.35;
+      f[i+1] = crack;
+    },
+    color:(h, f, i, lat, sh, o)=>{
+      // ⚠️ Die Kruste muss DUNKEL und eher grau sein (erkaltete Lava ist fast
+      // schwarz). Mit einer schon orangen Grundfarbe verschwand die Glut
+      // darin – gemessen leuchteten 10 % der Fläche, zu sehen war davon nichts.
+      const t = _sm(0.30, 0.85, h);
+      o[0]=40+t*92; o[1]=31+t*68; o[2]=29+t*52;                      // Basalt → Asche
+      o[0]*=sh; o[1]*=sh; o[2]*=sh;
+      // Glut ADDITIV: sie leuchtet selbst, die Schummerung darf sie nicht dämpfen.
+      // Zweistufig – ein breiter warmer Saum um eine schmale, gleißende Ader.
+      const cr = f[i+1];
+      const seam = Math.max(0, cr-0.68)*2.2;
+      const vein = Math.max(0, cr-0.83)*6.0;
+      o[0]+=seam*118 + vein*150; o[1]+=seam*38 + vein*104; o[2]+=seam*6 + vein*36;
+    }},
+  /* Newton – gefrorene Eiswelt am Rand des Systems: bläuliches Wassereis,
+     durchzogen von tiefen Bruchzonen. */
+  Newton:{
+    n:2, relief:28,
+    craters:[[120, 8801, 0.010, 0.09, 0.42]],
+    calc:(u, lat, f, i)=>{
+      const rift = _pRidge(u.x,u.y,u.z, 5, 3.2, 21);
+      f[i]   = 0.5 + _pFbm(u.x,u.y,u.z, 6, 2.4, 3)*0.5 - rift*rift*0.34;
+      f[i+1] = rift;
+    },
+    color:(h, f, i, lat, sh, o)=>{
+      const t = _sm(0.28, 0.86, h);
+      o[0]=58+t*150; o[1]=104+t*126; o[2]=152+t*100;
+      _mix(o, 22, 52, 108, Math.max(0, f[i+1]-0.78)*3.2);            // tiefe Brüche
+      _mix(o, 236, 246, 255, _sm(1.02, 1.38, Math.abs(lat)));        // Polkappen
+      o[0]*=sh; o[1]*=sh; o[2]*=sh;
+    }},
+  /* Huygens – GASRIESE. Kein Relief, keine Schummerung: nur Bänder.
+     ⚠️ Der Trick sind nicht die Streifen, sondern das DOMAIN WARPING: der
+     Breitengrad wird vor dem Streifen-Sinus mit Rauschen verschoben. Aus
+     geraden Linien werden dadurch Wirbelstraßen und Wellen – ohne das sieht
+     ein Gasriese aus wie eine gestreifte Tapete (genau der alte Zustand). */
+  Huygens:{
+    n:3, gas:true,
+    calc:(u, lat, f, i)=>{
+      const w1 = _pFbm(u.x,u.y,u.z, 5, 2.6, 5)-0.5;
+      const w2 = _pFbm(u.x,u.y,u.z, 4, 8.0, 61)-0.5;
+      const yb = lat + w1*0.42 + w2*0.09;
+      f[i]   = 0.5 + 0.5*Math.sin(yb*13.5 + Math.sin(yb*4.1)*1.9);
+      f[i+1] = _pFbm(u.x,u.y,u.z, 3, 9, 33)-0.5;                     // feine Turbulenz
+      // Der große Sturm: ein ovaler Wirbel auf der Südhalbkugel
+      const dd = Math.acos(Math.max(-1, Math.min(1, u.x*0.42 + u.y*-0.36 + u.z*0.83)));
+      f[i+2] = Math.max(0, 1 - dd/0.30);
+    },
+    color:(h, f, i, lat, sh, o)=>{
+      // warme Saturn-Palette: hell in den Zonen, dunkel in den Gürteln
+      o[0]=178+h*72; o[1]=142+h*82; o[2]= 92+h*90;
+      _mix(o, 232, 214, 172, _sm(0.72, 1.0, h));
+      _mix(o, 150, 110,  62, _sm(0.30, 0.0, h));
+      o[0]+=f[i+1]*26; o[1]+=f[i+1]*22; o[2]+=f[i+1]*16;
+      const st = f[i+2];
+      _mix(o, 214, 138, 78, st*st*0.85);
+      // Pole schräg durchblickt = dunstiger und dunkler
+      _mix(o, 120, 118, 108, _sm(0.85, 1.5, Math.abs(lat))*0.45);
+    }},
+  /* Cassini – der große Felsmond: rostroter Staub, lange Dünenfelder am
+     Äquator (wie auf Titan), alte Krater im Hochland. */
+  Cassini:{
+    n:1, relief:32,
+    craters:[[130, 5511, 0.012, 0.10, 0.5]],
+    calc:(u, lat, f, i)=>{
+      const dune = Math.sin(lat*46 + (_pFbm(u.x,u.y,u.z, 3, 3, 9)-0.5)*9)*0.5+0.5;
+      const dm = 1-_sm(0.25, 0.75, Math.abs(lat));                   // Dünen nur äquatornah
+      f[i] = 0.5 + _pFbm(u.x,u.y,u.z, 5, 2.8, 17)*0.46 + dune*dm*0.11;
+    },
+    color:(h, f, i, lat, sh, o)=>{
+      const t = _sm(0.25, 0.88, h);
+      o[0]=126+t*104; o[1]= 78+t*84; o[2]= 44+t*54;
+      _mix(o, 92, 58, 34, _sm(0.35, 0.05, h));                       // dunkle Senken
+      _mix(o, 236, 208, 162, _sm(1.05, 1.45, Math.abs(lat))*0.7);
+      o[0]*=sh; o[1]*=sh; o[2]*=sh;
+    }},
+  /* Herschel – der EISMOND: strahlend weiße Wasserkruste, aufgerissen von
+     Bruchzonen ("Tigerstreifen" wie bei Enceladus, nur auf der Südhalbkugel).
+     In den frischen Rissen schimmert das Eis türkis – dort ist der Ozean unter
+     der Kruste am nächsten. */
+  Herschel:{
+    n:3, relief:26,
+    craters:[[50, 6611, 0.014, 0.075, 0.30]],
+    calc:(u, lat, f, i)=>{
+      /* ⚠️ Tigerstreifen sind WENIGE, LANGE, SCHMALE Brüche – kein Wellenmuster.
+         Der erste Versuch (|sin| mit Frequenz 7,2 auf u.z) legte über die halbe
+         Südhalbkugel ein feines Rippelmuster: die Höhenlinien von u.z sind auf
+         einer Äquirektangular-Karte geschachtelte Bögen, und bei hoher Frequenz
+         liest sich das als Moiré, nicht als Riss. Jetzt: niedrige Frequenz (3,1
+         → ~6 Streifen), kräftig verzerrt, und mit ^8 auf schmale Grate
+         zusammengezogen. Der Fleck sitzt wie bei Enceladus am SÜDPOL. */
+      const band = Math.abs(Math.sin(
+        (u.z*3.1 + (_pFbm(u.x,u.y,u.z, 3, 2.2, 71)-0.5)*2.6)*Math.PI));
+      const ridgeLine = Math.pow(1-band, 8);                         // schmale Linie
+      const tiger = ridgeLine*_sm(-0.30, -0.80, u.y);                // nur um den Südpol
+      const cr = _pRidge(u.x,u.y,u.z, 4, 5, 88);
+      f[i]   = 0.55 + _pFbm(u.x,u.y,u.z, 5, 3.4, 23)*0.36 - cr*0.22 - tiger*0.42;
+      f[i+1] = cr;
+      f[i+2] = tiger;
+    },
+    color:(h, f, i, lat, sh, o)=>{
+      o[0]=214+h*40; o[1]=232+h*22; o[2]=242+h*13;
+      _mix(o, 128, 182, 210, Math.max(0, f[i+1]-0.78)*3.0);          // alte Spalten
+      _mix(o,  46, 138, 184, Math.min(1, f[i+2]*2.6));               // frische Risse
+      o[0]*=sh; o[1]*=sh; o[2]*=sh;
+    }},
+  /* Ada – kleiner, uralter, sehr dunkler Brocken: so dicht gekratert, dass
+     jeder neue Einschlag einen alten zerstört (»Sättigung«). */
+  Ada:{
+    n:2, relief:38,
+    craters:[[260, 9111, 0.016, 0.16, 0.55]],
+    calc:(u, lat, f, i)=>{
+      f[i]   = 0.5 + _pFbm(u.x,u.y,u.z, 5, 4, 13)*0.42;
+      f[i+1] = _pFbm(u.x,u.y,u.z, 3, 9, 44);
+    },
+    color:(h, f, i, lat, sh, o)=>{
+      const g = 78 + (h-0.5)*104;
+      o[0]=g*1.06; o[1]=g; o[2]=g*0.92;
+      _mix(o, 152, 144, 132, Math.max(0, f[i+1]-0.62)*1.4);
+      o[0]*=sh; o[1]*=sh; o[2]*=sh;
+    }},
+  _default:{
+    n:1, relief:30,
+    craters:[[140, 9901, 0.012, 0.11, 0.5]],
+    calc:(u, lat, f, i)=>{ f[i] = 0.5 + _pFbm(u.x,u.y,u.z, 5, 4, 1)*0.45; },
+    color:(h, f, i, lat, sh, o)=>{
+      const g = 128 + (h-0.5)*110;
+      o[0]=g; o[1]=g*1.01; o[2]=g*1.08;
+      o[0]*=sh; o[1]*=sh; o[2]*=sh;
+    }}
+};
 /* Saturn-Ring für Huygens: konzentrische Bänder in der Äquatorebene.
    Äquatorial (xz-Ebene) montiert, damit die Planeten-Rotation um Y ihn nicht taumeln lässt. */
 function buildRingMesh(b){
@@ -3708,6 +4243,107 @@ function buildRingMesh(b){
     g.add(m);
   }
   return g;
+}
+
+/* =================================================================
+   KOMETENSCHWEIF
+   -----------------------------------------------------------------
+   Ein echter Komet hat ZWEI Schweife, und beide zeigen von der SONNE weg –
+   nicht nach hinten. Genau das ist die schöne Überraschung für die AG:
+     · IONENSCHWEIF  – bläulich, kerzengerade, schmal. Die Sonne ionisiert
+       das Gas, der Sonnenwind reißt es exakt radial nach außen.
+     · STAUBSCHWEIF  – gelblich-weiß, breit, GEKRÜMMT. Staubkörner sind
+       träge: sie behalten die Bahngeschwindigkeit des Kometen und bleiben
+       deshalb hinter der Bahn zurück.
+   ⚠️ Gerendert als KETTE aus Billboard-Sprites, nicht als Kegel-Mesh –
+   dieselbe Lehre wie beim Plasmaschweif beim Wiedereintritt: ein Mesh hat
+   eine harte Silhouette und sieht aus wie ein Plastiktrichter. Sprites
+   stehen außerdem immer zur Kamera, also gibt es keine Orientierungsmathematik
+   und keine Ansicht, aus der der Schweif verschwindet. */
+let _glowTex = null;
+function glowSpriteTexture(){
+  if(_glowTex) return _glowTex;
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const x = c.getContext("2d");
+  const g = x.createRadialGradient(64,64,0, 64,64,64);
+  g.addColorStop(0,   "rgba(255,255,255,1)");
+  g.addColorStop(0.16,"rgba(255,255,255,.60)");
+  g.addColorStop(0.42,"rgba(255,255,255,.20)");
+  g.addColorStop(0.72,"rgba(255,255,255,.05)");
+  g.addColorStop(1,   "rgba(255,255,255,0)");
+  x.fillStyle = g; x.fillRect(0,0,128,128);
+  _glowTex = new THREE.CanvasTexture(c);
+  return _glowTex;
+}
+const COMET_ION = 22, COMET_DUST = 24;
+function buildCometFx(){
+  const tex = glowSpriteTexture(), g = new THREE.Group();
+  const mk = (col)=>{
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, color:col,
+      transparent:true, opacity:0, blending:THREE.AdditiveBlending, depthWrite:false}));
+    s.visible = false; g.add(s); return s;
+  };
+  const ion = [], dust = [];
+  for(let i=0;i<COMET_ION;i++)  ion.push(mk(0x6ec8ff));
+  for(let i=0;i<COMET_DUST;i++) dust.push(mk(0xffe6b8));
+  const coma = mk(0xa9e2ff), core = mk(0xffffff);
+  g.userData = {ion, dust, coma, core};
+  g.renderOrder = 6;
+  return g;
+}
+/* Schweif an Position/Zeit ausrichten. `scale` skaliert alle Längen – die
+   Admin-Cam blickt aus ganz anderen Entfernungen auf dasselbe System. */
+function updateCometFx(g, a, pos, t, scale){
+  const U = g.userData;
+  const act = cometActivity(a, t);
+  if(act <= 0.001){ g.visible = false; return; }
+  g.visible = true;
+  const s = scale || 1;
+  // Sonne steht im Weltursprung → "weg von der Sonne" ist einfach +pos
+  const away = pos.clone().normalize();
+  // Bahngeschwindigkeit (numerisch) für die Krümmung des Staubschweifs
+  const dt = a.period*2e-4;
+  const vel = asteroidPos(a, t+dt).sub(asteroidPos(a, t-dt));
+  const lag = vel.lengthSq() > 0 ? vel.normalize().negate() : away.clone();
+  const Lion  = 5.2e9*s*act;
+  const Ldust = 3.4e9*s*act;
+  const p = new THREE.Vector3();
+  /* ⚠️ Die Sprites sitzen NICHT gleichmäßig verteilt, sondern nach k^1.55:
+     dicht am Kopf, weit auseinander am Ende. Gleichmäßig verteilt war der
+     Schweif eine sichtbare Perlenkette – vorne sind die Sprites klein, der
+     Abstand aber genauso groß wie hinten, wo sie viermal so breit sind.
+     Faustregel: Sprite-Breite ≳ 1,3 × Abstand zum Nachbarn, dann addieren
+     sich die weichen Ränder zu einer durchgehenden Fahne. */
+  for(let i=0;i<COMET_ION;i++){
+    const k = Math.pow((i+0.5)/COMET_ION, 1.55);
+    const sp = U.ion[i];
+    sp.visible = true;
+    p.copy(pos).addScaledVector(away, Lion*k);
+    sp.position.copy(p);
+    // schmal und gerade; nach hinten breiter und blasser
+    const w = (0.40 + 1.75*k)*3.0e8*s;
+    sp.scale.set(w, w, 1);
+    sp.material.opacity = act*0.30*(1-k*0.88);
+  }
+  for(let i=0;i<COMET_DUST;i++){
+    const k = Math.pow((i+0.5)/COMET_DUST, 1.55);
+    const sp = U.dust[i];
+    sp.visible = true;
+    // ⚠️ Die Krümmung wächst QUADRATISCH mit dem Abstand: der Staub wurde
+    // früher freigesetzt, driftet seitdem radial weg UND ist gleichzeitig auf
+    // der alten Bahn weitergeflogen. Linear sähe der Schweif nur schief aus.
+    p.copy(pos).addScaledVector(away, Ldust*k).addScaledVector(lag, Ldust*0.78*k*k);
+    sp.position.copy(p);
+    const w = (0.55 + 2.4*k)*3.2e8*s;
+    sp.scale.set(w, w, 1);
+    sp.material.opacity = act*0.24*(1-k*0.9);
+  }
+  const cw = (2.2e8 + 3.4e8*act)*s;
+  U.coma.visible = U.core.visible = true;
+  U.coma.position.copy(pos); U.coma.scale.set(cw, cw, 1);
+  U.coma.material.opacity = 0.30 + 0.5*act;
+  U.core.position.copy(pos); U.core.scale.set(cw*0.34, cw*0.34, 1);
+  U.core.material.opacity = 0.55 + 0.45*act;
 }
 /* Wolkendecke des Planeten (Äquirektangular, aus dem Orbit sichtbar):
    FBM-Wertrauschen statt gemalter Ellipsen – ergibt Wirbel und ausgefranste
@@ -5914,15 +6550,17 @@ const VAB = {
   },
   add(id){
     const p = PARTS[id];
-    if(p.type==="pod"){
-      if(this.stack.some(x=>PARTS[x].type==="pod")){ this.oops(); return alert("Nur eine Kapsel pro Rakete!"); }
-      this.stack.unshift(id);
+    const top = p.type==="pod" || p.type==="chute";     // Spitze statt Heck
+    if(p.type==="pod" && this.stack.some(x=>PARTS[x].type==="pod")){
+      this.oops(); return alert("Nur eine Kapsel pro Rakete!");
     }
-    else if(p.type==="chute") this.stack.unshift(id);
-    else if((p.type==="sideboost" || p.type==="srb") && this.capError([...this.stack, id])){
-      this.oops(); return alert(this.capError([...this.stack, id]));
-    }
-    else this.stack.push(id);
+    // ⚠️ capError für JEDES Teil prüfen, nicht nur für Booster: die Caps gelten
+    // inzwischen auch für Superheavy und den Starship-Frachtraum. Deshalb den
+    // Probe-Stack an derselben Stelle einfügen, an der das Teil landen wird.
+    const test = top ? [id, ...this.stack] : [...this.stack, id];
+    const err = this.capError(test);
+    if(err){ this.oops(); return alert(err); }
+    if(top) this.stack.unshift(id); else this.stack.push(id);
     this.refresh();
   },
   /* max. 2 Seitenbooster-Pakete pro STUFE (jede Stufe hat ihren eigenen Pool) */
@@ -5931,13 +6569,38 @@ const VAB = {
       sg.filter(x=>PARTS[x].type==="sideboost").length > 2);
   },
   /* Booster-Stapel-Caps: verhindert Gratis-Δv durch endloses Stapeln.
-     Seitenbooster max. 2 pro Stufe, Feststoffbooster (srb) max. 1 pro Stufe. */
+     Seitenbooster max. 2 pro Stufe, Feststoffbooster (srb) max. 1 pro Stufe,
+     Superheavy max. 1 pro Stufe (ein Booster IST eine ganze Stufe – zwei
+     übereinander in EINEM Segment wären 52 t Gratis-Treibstoff). */
   capError(stack){
     if(this.boostCapViolated(stack))
       return "Maximal ZWEI Seitenbooster-Pakete pro STUFE!";
     if(this.segments(stack).some(sg=>sg.filter(x=>PARTS[x].type==="srb").length > 1))
       return "Nur EIN Feststoffbooster pro STUFE – »Böller« kann man nicht stapeln! 🧨\n\nMehr Wumms: den größeren »Donner« erforschen oder Seitenbooster anbauen.";
+    if(this.segments(stack).some(sg=>sg.filter(x=>PARTS[x].type==="superheavy").length > 1))
+      return "Nur EIN Superheavy-Booster pro STUFE! 🚀\n\nDer Superheavy IST schon eine komplette erste Stufe (26 t Treibstoff, 33 Raptoren). Zwei davon aufeinander gibt es auch bei SpaceX nicht – für mehr Nutzlast einen Stufentrenner setzen und darüber weiterbauen.";
+    const bayErr = this.bayError(stack);
+    if(bayErr) return bayErr;
     return null;
+  },
+  /* Starship-Frachtraum (PEZ-Dispenser): begrenzte Nutzlast statt unendlich.
+     Ohne Starship stapeln sich Satelliten normal und begrenzen sich über Höhe
+     und Masse von selbst – IM Frachtraum belegen sie keine Stack-Höhe, also
+     muss hier ein echtes Limit her. Maß ist die Masse, nicht die Stückzahl:
+     so lernt man, dass ein schwerer Späher weniger oft mitfliegt als ein
+     leichter Werbefunk. */
+  bayError(stack){
+    const ship = stack.find(id=>PARTS[id].type==="starship");
+    if(!ship) return null;
+    const cap = PARTS[ship].bay || 0;
+    const load = stack.filter(id=>PARTS[id].type==="sat")
+                      .reduce((a,id)=>a+PARTS[id].mass, 0);
+    if(load <= cap) return null;
+    return cap
+      ? "Der Frachtraum vom "+PARTS[ship].name+" fasst "+(cap/1000).toFixed(1)+
+        " t Nutzlast – du willst "+(load/1000).toFixed(2)+" t mitnehmen! 📦\n\n" +
+        "Einen Satelliten weglassen oder einen leichteren wählen."
+      : "Das "+PARTS[ship].name+" hat KEINEN Frachtraum – wo bei anderen die Nutzlast sitzt, sind bei ihm die Tanks. 🛢️\n\nFür Satelliten das normale Starship nehmen.";
   },
   remove(i){ this.stack.splice(i,1); this.refresh(); },
   /* ---------- Hangar: Raketen speichern & wiederverwenden ("Workhorses") ---------- */
@@ -6188,6 +6851,20 @@ const VAB = {
       }
       if(!has("landZone"))
         padHtml += `<small style="color:var(--muted)">Ohne Landeplatz wassert der Booster downrange im Ozean (50 % Bergung). Forschung: »Landing Zone«.</small>`;
+    }
+    // Starship-Frachtraum: sichtbare Füllstandsanzeige, damit die Grenze nicht
+    // erst beim Anbauen als Fehlermeldung auftaucht
+    const shipId = this.stack.find(id=>PARTS[id].type==="starship");
+    if(shipId){
+      const cap = PARTS[shipId].bay || 0;
+      const load = this.stack.filter(id=>PARTS[id].type==="sat")
+                             .reduce((a,id)=>a+PARTS[id].mass, 0);
+      padHtml += `<h3>Frachtraum</h3>
+        <div class="stat"><span>📦 Nutzlast</span><span style="${load>cap?"color:var(--red);font-weight:700":""}">${
+          (load/1000).toFixed(2)} / ${(cap/1000).toFixed(1)} t</span></div>
+        <small style="color:var(--muted)">${cap
+          ? "Satelliten reisen IM Rumpf (PEZ-Dispenser) und belegen keine Stapelhöhe – dafür ist die Nutzlast begrenzt. Auswurf im Orbit seitlich mit [N]."
+          : "Der Tanker hat keinen Frachtraum: Satelliten müssten oben aufgestapelt werden."}</small>`;
     }
     // Crew-Auswahl (Karriere, bemannte Rakete): Kader-Mitglieder anklicken
     if(!Game.sandbox && isCrewedStack(this.stack) && (Game.roster||[]).length){
@@ -6681,7 +7358,7 @@ const Flight = {
       this.world.add(mesh);
       this.moonMeshes.set(m, mesh);
     }
-    for(const b of [LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON]){
+    for(const b of ORBIT_BODIES){
       const ringPts = [];
       for(let i=0;i<128;i++) ringPts.push(bodyLocalPos(b, i/128*b.period - b.phase*b.period/(2*Math.PI)));
       const ring = new THREE.LineLoop(
@@ -7041,13 +7718,18 @@ const Flight = {
         new THREE.MeshStandardMaterial({color:a.color, roughness:.95, flatShading:true}));
       this.world.add(mesh);
       const marker = mkMarker(a.icon, "#d8c39a");
-      const pts = [];
-      for(let i=0;i<256;i++) pts.push(asteroidPos(a, i/256*a.period));
+      // ⚠️ 512 statt 256 Stützstellen bei Ellipsen: Am Perihel rast der Komet,
+      // dort liegen die gleichmäßig in der ZEIT verteilten Punkte weit
+      // auseinander und die Bahn bekäme eine sichtbare Ecke.
+      const pts = [], NP = a.ecc ? 512 : 256;
+      for(let i=0;i<NP;i++) pts.push(asteroidPos(a, i/NP*a.period));
       const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
-        new THREE.LineBasicMaterial({color:0xc8b088, transparent:true, opacity:.35}));
+        new THREE.LineBasicMaterial({color:a.tail?0x9fd0e8:0xc8b088, transparent:true, opacity:.35}));
       ring.visible = false;
       this.world.add(ring);
-      return {a, mesh, marker, ring};
+      let fx = null;
+      if(a.tail){ fx = buildCometFx(); this.world.add(fx); }
+      return {a, mesh, marker, ring, fx};
     });
     // Raumstation »Große Pause« – wächst mit jedem gelieferten Modul
     this.stationMesh = null;
@@ -7720,6 +8402,7 @@ const Flight = {
     this.sats.forEach(s=>this.world.remove(s.mesh));
     this.sats = []; this.satL=false; this.satM=false; this.visitedMonti=false;
     this.satWeather=false; this.satRad=false; this.satSpy=false; this.satPolar=false;
+    this.scopeUp=false;
     this.shipTemp = 15;   // startet bei Bodentemperatur
     // Booster-Autopilot & Bellyflop aufräumen (Mesh, Fenster, Statistik)
     if(this.booster && this.booster.mesh) this.world.remove(this.booster.mesh);
@@ -8100,7 +8783,7 @@ const Flight = {
         this.launchWindowMiss = Math.min(tw, per - tw);
       }
       s.ignited = true; this.landed=false; this.flew=true;
-      this.ensureRumble();
+      this.ensureRumble(); this.ensureRaptor();
       const bo = s.boost;
       if(bo && bo.attached && !bo.ignited){
         bo.ignited = true;   // klassischer Simultanstart – [R] zündet sie auch alleine
@@ -8196,7 +8879,7 @@ const Flight = {
     if(bo.ignited){ this.showMsg("Seitenbooster brennen bereits! (Abwurf mit [J])",2); return; }
     bo.ignited = true;
     this.flew = true;
-    this.ensureRumble();
+    this.ensureRumble(); this.ensureRaptor();
     this.showMsg("🔥 SEITENBOOSTER GEZÜNDET! (Hauptstufe separat mit [Leertaste])",3);
   },
   /* [J]: wirft NUR die Booster der aktiven Stufe ab – nach der Stufentrennung
@@ -9239,6 +9922,87 @@ const Flight = {
     if(!this._audio) return;
     this._audio.gain.gain.value = level * Settings.sfx;
   },
+  /* ---------- Triebwerksklang: echte Raptor-Aufnahme ----------------------
+     `raptor.mp3` (Originalmitschnitt) zerfällt gemessen in drei Abschnitte:
+       0,00–3,10 s  Turbopumpen-Spin-up und Zündung (Pegel −23 → −6 dB)
+       3,15–18,60 s Volllast, Pegel konstant bei −6 dB  ← das ist der Loop
+       18,80–19,60 s Ausklingen (Fade der Aufnahme, im Loop unbrauchbar)
+     Gespielt wird deshalb: Spin-up EINMAL bei der Zündung, danach endlos das
+     Volllast-Stück, solange gebrannt wird.
+     ⚠️⚠️ ZWEI <audio>-Elemente im Wechsel mit kurzer Überblendung – NICHT ein
+     Element mit `currentTime`-Sprung: Ein Sprung landet in einer MP3 nur auf
+     Frame-Grenzen (~26 ms) und der Decoder braucht danach kurz; das klickt und
+     stockt hörbar, und zwar alle 15 s. Die Überblendung deckt beides zu.
+     ⚠️ Und KEIN WebAudio-Buffer: `decodeAudioData` braucht `fetch()`, und das
+     ist per file:// gesperrt – das Spiel muss aber per Doppelklick laufen.
+     `<audio src="raptor.mp3">` funktioniert dort (wie die Musik-Playlists). */
+  RAPTOR: {file:"raptor.mp3", loopA:3.15, loopB:18.60, xf:0.35},
+  ensureRaptor(){
+    if(this._rap !== undefined) return;
+    try{
+      const mk = ()=>{ const a = new Audio(this.RAPTOR.file); a.preload = "auto"; a.volume = 0; return a; };
+      this._rap = {el:[mk(), mk()], cur:0, hand:false, on:false, want:0, vol:0};
+    }catch(e){ this._rap = null; }
+  },
+  /* Zündung/Cutoff. Der Pegel kommt pro Frame aus derselben Formel wie das
+     Rumpeln (Schub × Luftdichte); die Rampe macht `updateRaptor`. */
+  setRaptor(level){
+    this.ensureRaptor();
+    const R = this._rap; if(!R) return;
+    R.want = level;
+    if(level > 0 && !R.on){          // ZÜNDUNG: Spin-up von vorn
+      R.on = true; R.hand = false; R.cur = 0; R.vol = 0;
+      R.el[1].pause();
+      const a = R.el[0];
+      a.volume = 0;
+      try{ a.currentTime = 0; }catch(e){}
+      a.play().catch(()=>{});
+    } else if(level <= 0){
+      R.on = false;                  // Ausklingen übernimmt updateRaptor
+    }
+  },
+  /* Hart aus (Screenwechsel, Pause-Menü): ohne laufende Frame-Schleife kann
+     `updateRaptor` nicht mehr ausblenden – dann bliebe der Ton stehen. */
+  stopRaptor(){
+    const R = this._rap; if(!R) return;
+    R.on = false; R.vol = 0; R.hand = false;
+    for(const a of R.el){ a.volume = 0; if(!a.paused) a.pause(); }
+  },
+  /* Pro Frame: Lautstärkerampe + Loop-Übergabe zwischen den beiden Elementen.
+     dt ist ECHTE Zeit – der Klang läuft in Echtzeit, auch bei Zeitraffer. */
+  updateRaptor(dt){
+    const R = this._rap; if(!R) return;
+    const K = this.RAPTOR;
+    const target = R.on ? Math.min(1, R.want) * Settings.sfx : 0;
+    // schnell auf, gemächlich zu (Cutoff soll nicht abgehackt klingen)
+    const rate = target > R.vol ? 6 : 3;
+    R.vol += Math.max(-rate*dt, Math.min(rate*dt, target - R.vol));
+    const cur = R.el[R.cur], nxt = R.el[R.cur^1];
+    if(!R.on && R.vol <= 0.001){
+      R.vol = 0; cur.volume = 0; nxt.volume = 0;
+      if(!cur.paused) cur.pause();
+      if(!nxt.paused) nxt.pause();
+      return;
+    }
+    const t = cur.currentTime;
+    if(t >= K.loopB - K.xf || cur.ended){
+      if(!R.hand){
+        R.hand = true;
+        try{ nxt.currentTime = K.loopA; }catch(e){}
+        nxt.volume = 0; nxt.play().catch(()=>{});
+      }
+      const k = cur.ended ? 1 : Math.min(1, (t - (K.loopB - K.xf))/K.xf);
+      // ⚠️ Gleich-LEISTUNGS-Überblendung (cos/sin), nicht linear: Die beiden
+      // Elemente spielen dieselbe Aufnahme an VERSCHIEDENEN Stellen, ihr
+      // Rauschen ist also unkorreliert. Linear überblendet addieren sich die
+      // Leistungen nicht auf 1 – man hört mitten im Wechsel ein ~3-dB-Loch.
+      cur.volume = R.vol*Math.cos(k*Math.PI/2); nxt.volume = R.vol*Math.sin(k*Math.PI/2);
+      if(k >= 1){ cur.pause(); R.cur ^= 1; R.hand = false; }
+    } else {
+      cur.volume = R.vol;
+      if(!R.hand) nxt.volume = 0;
+    }
+  },
   /* ---------- Wasseroberfläche in JS ----------------------------------
      Spiegelt EXAKT die Höhenrechnung des Ozean-Vertex-Shaders (gleiche
      Wellensumme, gleiche Hüllkurve, gleicher Hub). Nur so treffen Gischt
@@ -9381,6 +10145,7 @@ const Flight = {
         i%3 ? 0xff8a30 : 0x664433);
     }
     this.setRumble(0);
+    this.setRaptor(0);
   },
   jettisonFairing(){
     if(!this.v || !this.v.fairingIntact || this.crashed || this.ended) return;
@@ -9487,7 +10252,7 @@ const Flight = {
   deploySpecialSat(satId, seg){
     // PEZ-Dispenser: Im Starship reisen Sats im Frachtraum und werden wie bei
     // Starlink SEITLICH aus dem Schlitz geschoben (langsam, keine Kollision)
-    const pez = this.v.stack.some(id=>PARTS[id].type==="starship");
+    const pez = this.v.stack.some(id=>PARTS[id].type==="starship" && PARTS[id].bay > 0);
     seg.dry -= PARTS[satId].mass;
     seg.parts.splice(seg.parts.indexOf(satId),1);
     const si = this.v.stack.indexOf(satId);
@@ -9522,6 +10287,21 @@ const Flight = {
     if(satId==="satS"){
       if(stable && o.ap<130000){ this.satSpy = true; msg += " 🕵️ Die Fotos sind gestochen scharf…"; }
       else msg += " ⚠️ Falscher Orbit! Späh-Fotos brauchen Pe > 70 km und Ap < 130 km.";
+    }
+    if(satId==="satT"){
+      // Das Teleskop öffnet den halben Universum-Bildschirm – deshalb ist die
+      // Bedingung dieselbe wie beim echten Hubble: hoch genug, dass die
+      // Restatmosphäre das Bild nicht mehr verwackelt und die Bahn hält.
+      if(o.body===LEIBNIZ && o.pe>250000 && o.ap>0){
+        this.scopeUp = true;
+        if(!Game.sandbox && !Game.telescope){
+          Game.telescope = true; autoSave();
+          msg = "🔭 »WEITBLICK« IST OFFEN! Der Spiegel richtet sich aus… und aus den flackernden "+
+            "Lichtpunkten werden Welten: Kepler, Huygens mit seinen drei Monden, Newton und die "+
+            "Kleinkörper sind jetzt im Universum-Bildschirm zu sehen!";
+        } else msg += " 🔭 Der Spiegel ist offen – freie Sicht!";
+      }
+      else msg += " ⚠️ Zu tief! Ein Teleskop braucht Pe > 250 km – tiefer verwackelt die Restluft das Bild und die Bahn zerfällt.";
     }
     if(satId==="satK"){
       // Kommerz-Satellit: passt der Orbit zu einem offenen Auftrag → Prämie!
@@ -9604,8 +10384,12 @@ const Flight = {
   /* ---------- Wissenschafts-Experimente ---------- */
   situation(){
     const o = this.orbit(), b = o.body;
-    const sciBoden = {Leibniz:4, Monti:30, Minzi:40, Kepler:45, Huygens:50, Newton:55};
-    const sciRaum  = {Monti:20, Minzi:25, Kepler:30, Huygens:32, Newton:35, Sonne:28};
+    // Huygens hat keinen »Boden« (Gasriese) – dafür lohnen seine drei Monde,
+    // besonders der Eismond Herschel mit dem Ozean unter der Kruste.
+    const sciBoden = {Leibniz:4, Monti:30, Minzi:40, Kepler:45, Huygens:50, Newton:55,
+      Cassini:75, Herschel:95, Ada:70};
+    const sciRaum  = {Monti:20, Minzi:25, Kepler:30, Huygens:32, Newton:35, Sonne:28,
+      Cassini:38, Herschel:45, Ada:36};
     if(this.landed) return {id:"boden-"+b.name, name:"auf der Oberfläche von "+b.name,
       sci: sciBoden[b.name] ?? 40};
     if(b===LEIBNIZ){
@@ -9661,11 +10445,17 @@ const Flight = {
     el.textContent=txt; el.style.display="block"; this.msgTimer=sec;
   },
   bodyAt(p, t){
-    // dominanter Körper an beliebigem Ort: innerste Gravitationssphäre zuerst
+    // dominanter Körper an beliebigem Ort: innerste Gravitationssphäre zuerst.
+    // ⚠️ Die drei Huygens-Monde MÜSSEN vor Huygens stehen – sonst "gewinnt"
+    // immer der Gasriese und man käme nie in eine Mond-Sphäre (wie Monti vor
+    // Leibniz). Ihre Sphären überlappen sich untereinander nicht.
     if(p.distanceTo(bodyPos(MONTI,t)) < MONTI.soi) return MONTI;
     if(p.distanceTo(bodyPos(LEIBNIZ,t)) < LEIBNIZ.soi) return LEIBNIZ;
     if(p.distanceTo(bodyPos(MINZI,t)) < MINZI.soi) return MINZI;
     if(p.distanceTo(bodyPos(KEPLER,t)) < KEPLER.soi) return KEPLER;
+    if(p.distanceTo(bodyPos(CASSINI,t)) < CASSINI.soi) return CASSINI;
+    if(p.distanceTo(bodyPos(HERSCHEL,t)) < HERSCHEL.soi) return HERSCHEL;
+    if(p.distanceTo(bodyPos(ADA,t)) < ADA.soi) return ADA;
     if(p.distanceTo(bodyPos(HUYGENS,t)) < HUYGENS.soi) return HUYGENS;
     if(p.distanceTo(bodyPos(NEWTON,t)) < NEWTON.soi) return NEWTON;
     return SUN;
@@ -10044,6 +10834,20 @@ const Flight = {
         this.warpI = 0;
         this.landedBody = b;
         this.landedRel = this.pos.clone().sub(c);
+        // ⚠️ Gasriese: Es GIBT keine Oberfläche zum Landen. Wer die "Kugel"
+        // erreicht, ist längst in Schichten, in denen der Druck ein Schiff
+        // zerdrückt – deshalb hier immer Totalverlust, egal wie sanft.
+        // Genau deshalb sind bei Saturn die MONDE die Ziele, nicht der Planet.
+        if(b.kind==="gas" && !this.crashed){
+          this.crashed = true; this.landed = false;
+          this.rocketGroup.visible = false;
+          this.explode();
+          this.showMsg("💨💥 "+b.name+" ist ein GASRIESE – da unten ist kein Boden, nur immer dichteres Gas. "+
+            "Das Schiff wird zerdrückt."+
+            (this.crew.length?" Die Crew rettet sich per Schleudersitz! 🪂":"")+
+            " Ziel dir lieber einen seiner Monde aus!",99);
+          continue;
+        }
         if(vrel>limit && !this.landed){
           this.crashed = true;
           this.rocketGroup.visible = false;
@@ -10119,12 +10923,14 @@ const Flight = {
       landed:this.landed, flew:this.flew,
       satL:this.satL, satM:this.satM, visitedMonti:this.visitedMonti,
       satWeather:this.satWeather, satRad:this.satRad, satSpy:this.satSpy,
+      scopeUp:!!this.scopeUp,
       satPolar:!!this.satPolar, pad:this.pad ? this.pad.id : "lmg",
       docked:!!this.docked,
       inc:this.orbitInc(),
       satDeploys:this.satDeploys||[],
       geoSats:(Game.assets||[]).filter(a=>a.kind==="sat"&&a.body==="LEIBNIZ"&&a.alt>GEO_MIN&&a.alt<GEO_MAX).length,
       asteroids:(Game.asteroidsScanned||[]).length,
+      cometScanned:(Game.asteroidsScanned||[]).includes("comWhipple"),
       relays:commRelays(), mods:Game.stationMods||[],
       anomalies:(Game.anomaliesFound||[]).length,
       rescueLanded:!!this.rescueLanded,
@@ -10940,8 +11746,16 @@ const Flight = {
           0.18+Math.random()*0.12, 0.45, 0xdfe8ff);
       }
     }
-    // Triebwerks-Sound: lauter mit Schub, leiser mit dünner Luft (Vakuum = fast still)
-    this.setRumble(burning || boosterBurn ? (0.04+0.14*(burning?this.throttle:1))*(0.25+0.75*f) : 0);
+    // Triebwerks-Sound: lauter mit Schub, leiser mit dünner Luft (Vakuum = fast still).
+    // Zwei Schichten: die Raptor-Aufnahme trägt den Klang, das synthetische
+    // Rumpeln liegt als Tiefton darunter (deshalb ist es leiser als früher).
+    const engOn = (burning || boosterBurn) && !this.paused;
+    const engLvl = engOn ? (0.25+0.75*(burning?this.throttle:1))*(0.25+0.75*f) : 0;
+    this.setRumble(engOn ? (0.02+0.08*(burning?this.throttle:1))*(0.25+0.75*f) : 0);
+    // ⚠️ Nach dem Cutoff blendet updateRaptor noch ~0,3 s aus – deshalb steht
+    // der Aufruf AUSSERHALB des engOn-Zweigs und läuft in jedem Frame.
+    this.setRaptor(engLvl);
+    this.updateRaptor(1/60);
     // Partikel altern mit SIMULATIONS-Zeit (sonst driften sie bei Warp gegen die Planetenbewegung)
     this.waterFx(simmed);
     this.updateParticles(simmed);
@@ -10978,6 +11792,9 @@ const Flight = {
       ao.mesh.visible = !this.map;
       ao.ring.visible = this.map;
       ao.marker.visible = this.map;
+      // Der Schweif bleibt in BEIDEN Ansichten stehen – in der Karte ist er
+      // der einzige Hinweis darauf, wo der Komet gerade steckt.
+      if(ao.fx) updateCometFx(ao.fx, ao.a, ap2, this.t, 1);
       if(this.map){
         ao.marker.position.copy(ap2);
         const ams = (this._cd||this.camDist)*0.04;

@@ -9,7 +9,7 @@ LMG-Branding (orange `--orange` / blau `--blue`).
 - `tutorials.js` – `const TUTORIALS`: 14 interaktive Szenario-Tutorials (lädt NACH index.html; in index.html heißt das Alt-Array `TUTORIALS_LEGACY`).
 - `three.min.js` – Three.js **r128** UMD, lokal (funktioniert via file://). Kein Modul-Build verwenden!
 - `nebulae.js` – `NEBULAE`: 5 Nebel-Fotos als Base64-Data-URIs (file:// erlaubt keine Datei-Bilder als WebGL-Textur!). `NEBULA_DEFS` + `nebulaTextures()` (Canvas mit Radial-Alpha-Maske) + `addNebulae(scene,radius,sizeScale,opacityScale)`: Flug-Szene (Radius 7e10, Opacity via `frame()` an Sternen-Ausblendung gekoppelt, Kamera-Far dafür 2.2e11), AdminCam (1.8e11, ×2.6) und die 2D-Universum-Karte (`universeFrame` zeichnet `tex.image` additiv).
-- Assets: `mainmenu.png`, `loading.png`, `space.mp3` (Menü), `hangar*.mp3` / `inspace*.mp3` (Playlists, Rotation via `ended`).
+- Assets: `mainmenu.png`, `loading.png`, `space.mp3` (Menü), `hangar*.mp3` / `inspace*.mp3` (Playlists, Rotation via `ended`), **`raptor.mp3`** (Original-Triebwerksmitschnitt, s. »Triebwerksklang«).
 - `.claude/launch.json` – Preview: `npx serve -l 8642` (Name `lmg-space-program`). Eintrag `lmgsongrodeo` gehört dem User – nicht anfassen.
 
 ## Optionen & Grafikstufen (`Settings` / `GFX_PRESETS` / `applyGraphics`)
@@ -43,8 +43,29 @@ Screen `#options` (Hauptmenü »⚙️ Optionen«, im VAB der ⚙️-Knopf), ger
   GANZEN Szene inklusive Ozean-, Himmels- und Wolken-Shader = spürbarer Hänger pro Klick.
 - Lautstärke: `music.volume = Settings.music`; `Flight.setRumble` merkt sich den Rohpegel in
   `_rumbleWant` und multipliziert mit `Settings.sfx`, damit der Regler mitten im Brennvorgang
-  sofort greift. **Einziger SFX im Spiel ist das Triebwerksrumpfeln** (`ensureRumble`,
-  braunes Rauschen über WebAudio) – der Regler ist dafür da, nicht für ein Soundpaket.
+  sofort greift.
+
+### Triebwerksklang: echte Raptor-Aufnahme (`RAPTOR` / `setRaptor` / `updateRaptor`)
+Zwei Schichten: `raptor.mp3` (Originalmitschnitt) trägt den Klang, das synthetische Rumpeln
+(`ensureRumble`, braunes Rauschen über WebAudio) liegt als Tiefton darunter – deshalb ist es
+leiser als früher. Beide hängen an `Settings.sfx` und an Schub × Luftdichte.
+Die Aufnahme zerfällt gemessen in drei Abschnitte: **0,00–3,10 s** Turbopumpen-Spin-up und
+Zündung (−23 → −6 dB) · **3,15–18,60 s** Volllast bei konstant −6 dB ← das ist der Loop ·
+**18,80–19,60 s** Ausklingen (im Loop unbrauchbar). Gespielt wird: Spin-up EINMAL bei der
+Zündung, danach endlos das Volllast-Stück, solange gebrannt wird.
+- ⚠️⚠️ **ZWEI `<audio>`-Elemente im Wechsel mit 0,35 s Überblendung** – NICHT ein Element mit
+  `currentTime`-Sprung: Ein Sprung landet in einer MP3 nur auf Frame-Grenzen (~26 ms) und der
+  Decoder braucht danach kurz; das klickt und stockt hörbar, und zwar alle 15 s.
+- ⚠️ **Gleich-LEISTUNGS-Überblendung (cos/sin), nicht linear**: Die beiden Elemente spielen
+  dieselbe Aufnahme an verschiedenen Stellen, ihr Rauschen ist also unkorreliert. Linear
+  überblendet addieren sich die Leistungen nicht auf 1 – man hört mitten im Wechsel ein
+  ~3-dB-Loch. Verifiziert: `volA² + volB²` bleibt über die ganze Blende konstant.
+- ⚠️⚠️ **KEIN WebAudio-Buffer**: `decodeAudioData` braucht `fetch()`, und das ist per file://
+  gesperrt – das Spiel muss aber per Doppelklick laufen. `<audio src="raptor.mp3">` geht dort
+  (wie die Musik-Playlists).
+- ⚠️ `updateRaptor` läuft in JEDEM Frame, auch nach dem Cutoff (blendet noch ~0,3 s aus).
+  Beim Screenwechsel greift `stopRaptor()` hart – ohne laufende Frame-Schleife bliebe der Ton
+  sonst stehen. Bei Pause ist `engOn` false.
 
 ## Licht & Spiegelungen (`EnvMap` / `applyEnv` / Kontaktschatten)
 - ⚠️⚠️ **Ohne envMap ist `metalness` in three.js ein MINUS-Geschäft:** Der diffuse Anteil wird
@@ -126,7 +147,71 @@ Vorher war der Himmel EINE Farbe von Nachtschwarz nach Tagblau – deshalb gab e
 - `skyRadiance` (JS-Zwilling) liefert `Flight.skyZenith`/`skyHorizon` für Meer, Wolken und Umgebungslicht – EINE Quelle, sonst passt der Himmel nicht zum Boden. `sunTint(czSun)` = Farbe des DIREKTEN Sonnenlichts (`exp(−β·Luftmasse)`, auf den hellsten Kanal normiert) → färbt `sunLight`, Glitzerpfad und Wolken bei tiefer Sonne rot.
 
 ## Himmelskörper
-SUN · KEPLER (Glutplanet innen, 5.3e9 m) · LEIBNIZ (R 600 km, Atmo 70 km) + Mond MONTI (Baryzentrum!) · MINZI (2.05e10) · HUYGENS (Ringplanet 4.1e10, `ring:true` → `buildRingMesh(b)` als Kind des Planeten-Meshes, äquatorial montiert = spinfest; 2D-Karte malt Ring-Ellipse; Mission huygensSoi) · NEWTON (Eisriese, 6.9e10). `MOONS` = Meshes/Ringe, `GRAV_BODIES` = Gravitation. Texturen prozedural: `makeBodyTexture(b)`. Neuer Körper = ~10 Stellen anfassen: MOONS/GRAV_BODIES/period-Loop/bodyAt/BODY_BY_NAME/AdminCam(Meshes+Bahnen+Fokus-Buttons)/renderUniverse/universeFrame/moonRings/sciBoden+sciRaum.
+SUN · KEPLER (Glutplanet innen, 5.3e9 m) · LEIBNIZ (R 600 km, Atmo 70 km) + Mond MONTI (Baryzentrum!) · MINZI (2.05e10) · HUYGENS (**Gasriese** mit Ring, 4.1e10, `ring:true` → `buildRingMesh(b)` als Kind des Planeten-Meshes, äquatorial montiert = spinfest; 2D-Karte malt Ring-Ellipse; Mission huygensSoi) + **3 Monde** · NEWTON (gefrorene Eiswelt, 6.9e10). `MOONS` = Meshes/Ringe, `GRAV_BODIES` = Gravitation, **`ORBIT_BODIES`** = alles mit Bahn (period/soi-Loop, AdminCam-Meshes+Bahnen, renderUniverse). Texturen prozedural: `makeBodyTexture(b)`. Neuer Körper = ~10 Stellen anfassen: MOONS/GRAV_BODIES/ORBIT_BODIES/bodyAt/BODY_BY_NAME/BODY_ICON/AdminCam-Fokus-Buttons/universeFrame/moonRings/sciBoden+sciRaum.
+- **`kind`** ist die didaktische Zusatzdimension (Universum-Bildschirm, `KIND_LABEL`): `fest` · `eis` · `gas` · `stern`. Bei `gas` ist das **Spielregel, nicht Kosmetik**: `checkContact` lässt bei Kontakt mit der »Oberfläche« IMMER explodieren (kein Boden, nur immer dichteres Gas) – deshalb sind bei Huygens die MONDE die Ziele, genau wie bei Saturn. ⚠️ Newton ist bewusst **fest** geblieben: bei R 900 km ist er kein Riese, und `newtonLand` existiert seit jeher.
+- **Huygens-Monde** (`HUYGENS_MOONS`, alle nach Astronom*innen): CASSINI (R 260 km, 1,41 m/s², 3,6e6 m, 8,2 h – der große Felsmond mit Dünen) · HERSCHEL (R 150 km, 0,35 m/s², 6,2e6 m, 18,6 h – **Eismond** mit Ozean unter der Kruste und Tigerstreifen wie Enceladus) · ADA (R 90 km, 0,14 m/s², 1,05e7 m, 41 h – kleiner, dunkler, gesättigt gekraterter Brocken). ⚠️ Nachgerechnet und verifiziert: alle drei liegen **außerhalb des Rings** (endet bei 2,9 R = 1,39e6 m) und weit **innerhalb der Huygens-Sphäre** (2,06e8 m); ihre SOIs überlappen sich nicht (2,56–4,64 / 5,54–6,86 / 9,99–11,01 e6 m) und sind 4–5,7 × so groß wie der jeweilige Körper, also gut umkreisbar. ⚠️ In `bodyAt` **VOR** Huygens prüfen, sonst gewinnt immer der Gasriese (dieselbe Falle wie Monti vor Leibniz). Missionen: huygensMoon → cassiniLand → herschelLand.
+- ⚠️ Kosten der drei neuen Körper: `GRAV_BODIES` wächst von 7 auf 10 (+43 % Gravitationsschleife). Gemessen: **7,6 µs je `step`**, 2,54 ms je `predict` (nur bei offener Karte), 0,36 ms je `frame` – unkritisch, aber die Grenze ist damit ungefähr erreicht.
+
+### Prozedurale Planetentexturen (`paintProceduralBody` / `BODY_PAINT`)
+Alles außer Leibniz war früher gemalte Ellipsen und waagerechte Farbstreifen – daher der
+»8-bit«-Eindruck. Jetzt dasselbe Rezept wie bei Leibniz, nur ohne Meer: **Höhenfeld aus FBM →
+Krater ins Höhenfeld gestempelt → Schummerung aus dem Gradienten → Farbrampe.**
+- ⚠️⚠️ Das Rauschen wird **in 3D auf der Einheitskugel** abgetastet (gleiche UV-Konvention wie
+  bei Leibniz: `x = −cos φ·sin θ`). Nur so gibt es keine Naht an der Datumsgrenze und kein
+  Gequetsche an den Polen – die beiden Dinge, die 2D-Planetentexturen sofort verraten.
+- ⚠️⚠️ **Rauschen in HALBER Auflösung, Krater und Schummerung in voller.** `_tNoise` ist der
+  teure Teil (gemessen 185 von 280 ms bei 1024²); Gebirge und Bänder sind viel glatter als ein
+  Texel. Vierfach weniger Abtastungen, ohne sichtbaren Unterschied. Krater müssen scharf
+  bleiben, die Schummerung braucht kein Rauschen und kostet fast nichts.
+- ⚠️ **Alle Felder, die auch die FARBE braucht** (Mare, Lavarisse, Tigerstreifen …), werden in
+  `calc` EINMAL berechnet und im Feldpuffer abgelegt. Sie im Farbdurchgang nachzurechnen hatte
+  die Bauzeit glatt verdoppelt – exakt der Fehler, den die Leibniz-Textur mit `lh` schon
+  einmal gemacht hat.
+- ⚠️ **Schwellen für Risse/Adern liegen bei ~0,80, nicht bei 0,55.** `_pRidge` ist normiert und
+  liegt im Mittel schon bei 0,53 (gemessen: 52 % der Fläche über 0,52) – mit der niedrigen
+  Schwelle war der halbe Planet schwach eingefärbt statt ein paar Adern kräftig.
+- ⚠️ **Keplers Kruste muss DUNKEL und grau sein.** Bei oranger Grundfarbe verschwand die
+  additive Lavaglut darin: gemessen leuchteten 10 % der Fläche, zu sehen war nichts.
+- ⚠️ **Krater pro KRATER rastern, nicht pro Texel alle Krater prüfen** (500 000 × 200 wären
+  100 Mio. Winkelabstände). Profil = abgesenkter Boden + gaußförmiger Wall; die Schummerung
+  macht daraus von allein einen beleuchteten Krater mit Schattenrand.
+- ⚠️ Der Schummerungs-Gradient wird in Ost-Richtung mit `1/cos(lat)` skaliert – **gedeckelt bei
+  cos = 0,35**, sonst brennen die letzten Zeilen an den Polen zu einem hellen Band aus.
+- ⚠️ Gasriesen (`spec.gas`) bekommen **keine** Schummerung (Wolken werfen keine Bergschatten).
+  Ihr Trick ist **Domain Warping**: der Breitengrad wird vor dem Streifen-Sinus mit Rauschen
+  verschoben – ohne das ist ein Gasriese eine gestreifte Tapete.
+- Auflösung nach NÄHE im Spiel: Leibniz 2048, **Monti 1024** (dort landet man), alles andere
+  512. Gemessen (warm, aktives Fenster): 140 ms für alle acht Körper zusammen, Monti allein 69.
+  Gecacht in `b._tex`, weil Flug-Szene UND Admin-Cam dieselben Körper aufbauen.
+
+### Komet »Whipple« (`ASTEROIDS`-Eintrag mit `ecc`, `buildCometFx`/`updateCometFx`)
+Der einzige Kleinkörper auf einer **Ellipse** (a = 4,0e10, e = 0,72, 537 Tage): Perihel 11,2e9 m
+(**innerhalb** der Leibniz-Bahn), Aphel 68,8e9 m (bei Newton). `asteroidPos` löst dafür die
+Kepler-Gleichung `M = E − e·sin E` per Newton-Verfahren (5 Schritte). `cometActivity` ∝ 1/r²
+→ 27 % der Umlaufzeit mit sichtbarem Schweif. Mission comet1, danach astAll (jetzt 4 Körper).
+- **Zwei Schweife, beide von der SONNE weg** (nicht nach hinten – das ist die Pointe für die AG):
+  bläulicher Ionenschweif kerzengerade im Sonnenwind, heller Staubschweif **quadratisch
+  gekrümmt** nach hinten, weil träge Staubkörner die Bahngeschwindigkeit behalten.
+- ⚠️ Gerendert als **Kette aus Billboard-Sprites**, nicht als Kegel-Mesh – dieselbe Lehre wie
+  beim Plasmaschweif: ein Mesh hat eine harte Silhouette und sieht aus wie ein Plastiktrichter.
+  Sprites stehen außerdem immer zur Kamera, also keine Orientierungsmathematik.
+- ⚠️ Die Sprites sitzen **nach k^1.55 gestaffelt** (dicht am Kopf, weit auseinander am Ende).
+  Gleichmäßig verteilt war der Schweif eine sichtbare Perlenkette: vorne sind die Sprites klein,
+  der Abstand aber genauso groß wie hinten, wo sie viermal so breit sind. Faustregel:
+  Sprite-Breite ≳ 1,3 × Nachbarabstand.
+- ⚠️ Bahnlinien mit **512 statt 256 Stützstellen**: die Punkte sind gleichmäßig in der ZEIT
+  verteilt, am Perihel rast er – sonst bekommt die Ellipse dort eine sichtbare Ecke.
+- 2D-Karte: echte Ellipse (`mapPos` schickt den Bahnradius durch dieselbe stilisierte Skala
+  `uniR` wie alle anderen) + gemalte Schweife.
+
+### Entdeckung per Weltraumteleskop (`telescopeUp` / `bodyKnown` / `FAR_BODIES`)
+In der Karriere sind Kepler, Huygens (+ Monde), Newton und ALLE Kleinkörper anfangs `???` –
+Karten wie 2D-Ansicht zeigen nur einen szintillierenden Lichtpunkt. Freigeschaltet vom Part
+`satT` »Weltraumteleskop »Weitblick«« (Tech `fine`, 780 🪙), ausgesetzt [N] in einem
+Leibniz-Orbit mit **Pe > 250 km** → `Game.telescope`, Mission `scope1`. Didaktik: Warum steht
+Hubble im All? Weil die Luft jedes Bild verwackelt. Sandbox/Tutorial sind immer offen.
+⚠️ `migrateGame` schenkt Bestands-Saves die Entdeckung, wenn sie schon bei Minzi waren oder
+Kleinkörper gescannt haben – sonst nimmt ein Update ihnen rückwirkend den halben Bildschirm weg.
 
 ## Raumstation »Große Pause«
 `STATION` + `stationPos(t)`/`stationVel(t)`: exakter 100-km-Kreisorbit um Leibniz (on rails), immer da (Karriere/Sandbox/Tutorial). Docking: Part `dock`, Taste **[L]**: < 30 m & < 3 m/s = sofort; **30–200 m (rel < 25 m/s) = Docking-Autopilot** `autoDock`/`updateAutoDock` (RCS-Magie: Sollgeschw. min(3, d/25) auf die Station zu, dockt < 26 m via `dockNow()`; [L] bricht ab; übersteuert Handsteuerung, Warp≤2, Abbruch > 500 m). Angedockt = `Flight.docked`: Schiff folgt Station on rails (`dockOffset`). SAS-Modus `"tgt"` (ZIEL-BREMSE, < 50 km) bremst relativ zum **gewählten Ziel** (sonst Station). Türkiser ◆-Navball-Marker < 50 km (folgt `Flight.target`), HUD-Zielzeile < 400 km, Kartenmarker »Große Pause«. **Rosa ✛ = Anflug-Assistent** (drawNavball, 40 m–50 km): optimale Brennrichtung `norm(dirZiel·vWant − relVel)` mit `vWant=clamp(d/60, 2, 45)` – Nase draufhalten + Schub = automatisch lenkendes UND bremsendes Rendezvous ohne Vorbeischießen (getestet: 3 km→190 m in ~3,5 min, Ankunft 3,5 m/s). Rendezvous-Tutorial nutzt NUR noch das ✛ (keine ZIEL-BREMSE-Choreografie mehr).
@@ -275,11 +360,12 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
 
 ## Satelliten-Aufträge, PEZ-Dispenser & Crew-Auswahl
 - **Satelliten-Aufträge (endlos, Geld-Farm):** `Game.satContracts` (immer 2 offen, `topUpSatContracts()`/`genSatContract()`: LEO/MEO/Polar/GEO mit 700–1600 🪙, lustige Firmen aus `SAT_FIRMS`), freigeschaltet mit Tech `payload` (`satContractsUnlocked()`). Erfüllen: **Kommerz-Satellit `satK` »Werbefunk«** (type "sat", 380 🪙, passt in Buchten) im geforderten Band aussetzen [N] → `satContractMet(c,o,inc)` prüft Pe UND Ap im Band (+incMin/GEO), Prämie in `deploySpecialSat`, Auftrag respawnt sofort. Asset kriegt `com:true` → **passives Einkommen** +40 🪙 pro com-Sat bei JEDEM Flugende (`settleCrewAndAssets` → `statComIncome`, Zeile im Flugbericht). Sektion »📡 Satelliten-Aufträge« oben in `renderMissionControl`; Karten-Zielringe der Aufträge erscheinen NUR mit satK an Bord (`buildGoalRings`).
-- **PEZ-Dispenser (Starship):** `satInStarship(stack,id)` – liegt ein Starship im Stack, belegen `type:"sat"`-Teile KEINE Stack-Höhe (`stackHeight`) und werden nicht gemalt (reisen im Frachtraum); `deploySpecialSat` wirft sie dann SEITLICH aus (+Z körperfest, 1,4 m/s, »noch N im Frachtraum«-Meldung) statt nach oben – mehrere [N] = Starlink-Stil.
+- **PEZ-Dispenser (Starship):** `satInStarship(stack,id)` – liegt ein Starship **mit Frachtraum** im Stack, belegen `type:"sat"`-Teile KEINE Stack-Höhe (`stackHeight`) und werden nicht gemalt (reisen im Frachtraum); `deploySpecialSat` wirft sie dann SEITLICH aus (+Z körperfest, 1,4 m/s, »noch N im Frachtraum«-Meldung) statt nach oben – mehrere [N] = Starlink-Stil.
+- ⚠️ **Der Frachtraum ist begrenzt** (`PARTS[..].bay` in kg, geprüft von `VAB.bayError` über `capError`): Starship **2500 kg** (≈ 11 »Werbefunk«), Tanker-Starship **0** – bei ihm sind da die Tanks, Satelliten stapeln sich (mit eigener Fehlermeldung abgelehnt). Vorher war die Kapazität unbegrenzt, weil Sats im Frachtraum weder Höhe noch Masse-Limit sahen. Füllstand steht als Sektion »Frachtraum« im VAB-Info-Panel.
 - **Crew-Auswahl im VAB:** Karriere + bemannter Stack → Sektion »Crew-Auswahl (n/cap)« im Info-Panel (`VAB.toggleCrew`, `Game.crewPick`, migrateGame legt Array an; gestrandete ausgegraut). `Flight.start` besetzt ERST die gewählten Namen, Restplätze wie gehabt automatisch (Rollen-Rotation). crewPick wird beim Rendern um nicht-bereite Namen bereinigt.
 
 ## Kleinkörper, Zielorbits & Synchronbahn (GEO)
-- **Asteroiden/Meteoroid:** `ASTEROIDS` (astGauss »Gauß« 1.72e10 · astEmmy »Emmy« 2.9e10 · metHalley »Halley« 9.2e9, alle geneigt 7–14°; Namen = Wissenschaftler wie bei den Planeten) + `asteroidPos(a,t)`. ⚠️ BEWUSST keine echten Körper: keine Gravitation/SOI, NICHT in MOONS/GRAV_BODIES – nur On-Rails-Punkte. Flug-Szene: `Flight.astObjs` (Fels-Mesh mit Vertex-Noise, Kartenmarker, Sonnen-Bahnlinie; in init()). **Scan** `checkAsteroids()` läuft pro `step`-**Substep** (sonst verpasst hoher Warp den Vorbeiflug!): < `AST_SCAN_DIST` (1000 km) → Karriere `Game.asteroidsScanned` (+Sci, migrateGame legt Array an), Sandbox `Flight._astDone`. HUD rechts zeigt den nächsten ungescannten (< 5e8 m). Universum-2D: gestrichelte Bahnen + Dots (`uniR()` = stückweise lineare Radius-Interpolation zwischen den Anker-Planeten) + Info-Karten in `renderUniverse`. Missionen ast1/astAll (`s.asteroids`).
+- **Asteroiden/Meteoroid:** `ASTEROIDS` (astGauss »Gauß« 1.72e10 · astEmmy »Emmy« 2.9e10 · metHalley »Halley« 9.2e9, alle geneigt 7–14°; Namen = Wissenschaftler wie bei den Planeten) + `asteroidPos(a,t)`. ⚠️ BEWUSST keine echten Körper: keine Gravitation/SOI, NICHT in MOONS/GRAV_BODIES – nur On-Rails-Punkte. Flug-Szene: `Flight.astObjs` (Fels-Mesh mit Vertex-Noise, Kartenmarker, Sonnen-Bahnlinie; in init()). **Scan** `checkAsteroids()` läuft pro `step`-**Substep** (sonst verpasst hoher Warp den Vorbeiflug!): < `AST_SCAN_DIST` (1000 km) → Karriere `Game.asteroidsScanned` (+Sci, migrateGame legt Array an), Sandbox `Flight._astDone`. HUD rechts zeigt den nächsten ungescannten (< 5e8 m). Universum-2D: gestrichelte Bahnen + Dots (`uniR()` = stückweise lineare Radius-Interpolation zwischen den Anker-Planeten) + Info-Karten in `renderUniverse`. Missionen ast1/comet1/astAll (`s.asteroids`, jetzt 4 Körper). Dazu der **Komet »Whipple«** mit `ecc` – s. eigener Abschnitt bei den Himmelskörpern.
 - **Synchronbahn:** `LEIBNIZ.dayT = 14000` (= Wolkendrehung) → `GEO_R`/`GEO_ALT` (≈1998 km), Missions-Band `GEO_MIN/GEO_MAX` (1850–2150 km), `isGeoOrbit(pe,ap)`. Missionen geo1/gps1/gps3 – gps* zählen über `Game.assets` (`s.geoSats`, persistiert über Flüge; Konstellation geht also in mehreren Starts ODER mit 3 Sonden auf einer Rakete).
 - **Zielorbit-Ringe (Karte):** Missionen können `orbitGoal:{body,alt,peMin?,peMax?,apMin?,apMax?,incMin?,incMax?,label}` tragen, Tutorials `scenario.goalOrbit`. `Flight.buildGoalRings()` (in start(); Quelle: Tut.active bzw. aktive Karriere-Missionen) baut LineLoops (bei incMin gekippt), `updateGoalRings(o)` pro Frame: **blau → GRÜN** via `orbitGoalMet()` + einmalige showMsg beim Erreichen. Nur in Kartenansicht sichtbar. orbitGoal tragen: dock1, satStrahlung, satSpion, polar1, satLeo, satIncl, satEllip, geo1, gps1, gps3.
 - **Satelliten-Orbit-Missionen:** `Flight.satDeploys` (Array `{body,pe,ap,inc,pad}`, gefüllt in deploySat/deploySpecialSat, Reset in start()) → satLeo (70–200 km) / satIncl (45–65°, LMG-Rampe) / satEllip (Molnija) / satSonne (Sonnenorbit) prüfen `s.satDeploys.some(...)`; `s.inc` = aktuelle Inklination. Δv geprüft: GEO-Träger ~5300, GPS×3 ~6050, LMG-Sat-Träger ~4900 bei 10,3 t – alle Missionen machbar (Bedarf: Orbit ~3400 + GEO-Transfer ~1010 + Molnija ~480).
@@ -345,7 +431,7 @@ Dazu weiter: Wirbel-Blobs an Emittern (Heck-Totwasser + Stufen, blähen sich mit
 - **Tech-Balancing Erststufe:** Tech `propI` »Flüssigtriebwerke I« (10 🧪, req start) → `engStd` **Triebwerk »Ochse«** (200 kN, Isp 265, 600 kg, Ø 10, 300 🪙, `cat:"lower"`). Davor gab es bis `heavy` (60 🧪) NUR Oberstufen-Triebwerke (`engS` 45 kN / `engVac`) oder Feststoff – man MUSSTE die erste Stufe mit Boostern bauen, was Simon zu Recht als unrealistisch gemeldet hat. Isp 265 ist bewusst die schlechteste Flüssig-Effizienz im Spiel (kurze Meereshöhen-Düse; steht so im Info-Text – Didaktik: große Vakuumdüsen taugen am Boden nicht). `advProp` (»Flüssigtriebwerke II«) hängt jetzt an `["basic","struct","propI"]`, damit die Kette I → II stimmt; `migrateGame` schenkt Bestands-Saves mit advProp den Knoten propI. Verifiziert: Stack `chute/probePod/tankS/engS/decoupler/inter/fin/3×tankS/engStd` = 8,05 t, TWR 2,5, Δv 1917+2666 ≈ 4580 m/s → Orbit (Bedarf ~3400) mit Startkapital + propI + struct + basic erreichbar.
 - Karriere: `MISSIONS` (Verträge, nur AKTIVE erfüllbar; `Game.activeMissions` = Array, max. `maxMissions()` = 1 + Tech mission2/mission3; `req`-Ketten), `TECH` (DAG; Layout: 2-Pass mit echten Kartenhöhen, `top{}`-Map für SVG-Äste – NICHT festes Raster, sonst Überlappung), `Game.labDone` (Experimente [B] je `situation()` einmalig).
 - Geld (nur Karriere): `Game.funds` (Start 3500), `PART_COSTS`→`PARTS[..].cost`, `stackCost()`, Missionsprämie **`missionCash(m)=300+20·sci`** (⚠️ verdoppelt: Von einer Orbitalrakete kommt nur die OBERSTE Stufe zurück – `settleCrewAndAssets` erstattet `stackCost(v.stack)`, und `stage()` löscht abgeworfene Teile aus `v.stack` – und am Anfang darf man nur EINE Mission annehmen. Mit `150+10·sci` war jeder Orbitalflug ein sicheres Minusgeschäft. Nachgerechnet: Hüpfer 730 🪙 / volle Bergung / +400 Prämie · Orbitrakete 1445 🪙, Bergung 730, Prämie 800 → ±0 · Sat-Träger 2495/1380/900 → −215 · Docking 2865/1750/1400 → +285. Bergung und Wiederverwendung bleiben damit der Hebel für echten Gewinn). **Nebenverdienste** `SIDE_JOBS` (4 einmalige Geld-Aktionen: 2×1000 bei basic+struct »Seminare«; 1500 »Mensa-Deal« braucht KOMPLETTE Spalte 3 (surv+advProp+padEq+mission2); 1500 »Blueprints« komplette Spalte 4 (crewed+payload+heavy+explore)) – Sektion »💰 Nebenverdienste« oben in `renderMissionControl`, `doSideJob(id)`, `Game.jobsDone` (migrateGame legt Array an). Hilft schwächeren Schüler*innen, die sich verbaut haben.
-- **Booster-Caps:** `VAB.capError(stack)` – max. ZWEI `sideboost`-Teile UND max. EIN `srb`-Feststoffbooster pro STUFE (sonst Gratis-Δv durch Stapeln) – Guards in `VAB.add`, `dropAt` (Drag&Drop neu UND move) UND `validate()` (fängt gespeicherte Hangar-Raketen). Start zieht Kosten ab (`UI.launch`, `Flight.launchCost`), Bergung nur bei Landung auf LEIBNIZ (`settleCrewAndAssets` → `statRefund`, voller Restwert des übrigen Stacks). Crash/All = Totalverlust. Alte Saves: `migrateGame()`.
+- **Bau-Caps:** `VAB.capError(stack)` – max. ZWEI `sideboost`-Teile, max. EIN `srb` UND max. EIN `superheavy` pro STUFE (sonst Gratis-Δv durch Stapeln; zwei Superheavys in einem Segment waren 52 t geschenkter Treibstoff), dazu `bayError` für den Starship-Frachtraum. Guards in `VAB.add`, `dropAt` (Drag&Drop neu UND move) UND `validate()` (fängt gespeicherte Hangar-Raketen). ⚠️ `VAB.add` prüft `capError` seit dem Superheavy-Cap für **JEDES** Teil (vorher nur für sideboost/srb) – der Probe-Stack muss dabei an der Stelle eingefügt werden, an der das Teil wirklich landet (Kapsel/Schirm oben, Rest unten). Getrennte Stufen bleiben erlaubt: Superheavy + Stufentrenner + Superheavy ist eine legitime zweistufige Rakete. Start zieht Kosten ab (`UI.launch`, `Flight.launchCost`), Bergung nur bei Landung auf LEIBNIZ (`settleCrewAndAssets` → `statRefund`, voller Restwert des übrigen Stacks). Crash/All = Totalverlust. Alte Saves: `migrateGame()`.
 - **Wiedereintritts-Hitze (tödlich!):** in `step()`: sinkend + `v>1600` + `heat=rho·v³>1.5e7` → ohne Schutz wächst `heatDmg` um `(0.12 + heat/5e8)/s` → bei 1 verglüht (explode, Crew-Schleudersitz-Meldung). Schutz = `shield`-Teil ODER Starship **in Bauchlage**: die Kacheln sitzen nur am Bauch (+Z körperfest) und schützen nur bei `dot(+Z, airVel) > 0.5` – Nase voran = Tod (eigene Warn-/Crash-Meldungen »Kacheln zeigen nicht in den Wind«, Tutorial "starship" warnt entsprechend). Getestet: Starship nase-voran verglüht bei ~38 km, mit [C] Bauchlage Landung bei heatDmg 0.35. Der Grundschaden 0.12 macht auch flache Aerobraking-Tricks tödlich: **aus dem Orbit ohne Hitzeschild = immer Tod** (getestet: verglüht bei ~37 km; mit Schild + leerem Tank + Schirm sichere Landung bei max. 1537 °C). Suborbitale Hüpfer (<1600 m/s) bleiben safe. Reset `heatDmg` in start(). **Plasma-Glühen (rein visuell, in frame()):** `Flight.plasmaGroup` (lazy, an `scene`): Stoßfront-Sprite windwärts + Halo + Plasmaschweif = **Kette aus 10 Glow-Sprites** (`grp.userData.trail`, nach hinten größer/röter/dünner, Wabern+Flackern via sin – ⚠️ KEIN Kegel-Mesh: harte Silhouettenkanten sehen aus wie ein Plastik-Trichter), Intensität `(shipTemp−600)/900` (= ab roter HUD-Temp), aus bei map/landed/crashed/airVel<600; dazu Funken-Partikel nach hinten (nur warp≤2).
 - **Kontext-Buttons:** `Flight.updateButtons()` (in drawHUD, pro Frame): blendet Booster[R/J]/Schirm/Fairing/Satellit/Panele/EVA/Bellyflop/Docken/Modul/Bucht/Experiment aus, wenn das Vehikel die Ausrüstung nicht hat (IDs btnBoostR/btnBoostJ/btnChute/btnFairing/btnSat/btnPanels/btnEva/btnBelly/btnDock/btnModul/btnBay/btnExp). Modul zusätzlich nur Karriere.
 - **SRB-Anzeige getrennt:** Tank-Gauge/`fuelPct`/HUD-Zeile »Treibstoff« = NUR Flüssigtreibstoff; Feststoffbooster (inline `srb`, nicht drosselbar – brennen auch bei Schub 0 weiter, Tank bleibt voll!) haben eigene HUD-Zeile + teilen sich die orange Booster-Gauge mit dem Seitenbooster-Pool der aktiven Stufe.
