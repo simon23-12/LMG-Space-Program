@@ -85,7 +85,7 @@ button{cursor:pointer;font-family:inherit;}
 .node-row button{background:var(--panel2);color:var(--text);border:1px solid #2a3a64;
   border-radius:4px;padding:2px 5px;font-size:11px;}
 .node-row button:hover{border-color:var(--orange);}
-#tech,#missions,#universe,#tutorial{flex-direction:column;background:radial-gradient(ellipse at 50% -20%, #16335e 0%, #0a0e1a 60%);
+#tech,#missions,#universe,#tutorial,#options{flex-direction:column;background:radial-gradient(ellipse at 50% -20%, #16335e 0%, #0a0e1a 60%);
   padding:30px;overflow-y:auto;align-items:center;}
 .page-head{display:flex;align-items:center;gap:20px;width:100%;max-width:900px;margin-bottom:20px;}
 .page-head h1{color:var(--orange);font-size:28px;margin-right:auto;}
@@ -103,6 +103,29 @@ button{cursor:pointer;font-family:inherit;}
 .mission-card .sci{margin-left:auto;color:var(--orange);font-weight:700;white-space:nowrap;}
 .scibadge{background:var(--panel2);border:1px solid var(--orange);border-radius:20px;
   padding:6px 16px;color:var(--orange);font-weight:700;}
+/* --- Optionen ------------------------------------------------------ */
+.opt-card{width:100%;max-width:640px;background:var(--panel);border:2px solid var(--blue-dark);
+  border-radius:12px;padding:18px 20px;margin-bottom:16px;}
+.opt-card h3{color:var(--orange);font-size:17px;margin-bottom:4px;}
+.opt-card .sub{font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.45;}
+.opt-choice{display:flex;gap:10px;}
+.opt-choice button{flex:1;background:var(--panel2);color:var(--text);border:2px solid #2a3a64;
+  border-radius:8px;padding:10px 6px;font-size:15px;font-weight:600;transition:all .15s;}
+.opt-choice button:hover{border-color:var(--orange);}
+.opt-choice button.on{border-color:var(--orange);background:linear-gradient(180deg,#2a3a64,#1a2440);
+  color:var(--orange);box-shadow:0 0 12px rgba(247,148,29,.25);}
+.opt-note{font-size:13px;color:var(--muted);margin-top:10px;min-height:18px;line-height:1.45;}
+.opt-note b{color:var(--text);font-weight:600;}
+.opt-slider{display:flex;align-items:center;gap:14px;margin:12px 0;}
+.opt-slider .lab{width:150px;font-size:14px;flex-shrink:0;}
+.opt-slider .val{width:52px;text-align:right;color:var(--orange);font-weight:700;
+  font-variant-numeric:tabular-nums;font-size:14px;}
+.opt-slider input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:8px;border-radius:4px;
+  background:linear-gradient(90deg,var(--blue),var(--orange));outline:none;cursor:pointer;}
+.opt-slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
+  width:20px;height:20px;border-radius:50%;background:#e8ecf5;border:2px solid var(--orange);cursor:pointer;}
+.opt-slider input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;
+  background:#e8ecf5;border:2px solid var(--orange);cursor:pointer;}
 input[type=file]{display:none;}
 </style>
 </head>
@@ -126,6 +149,7 @@ input[type=file]{display:none;}
   <button class="btn" onclick="UI.startSandbox()">🛠️ Sandbox</button>
   <button class="btn" onclick="UI.show('tutorial')">🎓 Tutorials</button>
   <button class="btn" onclick="UI.show('universe')">🪐 Universum ansehen</button>
+  <button class="btn" onclick="UI.show('options')">⚙️ Optionen</button>
   <button class="btn" onclick="UI.saveGame()">💾 Spielstand speichern</button>
   <button class="btn" onclick="document.getElementById('loadFile').click()">📂 Spielstand laden</button>
   <button class="btn" style="font-size:12px;padding:6px 14px;opacity:.7" onclick="resetProgress()">🗑 Fortschritt zurücksetzen</button>
@@ -133,6 +157,37 @@ input[type=file]{display:none;}
   <button id="musicBtn" class="btn" style="position:absolute;top:14px;right:14px;padding:8px 14px;" onclick="toggleMusic()">🔊 Musik</button>
   <div class="tip">💡 TIPP: 3D-Steuerung – W/S nicken, A/D gieren, Q/E rollen.</div>
   <div class="version">v2.0 · 3D · Leibniz-Montessori-Gymnasium Düsseldorf</div>
+</div>
+
+<!-- OPTIONEN -->
+<div id="options" class="screen">
+  <div class="page-head">
+    <h1>⚙️ Optionen</h1>
+    <button class="btn" onclick="UI.back()">◀ Zurück</button>
+  </div>
+  <div class="opt-card">
+    <h3>🖥️ Grafik</h3>
+    <div class="sub">Ruckelt das Spiel oder wird der Rechner laut? Eine Stufe herunterschalten.
+      Die Einstellung gehört zu <b>diesem Rechner</b> und wandert nicht mit dem Spielstand mit.</div>
+    <div class="opt-choice" id="optGfx"></div>
+    <div class="opt-note" id="optGfxNote"></div>
+  </div>
+  <div class="opt-card">
+    <h3>🔊 Lautstärke</h3>
+    <div class="sub">Wirkt sofort. Ganz nach links = stumm.</div>
+    <label class="opt-slider">
+      <span class="lab">🎵 Musik</span>
+      <input type="range" min="0" max="100" id="optMusic" oninput="Settings.setVol('music', this.value/100)">
+      <span class="val" id="optMusicVal"></span>
+    </label>
+    <label class="opt-slider">
+      <span class="lab">🚀 Geräusche</span>
+      <input type="range" min="0" max="100" id="optSfx" oninput="Settings.setVol('sfx', this.value/100)">
+      <span class="val" id="optSfxVal"></span>
+    </label>
+    <div class="opt-note">Geräusche = das Triebwerksrumpeln im Flug (wird lauter, je mehr Schub
+      und je dichter die Luft – im Vakuum bleibt es still, das ist Absicht).</div>
+  </div>
 </div>
 
 <!-- VAB -->
@@ -147,6 +202,7 @@ input[type=file]{display:none;}
       <button class="btn" onclick="VAB.saveRocket()">💾 Speichern</button>
       <button class="btn" onclick="VAB.openHangar()">📂 Hangar</button>
       <button class="btn" id="musicBtnVab" onclick="toggleMusic()">🔊 Musik</button>
+      <button class="btn" onclick="UI.show('options')" title="Grafik & Lautstärke">⚙️</button>
       <button class="btn" onclick="UI.show('menu')">☰ Menü</button>
       <button class="btn orange" onclick="UI.launch()">🚀 START</button>
     </div>
@@ -386,6 +442,126 @@ input[type=file]{display:none;}
    ================================================================= */
 const G0 = 9.81;
 const V3 = (x=0,y=0,z=0)=>new THREE.Vector3(x,y,z);
+
+/* =================================================================
+   EINSTELLUNGEN – Grafikstufe & Lautstärke
+   Schulrechner sind extrem unterschiedlich schnell (vom Kreide-Ersatz-PC
+   im Physikraum bis zum Gaming-Laptop von zu Hause). Die Grafikstufe
+   schaltet deshalb ALLE teuren Regler gemeinsam, damit niemand einzeln
+   herumprobieren muss.
+   ⚠️ Bewusst im localStorage und NICHT im Spielstand: Einstellungen
+   gehören zum RECHNER. Die Kinder tauschen Spielstände als Datei aus –
+   sonst erbt der lahme Schulrechner die "Hoch"-Einstellung vom Gaming-PC.
+   ================================================================= */
+const GFX_PRESETS = {
+  low: {name:"Niedrig", dpr:1,    shadow:0,    trees:110, clouds:12,
+        info:"Für ältere Schulrechner: keine Schatten, einfache Auflösung."},
+  mid: {name:"Mittel",  dpr:1.4,  shadow:1024, trees:260, clouds:26,
+        info:"Empfohlen: Schatten in der Montagehalle, scharfes Bild."},
+  high:{name:"Hoch",    dpr:2,    shadow:2048, trees:420, clouds:40,
+        info:"Für kräftige Rechner: weiche Schatten überall, volle Schärfe."}
+};
+const Settings = {
+  gfx:"mid", music:0.45, sfx:0.7,
+  get q(){ return GFX_PRESETS[this.gfx] || GFX_PRESETS.mid; },
+  load(){
+    try{
+      const s = JSON.parse(localStorage.getItem("lmgSettings") || "{}");
+      if(GFX_PRESETS[s.gfx]) this.gfx = s.gfx;
+      if(typeof s.music === "number") this.music = Math.max(0, Math.min(1, s.music));
+      if(typeof s.sfx   === "number") this.sfx   = Math.max(0, Math.min(1, s.sfx));
+    }catch(e){}
+  },
+  save(){
+    localStorage.setItem("lmgSettings",
+      JSON.stringify({gfx:this.gfx, music:this.music, sfx:this.sfx}));
+  },
+  setGfx(id){
+    if(!GFX_PRESETS[id]) return;
+    this.gfx = id; this.save();
+    applyGraphics();
+    renderOptions();
+  },
+  setVol(which, v){
+    this[which] = Math.max(0, Math.min(1, v)); this.save();
+    if(which === "music" && typeof music !== "undefined") music.volume = this.music;
+    if(which === "sfx" && typeof Flight !== "undefined" && Flight.setRumble)
+      Flight.setRumble(Flight._rumbleWant || 0);   // laufendes Rumpeln sofort nachziehen
+    renderOptions();
+  }
+};
+Settings.load();
+/* Optionen-Screen zeichnen (Auswahlzustand + Schieberegler-Beschriftung) */
+function renderOptions(){
+  const box = document.getElementById("optGfx");
+  if(!box) return;
+  box.innerHTML = "";
+  for(const [id, p] of Object.entries(GFX_PRESETS)){
+    const b = document.createElement("button");
+    b.textContent = p.name;
+    if(Settings.gfx === id) b.className = "on";
+    b.onclick = ()=>Settings.setGfx(id);
+    box.appendChild(b);
+  }
+  const q = Settings.q, dpr = window.devicePixelRatio || 1;
+  document.getElementById("optGfxNote").innerHTML =
+    q.info + "<br>Schatten: <b>" + (q.shadow ? "an" : "aus") +
+    "</b> · Bildschärfe: <b>" + (gfxPixelRatio()/dpr*100).toFixed(0) + "%</b>" +
+    " · Bäume: <b>" + q.trees + "</b> · Wolken: <b>" + q.clouds + "</b>";
+  for(const [key, sl, val] of [["music","optMusic","optMusicVal"], ["sfx","optSfx","optSfxVal"]]){
+    const s = document.getElementById(sl);
+    if(s) s.value = Math.round(Settings[key]*100);
+    const v = document.getElementById(val);
+    if(v) v.textContent = Math.round(Settings[key]*100) + "%";
+  }
+}
+/* Auflösung: Der Renderer zeichnet standardmäßig in CSS-Pixeln, auf einem
+   HiDPI-Bildschirm (devicePixelRatio 1,5–2) also in halber Auflösung, die
+   dann hochskaliert wird – das ist der "irgendwie matschig"-Eindruck.
+   Gedeckelt durch die Grafikstufe, weil genau das auch die teuerste
+   Einzelschraube ist: doppelte dpr = vierfache Pixelmenge. */
+function gfxPixelRatio(){
+  return Math.min(window.devicePixelRatio || 1, Settings.q.dpr);
+}
+function applyGraphics(){
+  const pr = gfxPixelRatio(), sm = Settings.q.shadow;
+  for(const r of [typeof VAB!=="undefined" && VAB.renderer,
+                  typeof Flight!=="undefined" && Flight.renderer,
+                  typeof Flight!=="undefined" && Flight.pipRenderer,
+                  typeof AdminCam!=="undefined" && AdminCam.renderer,
+                  typeof CFD!=="undefined" && CFD.renderer]){
+    if(r) r.setPixelRatio(pr);
+  }
+  /* Schatten live umschalten – NUR in der Montagehalle.
+     ⚠️ Die Flugszene hat (noch) keine Schattenwerfer. Dort `shadowMap.enabled`
+     mitzuschalten bringt kein einziges Pixel, erzwingt aber einen kompletten
+     Shader-Neubau der ganzen Szene – samt Ozean-, Himmels- und Wolken-Shader.
+     Das wäre bei jedem Klick im Optionen-Menü ein spürbarer Hänger. */
+  const vr = (typeof VAB!=="undefined") && VAB.renderer;
+  if(vr && VAB.scene){
+    const want = sm > 0;
+    if(vr.shadowMap.enabled !== want){
+      vr.shadowMap.enabled = want;
+      VAB.scene.traverse(o=>{ if(o.material){
+        (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.needsUpdate = true); } });
+    }
+  }
+  if(typeof VAB!=="undefined" && VAB.setShadowRes) VAB.setShadowRes(sm);
+  // Wolkenzahl: nur der gezeichnete Ausschnitt des Instanz-Puffers
+  if(typeof Flight!=="undefined" && Flight.cloudField){
+    const g = Flight.cloudField.geometry;
+    if(g.userData.puffs)
+      g.instanceCount = Math.min(40, Settings.q.clouds) * g.userData.puffs;
+  }
+  // Bäume: sofort neu setzen, wenn eine Bodenszene steht – sonst würde die
+  // Stufe erst beim nächsten Verankern wirken und der Regler sähe kaputt aus.
+  if(typeof Flight!=="undefined" && Flight.treeTrunks){
+    if(Flight.gUp && Flight.groundGroup && Flight.groundGroup.visible)
+      Flight.placeTrees(Flight.gUp, Flight.gEast, Flight.gNorth);
+    else if(Flight.treeTrunks.count > Settings.q.trees)
+      Flight.treeTrunks.count = Flight.treeCrowns.count = Settings.q.trees;
+  }
+}
 
 /* ---------- Himmelskörper ---------- */
 /* Heliozentrisches System: Sonne im Zentrum, Leibniz (mit Mond Monti)
@@ -1396,6 +1572,7 @@ const UI = {
     if(id==="missions") renderMissions();
     if(id==="universe"){ renderUniverse(); showHint("universe"); }
     if(id==="tutorial") renderTutorials();
+    if(id==="options") renderOptions();
     if(id==="menu") this.inGame = false;
     updateMusic();
     if(id!=="flight" && typeof Flight!=="undefined" && Flight.setRumble) Flight.setRumble(0);
@@ -5069,6 +5246,130 @@ const CFD = {
    ⚠️ Beide Kacheln werden 3×3 versetzt gezeichnet (Zufallsparameter EINMAL
    würfeln!) – dann laufen Körnung und Flecken über die Kachelgrenze weiter
    und man sieht das Raster nicht. Dasselbe Rezept wie makeGroundTexture. */
+/* =================================================================
+   ENVIRONMENT-MAPS (Spiegelungen)
+   ⚠️ Ohne envMap ist `metalness` in three.js ein MINUS-Geschäft: Der diffuse
+   Anteil wird um (1−metalness) gekürzt, zurück kommt nur das Glanzlicht der
+   EINEN Richtungslichtquelle. Sämtliche Tanks, der Startturm, die Mechazilla
+   und die Raketenhüllen (metalness .25–.6) sahen deshalb nicht metallisch
+   aus, sondern schlicht dunkler und flacher als gedacht – das war ein
+   Gutteil des "90er-Jahre"-Eindrucks.
+   Die Umgebung kommt aus einem winzigen equirektangulären Canvas (128×64;
+   PMREM verwischt ohnehin zu Rauheits-Stufen) und wird GEZIELT auf Rakete,
+   Rampe & Co. gelegt – NICHT über `scene.environment` auf alles. Grund:
+   scene.environment wirkt wie zusätzliches Umgebungslicht und würde die
+   mühsam austarierte Helligkeit von Boden, Meer und Planet mit anheben.
+   ================================================================= */
+const EnvMap = {
+  _gen:new Map(), _rt:new Map(),
+  /* paint(ctx,W,H) malt die Umgebung: Canvas-Oberkante = Zenit, Unterkante =
+     Nadir, u = atan2(z,x) (three-Konvention für EquirectangularReflection). */
+  build(key, renderer, paint){
+    let g = this._gen.get(renderer);
+    if(!g){
+      g = new THREE.PMREMGenerator(renderer);
+      g.compileEquirectangularShader();
+      this._gen.set(renderer, g);
+    }
+    const c = document.createElement("canvas"); c.width = 128; c.height = 64;
+    paint(c.getContext("2d"), 128, 64);
+    const src = new THREE.CanvasTexture(c);
+    src.mapping = THREE.EquirectangularReflectionMapping;
+    const rt = g.fromEquirectangular(src);
+    src.dispose();
+    const old = this._rt.get(key);
+    if(old) old.dispose();      // ⚠️ sonst leckt jeder Neubau ein RenderTarget
+    this._rt.set(key, rt);
+    return rt.texture;
+  }
+};
+/* Umgebung auf einen Teilbaum legen (Rakete, Rampe, Droneship, Station …) */
+function applyEnv(root, tex, intensity){
+  if(!root || !tex) return;
+  root.traverse(o=>{
+    if(!o.material) return;
+    for(const m of (Array.isArray(o.material) ? o.material : [o.material])){
+      if(m.isMeshStandardMaterial){
+        // ⚠️ `needsUpdate` NUR beim allerersten Anbau: Es erzwingt eine
+        // Shader-Neuübersetzung. Die Flugszene backt ihre Umgebung im
+        // Tagesverlauf immer wieder neu – mit needsUpdate bei jedem Tausch
+        // würde das Spiel bei jedem Sonnenstand-Schritt kurz hängen.
+        // Ein reiner Texturwechsel bei GLEICHEM Mapping braucht ihn nicht.
+        const had = !!m.envMap;
+        m.envMap = tex;
+        m.envMapIntensity = intensity === undefined ? 1 : intensity;
+        if(!had) m.needsUpdate = true;
+      }
+    }
+  });
+}
+/* Montagehalle: helles Dach mit Lampenbändern, blaugraue Wände, dunkler Boden.
+   Die Lampenbänder sind die hellsten Flecken – sie geben den Tanks ihre
+   langgezogenen Glanzstreifen, an denen man die Rundung überhaupt erst sieht. */
+function paintHallEnv(x, W, H){
+  const g = x.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0.00, "#b3c0e0");
+  g.addColorStop(0.28, "#6d7c9f");
+  g.addColorStop(0.52, "#47537a");
+  g.addColorStop(0.72, "#333c5c");
+  g.addColorStop(1.00, "#1c2234");
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  x.fillStyle = "rgba(255,246,214,.85)";
+  for(let i=0;i<6;i++) x.fillRect(i*W/6 + 3, H*0.07, W/13, H*0.06);
+  // Hallentor: helle Öffnung, sorgt für ein gerichtetes Highlight
+  const t = x.createLinearGradient(0, H*0.34, 0, H*0.64);
+  t.addColorStop(0, "rgba(158,188,240,.60)");
+  t.addColorStop(1, "rgba(158,188,240,0)");
+  x.fillStyle = t; x.fillRect(W*0.43, H*0.34, W*0.14, H*0.30);
+}
+/* Flugszene: Himmel oben, Boden/Meer unten, Sonnenfleck an der richtigen
+   Stelle. `o` = {zen, hor, ground, sun:Vector3, sunCol, atmo}. Im All wird
+   alles dunkel – dort spiegelt sich wirklich nur die Sonne. */
+function paintSkyEnv(x, W, H, o){
+  const hex = c=>"rgb("+Math.round(Math.min(1,c.r)*255)+","+Math.round(Math.min(1,c.g)*255)+
+                   ","+Math.round(Math.min(1,c.b)*255)+")";
+  const g = x.createLinearGradient(0, 0, 0, H*0.5);
+  g.addColorStop(0, hex(o.zen)); g.addColorStop(1, hex(o.hor));
+  x.fillStyle = "#05070f"; x.fillRect(0, 0, W, H);
+  x.fillStyle = g; x.fillRect(0, 0, W, H*0.5);
+  const g2 = x.createLinearGradient(0, H*0.5, 0, H);
+  g2.addColorStop(0, hex(o.hor)); g2.addColorStop(0.35, hex(o.ground));
+  g2.addColorStop(1, hex(o.ground));
+  x.fillStyle = g2; x.fillRect(0, H*0.5, W, H*0.5);
+  // Sonne: three sampelt equirektangular mit u = atan2(z,x)/2π + 0.5,
+  // v = asin(y)/π + 0.5; CanvasTexture hat flipY, also Zeile 0 = Zenit.
+  const d = o.sun;
+  if(d){
+    const u = (Math.atan2(d.z, d.x)/(Math.PI*2) + 0.5) * W;
+    const v = (1 - (Math.asin(Math.max(-1, Math.min(1, d.y)))/Math.PI + 0.5)) * H;
+    const r = H*0.18;
+    const sg = x.createRadialGradient(u, v, 0, u, v, r);
+    sg.addColorStop(0, hex(o.sunCol)); sg.addColorStop(0.35, "rgba(255,238,200,.45)");
+    sg.addColorStop(1, "rgba(255,238,200,0)");
+    x.fillStyle = sg;
+    // zweimal zeichnen, damit der Fleck über die u-Naht hinweg stimmt
+    for(const off of [-W, 0, W]){ x.save(); x.translate(off, 0);
+      x.beginPath(); x.arc(u, v, r, 0, 7); x.fill(); x.restore(); }
+  }
+}
+/* Weiche Schatten-"Blase" für Kontaktschatten: schwarzer Radialverlauf.
+   Das ist die billige Variante, die IMMER läuft – auch auf Grafikstufe
+   "Niedrig", wo es keine echten Schattenkarten gibt. Sie verankert Objekte
+   optisch am Boden; ohne sie schweben Rakete und Figuren über der Textur. */
+let _blobTex = null;
+function shadowBlobTex(){
+  if(_blobTex) return _blobTex;
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const x = c.getContext("2d");
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0,    "rgba(0,0,0,.72)");
+  g.addColorStop(0.45, "rgba(0,0,0,.38)");
+  g.addColorStop(0.78, "rgba(0,0,0,.10)");
+  g.addColorStop(1,    "rgba(0,0,0,0)");
+  x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+  _blobTex = new THREE.CanvasTexture(c);
+  return _blobTex;
+}
 function makeHallFloorTex(){
   const c = document.createElement("canvas"); c.width = c.height = 256;
   const x = c.getContext("2d"), S = 256;
@@ -5131,6 +5432,166 @@ function makeHazardTex(){
 }
 
 /* =================================================================
+   TEXTUREN DER STARTRAMPEN
+   Die Rampen waren ~30 einfarbige Boxen und Zylinder – kein einziges Texel.
+   Genau das ist der Unterschied zur Montagehalle, die seit ihren
+   prozeduralen Kacheln viel besser aussieht. Dieselbe Rezeptur hier:
+   256er-Canvas, Formen 3×3 versetzt gezeichnet = nahtlos, fast weiß
+   gemalt, damit `material.color` sie tönen kann (Polar = weiß/grau).
+   ================================================================= */
+function makePadConcreteTex(){
+  const c = document.createElement("canvas"); c.width = c.height = 256;
+  const x = c.getContext("2d"), S = 256;
+  x.fillStyle = "#b9bec9"; x.fillRect(0,0,S,S);
+  const rnd = seededRand(8123);
+  const specks = [], stains = [], cracks = [];
+  for(let i=0;i<2200;i++) specks.push([rnd()*S, rnd()*S, 0.4+rnd()*1.6, rnd()<0.5]);
+  for(let i=0;i<9;i++)   stains.push([rnd()*S, rnd()*S, 10+rnd()*30, 0.10+rnd()*0.22]);
+  for(let i=0;i<5;i++){
+    const seg = [[rnd()*S, rnd()*S]];
+    for(let k=0;k<7;k++) seg.push([seg[k][0]+(rnd()-0.5)*38, seg[k][1]+(rnd()-0.5)*38]);
+    cracks.push(seg);
+  }
+  for(let ox=-1;ox<=1;ox++) for(let oy=-1;oy<=1;oy++){
+    const dx = ox*S, dy = oy*S;
+    for(const [sx,sy,r,light] of specks){
+      x.fillStyle = light ? "rgba(255,255,255,.06)" : "rgba(30,36,50,.07)";
+      x.beginPath(); x.arc(sx+dx, sy+dy, r, 0, 7); x.fill();
+    }
+    for(const [sx,sy,r,a] of stains){
+      const gr = x.createRadialGradient(sx+dx, sy+dy, 0, sx+dx, sy+dy, r);
+      gr.addColorStop(0, "rgba(38,42,54,"+a+")"); gr.addColorStop(1, "rgba(38,42,54,0)");
+      x.fillStyle = gr; x.beginPath(); x.arc(sx+dx, sy+dy, r, 0, 7); x.fill();
+    }
+    x.strokeStyle = "rgba(46,52,66,.34)"; x.lineWidth = 1.1;
+    for(const seg of cracks){
+      x.beginPath(); x.moveTo(seg[0][0]+dx, seg[0][1]+dy);
+      for(let k=1;k<seg.length;k++) x.lineTo(seg[k][0]+dx, seg[k][1]+dy);
+      x.stroke();
+    }
+  }
+  // Plattenfugen am Kachelrand: großes ruhiges Raster (wie im Hallenboden)
+  x.strokeStyle = "rgba(40,46,60,.6)"; x.lineWidth = 3;
+  x.beginPath(); x.moveTo(0,1.5); x.lineTo(S,1.5); x.moveTo(1.5,0); x.lineTo(1.5,S); x.stroke();
+  return c;   // Canvas, nicht Textur: Plattform und Crawlerway brauchen
+              // verschiedene `repeat`-Werte, sollen sich aber das (teure)
+              // gemalte Bild teilen.
+}
+function concreteTex(rx, ry){
+  const t = new THREE.CanvasTexture(_padConcCanvas || (_padConcCanvas = makePadConcreteTex()));
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; t.repeat.set(rx, ry);
+  return t;
+}
+let _padConcCanvas = null;
+/* Brandfleck unter der Rakete: Eine echte Rampe ist dort tiefschwarz.
+   Der Ruß liegt als transparente Scheibe auf dem Beton – winzige Änderung,
+   aber sie macht aus einer sauberen Platte einen BENUTZTEN Startplatz. */
+function makeScorchTex(){
+  const c = document.createElement("canvas"); c.width = c.height = 256;
+  const x = c.getContext("2d"), S = 256, R = S/2;
+  const rnd = seededRand(2029);
+  // ⚠️ Der Verlauf muss LANGE hoch bleiben. Mit einem gleichmäßig
+  // abfallenden Radialverlauf ist der Ruß nur in den innersten Prozent
+  // wirklich schwarz – und genau die Mitte verdeckt die Rakete. Sichtbar
+  // ist der Ring DANEBEN, der muss also noch tragen.
+  const g = x.createRadialGradient(R,R,0, R,R,R);
+  g.addColorStop(0,    "rgba(9,9,11,.96)");
+  g.addColorStop(0.44, "rgba(14,14,18,.88)");
+  g.addColorStop(0.70, "rgba(24,24,30,.58)");
+  g.addColorStop(0.89, "rgba(32,32,40,.20)");
+  g.addColorStop(1,    "rgba(32,32,40,0)");
+  x.fillStyle = g; x.fillRect(0,0,S,S);
+  // ausgefranster Rand + Rußflecken, damit es kein Kreis aus dem Zirkel ist
+  x.globalCompositeOperation = "destination-out";
+  for(let i=0;i<120;i++){
+    const a = rnd()*6.283, r = R*(0.66 + rnd()*0.5);
+    const rr = 6 + rnd()*18;
+    const gg = x.createRadialGradient(R+Math.cos(a)*r, R+Math.sin(a)*r, 0,
+                                      R+Math.cos(a)*r, R+Math.sin(a)*r, rr);
+    gg.addColorStop(0, "rgba(0,0,0,.38)"); gg.addColorStop(1, "rgba(0,0,0,0)");
+    x.fillStyle = gg;
+    x.beginPath(); x.arc(R+Math.cos(a)*r, R+Math.sin(a)*r, rr, 0, 7); x.fill();
+  }
+  x.globalCompositeOperation = "source-over";
+  return new THREE.CanvasTexture(c);
+}
+/* Gebäudewand: Trapezblech mit Fensterband + Sockel. Aus einem weißen
+   Kasten wird damit ein Gebäude. */
+function makePadWallTex(){
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const x = c.getContext("2d"), S = 128;
+  x.fillStyle = "#dfe4ee"; x.fillRect(0,0,S,S);
+  for(let i=0;i<S;i+=8){          // senkrechte Rippen
+    const g = x.createLinearGradient(i,0,i+8,0);
+    g.addColorStop(0,   "rgba(255,255,255,.30)");
+    g.addColorStop(0.5, "rgba(0,0,0,.10)");
+    g.addColorStop(1,   "rgba(255,255,255,.14)");
+    x.fillStyle = g; x.fillRect(i,0,8,S);
+  }
+  x.fillStyle = "rgba(38,52,80,.75)";              // Fensterband
+  for(let i=4;i<S;i+=16) x.fillRect(i, S*0.30, 9, S*0.14);
+  x.fillStyle = "rgba(30,40,62,.55)"; x.fillRect(0, S*0.82, S, S*0.18);  // Sockel
+  x.fillStyle = "rgba(0,0,0,.22)";    x.fillRect(0, S*0.80, S, 2.5);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4;
+  return t;
+}
+/* Erleuchtete Fenster für die Nacht (wird über die Wand geblendet) */
+function makePadWindowTex(){
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const x = c.getContext("2d"), S = 128;
+  const rnd = seededRand(771);
+  x.clearRect(0,0,S,S);
+  for(let i=4;i<S;i+=16){
+    if(rnd() < 0.32) continue;                     // ein paar Büros sind dunkel
+    x.fillStyle = rnd()<0.5 ? "rgba(255,236,180,.95)" : "rgba(255,222,150,.75)";
+    x.fillRect(i, S*0.30, 9, S*0.14);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+/* Lichtkegel-Verlauf: hell an der Lampe, nach unten auslaufend.
+   ⚠️ ConeGeometry legt v ÜBER DIE HÖHE an (v=1 an der Spitze) – mit einer
+   radialen Wolkentextur wird daraus ein massiver weißer Keil. Gebraucht
+   wird ein senkrechter Verlauf; CanvasTexture spiegelt y, also gehört das
+   Helle nach OBEN in die Kachel. */
+function makeBeamTex(){
+  const c = document.createElement("canvas"); c.width = 4; c.height = 64;
+  const x = c.getContext("2d");
+  const g = x.createLinearGradient(0, 0, 0, 64);
+  g.addColorStop(0,    "rgba(255,244,210,.95)");
+  g.addColorStop(0.35, "rgba(255,242,205,.42)");
+  g.addColorStop(0.75, "rgba(255,240,200,.10)");
+  g.addColorStop(1,    "rgba(255,240,200,0)");
+  x.fillStyle = g; x.fillRect(0,0,4,64);
+  return new THREE.CanvasTexture(c);
+}
+/* Weiche weiße Wolke für LOX-Abdampf und Flutlichtkegel */
+function makePadPuffTex(){
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const x = c.getContext("2d");
+  const g = x.createRadialGradient(32,32,0, 32,32,32);
+  g.addColorStop(0,   "rgba(255,255,255,.85)");
+  g.addColorStop(0.45,"rgba(248,251,255,.42)");
+  g.addColorStop(1,   "rgba(240,246,255,0)");
+  x.fillStyle = g; x.fillRect(0,0,64,64);
+  return new THREE.CanvasTexture(c);
+}
+let _padTex = null;
+function padTextures(){
+  if(!_padTex){
+    _padTex = {conc:concreteTex(8,8), way:concreteTex(30,3),
+      scorch:makeScorchTex(), wall:makePadWallTex(), win:makePadWindowTex(),
+      puff:makePadPuffTex(), beam:makeBeamTex(), haz:makeHazardTex()};
+    // EIN Fensterband pro Gebäude (repeat y = 1), Rippen fünffach umlaufend.
+    _padTex.wall.repeat.set(5, 1);
+    _padTex.win.repeat.set(5, 1);
+  }
+  return _padTex;
+}
+
+/* =================================================================
    VAB (3D-Montagehalle)
    ================================================================= */
 const VAB = {
@@ -5140,6 +5601,11 @@ const VAB = {
   init(){
     const host = document.getElementById("vab3d");
     this.renderer = new THREE.WebGLRenderer({antialias:true});
+    // Die Halle ist der EINFACHE Schattenfall: begrenzte Szene, ein Hauptlicht,
+    // nichts bewegt sich weit. Genau das trennt "Objekte schweben über einer
+    // Textur" von "Objekte stehen in einem Raum".
+    this.renderer.shadowMap.enabled = Settings.q.shadow > 0;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     host.insertBefore(this.renderer.domElement, host.firstChild);
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x10182c);
@@ -5166,7 +5632,7 @@ const VAB = {
     // das Hellste im Bild.
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(HW*2, HW*2),
       new THREE.MeshStandardMaterial({color:0x6a6f79, map:floorTex, roughness:.94}));
-    floor.rotation.x = -Math.PI/2; this.scene.add(floor);
+    floor.rotation.x = -Math.PI/2; floor.receiveShadow = true; this.scene.add(floor);
     // Bodenmarkierung: Sicherheitszone (Warnstreifen) + Montagering
     const hazTex = makeHazardTex(); hazTex.repeat.set(46,1);
     const hazGeo = new THREE.RingGeometry(25.5, 29, 96, 1);
@@ -5194,7 +5660,8 @@ const VAB = {
       roughness:.75, metalness:.25, side:THREE.DoubleSide});
     const mkWall = (x,z,ry)=>{
       const m = new THREE.Mesh(new THREE.PlaneGeometry(HW*2, HH), wallMat);
-      m.position.set(x, HH/2, z); m.rotation.y = ry; this.scene.add(m);
+      m.position.set(x, HH/2, z); m.rotation.y = ry;
+      m.receiveShadow = true; this.scene.add(m);
     };
     mkWall(0,-HW,0); mkWall(-HW,0,Math.PI/2); mkWall(HW,0,-Math.PI/2); mkWall(0,HW,Math.PI);
     for(let i=-150;i<=150;i+=50){                 // Stahlstützen an allen Wänden
@@ -5313,6 +5780,7 @@ const VAB = {
         bm.setMatrixAt(i, m4.compose(v.set(p.x,p.y,p.z), q, sc.set(p.sx,p.sy,p.sz)));
         bm.setColorAt(i, col.setHex(p.col));
       });
+      bm.castShadow = bm.receiveShadow = true;
       this.scene.add(bm);
       const cm = new THREE.InstancedMesh(new THREE.CylinderGeometry(1,1,1,12),
         new THREE.MeshStandardMaterial({roughness:.6, metalness:.25}), pipes.length);
@@ -5321,19 +5789,42 @@ const VAB = {
         cm.setMatrixAt(i, m4.compose(v.set(p.x,p.y,p.z), q, sc.set(p.r,p.h,p.r)));
         cm.setColorAt(i, col.setHex(p.col));
       });
+      cm.castShadow = cm.receiveShadow = true;
       this.scene.add(cm);
     };
     // --- Licht ----------------------------------------------------------
     this.scene.add(new THREE.HemisphereLight(0xbcd0ff, 0x28324e, 0.75));
     const sun = new THREE.DirectionalLight(0xfff2dd, 0.95);
     sun.position.set(120,200,80); this.scene.add(sun);
+    /* Schattenwurf des Hauptlichts. ⚠️ Die Richtungslichtquelle steht bei
+       (120,200,80) und zielt auf den Ursprung – für die Schattenkamera zählt
+       nur die RICHTUNG, die Position wird deshalb weit nach außen gelegt,
+       damit auch das Hallendach noch VOR der near-Ebene liegt. Das Ortho-
+       Fenster (±240) umfasst die ganze Halle: bei 2048 px sind das 23 cm pro
+       Texel – fein genug, denn eine Figur ist gut 6 Einheiten (~2,3 m) hoch. */
+    sun.position.normalize().multiplyScalar(520);
+    sun.castShadow = true;
+    const sc = sun.shadow.camera;
+    sc.left = sc.bottom = -240; sc.right = sc.top = 240;
+    sc.near = 60; sc.far = 900; sc.updateProjectionMatrix();
+    // normalBias statt reinem bias: verschiebt den Vergleichspunkt entlang der
+    // Normalen und ist damit unabhängig von der Neigung – auf dem 360 Einheiten
+    // großen Hallenboden ist reiner bias sonst entweder zu klein (Streifen-
+    // Akne) oder so groß, dass die Schatten von den Füßen abheben.
+    sun.shadow.normalBias = 0.7;
+    sun.shadow.bias = -0.0004;
+    this.sunLight = sun;
+    this.setShadowRes(Settings.q.shadow);
     const sun2 = new THREE.DirectionalLight(0xbdd2ff, 0.35);
     sun2.position.set(-140,120,-90); this.scene.add(sun2);
     const fill = new THREE.PointLight(0xf7941d, 0.30, 460);
     fill.position.set(-80,60,-60); this.scene.add(fill);
+    // Spiegelungen der Halle (Lampenbänder + Tor) – s. EnvMap-Abschnitt
+    this.envTex = EnvMap.build("hall", this.renderer, paintHallEnv);
     // --- Belegschaft ----------------------------------------------------
     this.buildCrew();
     flushProps();
+    this.buildContactShadows();
     // Kamerasteuerung
     let drag = null;
     host.addEventListener("pointerdown", e=>{ drag = {x:e.clientX, y:e.clientY}; });
@@ -5758,9 +6249,60 @@ const VAB = {
   rebuild(){
     if(this.rocket) this.scene.remove(this.rocket);
     this.rocket = buildRocketGroup(this.stack, true);
+    // Die Rakete ist der Star der Halle: sie wirft Schatten, empfängt welche
+    // (Gerüst und Dachbinder legen sich über sie) und spiegelt die Lampen.
+    this.rocket.traverse(o=>{ if(o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
+    applyEnv(this.rocket, this.envTex, 0.9);
     this.scene.add(this.rocket);
     const h = this.rocket.userData.height;
     this.camDist = Math.max(45, h*1.7);
+  },
+  /* Auflösung der Schattenkarte an die Grafikstufe anpassen (0 = aus) */
+  setShadowRes(px){
+    const s = this.sunLight && this.sunLight.shadow;
+    if(!s) return;
+    // Auf "Niedrig" die Karte wirklich freigeben – sonst belegt sie weiter
+    // 2048² × 4 Byte VRAM auf genau dem Rechner, dem der Speicher fehlt.
+    if(!px){
+      if(s.map){ s.map.dispose(); s.map = null; }
+      return;
+    }
+    if(s.mapSize.width === px && s.map) return;
+    s.mapSize.set(px, px);
+    if(s.map){ s.map.dispose(); s.map = null; }   // erzwingt Neuanlage
+  },
+  /* Kontaktschatten: weiche Blasen unter Rakete und Belegschaft.
+     Sie laufen NUR auf Grafikstufe "Niedrig", wo es keine Schattenkarte gibt –
+     sonst wäre es doppelte Verdunklung. So steht auch auf dem langsamsten
+     Schulrechner niemand schwebend über dem Betonboden. */
+  buildContactShadows(){
+    const geo = new THREE.PlaneGeometry(1, 1); geo.rotateX(-Math.PI/2);
+    this.blobs = new THREE.InstancedMesh(geo,
+      new THREE.MeshBasicMaterial({map:shadowBlobTex(), transparent:true,
+        depthWrite:false, opacity:.9}), 16);
+    this.blobs.frustumCulled = false; this.blobs.renderOrder = 1;
+    this.blobs.count = 0;
+    this.scene.add(this.blobs);
+    this._blobM = new THREE.Matrix4();
+  },
+  updateContactShadows(){
+    const b = this.blobs;
+    if(!b) return;
+    b.visible = Settings.q.shadow === 0;
+    if(!b.visible) return;
+    const m = this._blobM;
+    let i = 0;
+    if(this.rocket){
+      const r = Math.max(14, (this.rocket.userData.height || 30)*0.30);
+      b.setMatrixAt(i++, m.makeScale(r, 1, r).setPosition(0, 0.12, 0));
+    }
+    for(const w of (this.crew || [])){
+      if(i >= 16) break;
+      const p = w.mesh.position, s = w.fall > 0 ? 11 : 7;
+      b.setMatrixAt(i++, m.makeScale(s, 1, s).setPosition(p.x, 0.10, p.z));
+    }
+    b.count = i;
+    b.instanceMatrix.needsUpdate = true;
   },
   /* =================================================================
      Belegschaft der Montagehalle
@@ -5799,6 +6341,7 @@ const VAB = {
     })();
     const mk = (role, x, z, yaw)=>{
       const mesh = buildAstronaut();
+      mesh.traverse(o=>{ if(o.isMesh) o.castShadow = true; });
       mesh.scale.set(2.4,2.4,2.4);
       mesh.position.set(x, this.CREW_Y, z);
       mesh.rotation.y = yaw;
@@ -5991,6 +6534,7 @@ const VAB = {
     // Die Halle lebt: Laufen, Schweißen, Kisten schleppen, Hinfallen
     for(const w of this.crew) this.stepWorker(w, 1/60);
     this.stepSparks(1/60);
+    this.updateContactShadows();
     const th = this.rocket ? this.rocket.userData.height/2 : 20;
     const cx = Math.cos(this.camEl)*Math.cos(this.camAz)*this.camDist;
     const cz = Math.cos(this.camEl)*Math.sin(this.camAz)*this.camDist;
@@ -6303,6 +6847,21 @@ const Flight = {
     // Startrampe
     this.padGroup = this.buildPad();
     this.world.add(this.padGroup);
+    /* Kontaktschatten der Rakete: eine weiche Blase auf dem Boden direkt
+       unter dem Schiff. Echte Schattenkarten gibt es in der Flugszene (noch)
+       nicht – ohne diese Blase steht die Rakete beim Start und bei der
+       Landung wie aufgeklebt auf der Wiese. Sie hängt an `scene` (nicht an
+       `world`), weil das Schiff der Szenen-URSPRUNG ist. */
+    this._envSoil = new THREE.Color();
+    this._soilCol = new THREE.Color(0x4c5a3e);
+    {
+      const g = new THREE.PlaneGeometry(1, 1); g.rotateX(-Math.PI/2);
+      this.shipBlob = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
+        map:shadowBlobTex(), transparent:true, depthWrite:false, opacity:0}));
+      this.shipBlob.renderOrder = 1;
+      this.shipBlob.visible = false;
+      this.scene.add(this.shipBlob);
+    }
     // --- Wolkenfeld: CLOUDS Haufenwolken à PUFFS Impostor-Puffs, alles in
     // EINEM InstancedMesh (1 Draw-Call). Der Objektraum ist der der
     // Bodengruppe (x = Ost, y = hoch, z = Süd), Beleuchtung s. CLOUD_FRAG.
@@ -6353,6 +6912,11 @@ const Flight = {
       geo.setAttribute("iPos", new THREE.InstancedBufferAttribute(iPos, 3));
       geo.setAttribute("iParam", new THREE.InstancedBufferAttribute(iPar, 3));
       geo.setAttribute("iCloud", new THREE.InstancedBufferAttribute(iCld, 4));
+      // Die Grafikstufe kürzt die Wolkenzahl über `instanceCount` – der Puffer
+      // bleibt voll, gezeichnet wird nur der Anfang. So lässt sich die Stufe
+      // mitten im Spiel umschalten, ohne das Feld neu zu bauen.
+      geo.userData.puffs = PUFFS;
+      geo.instanceCount = Math.min(CLOUDS, Settings.q.clouds) * PUFFS;
       geo.instanceCount = N;
       this.cloudU = {
         uPuff:{value:makeCloudPuffTexture()},
@@ -6544,26 +7108,123 @@ const Flight = {
   buildPad(kind){
     kind = kind || "lmg";
     const g = new THREE.Group();
-    const conc = new THREE.MeshStandardMaterial({color:0x8d94a6, roughness:.85});
+    const polar = kind === "polar";
+    const T = padTextures();
+    /* Kleinkram (Gitterturm, Geländer, Kabelpritschen, Rohre, Zäune, Treppen)
+       wird gesammelt und am Ende in ZWEI InstancedMeshes ausgegeben –
+       dieselbe Draw-Call-Rechnung wie in der Montagehalle. Einzeln wären
+       das ~300 Meshes für ein bisschen Stahl.
+       `rot` darf eine volle Euler-Angabe sein (Diagonalstreben!). */
+    const props = [], pipes = [];
+    const box = (x,y,z, sx,sy,sz, col, rot)=>props.push({x,y,z,sx,sy,sz,col,rot});
+    const cyl = (x,y,z, r,h, col, rot)=>pipes.push({x,y,z,r,h,col,rot});
+    /* Zylinder ZWISCHEN zwei Punkten (Seile, Schrägstreben).
+       ⚠️ Nicht mit Euler-Winkeln basteln: Ein Zylinder zeigt entlang +Y, und
+       die Drehung dorthin ist eine Achse-Winkel-Drehung. Mit geratenen
+       Euler-Winkeln stehen die Abspannseile schief im Bild. */
+    const _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _y = V3(0,1,0);
+    const strut = (x1,y1,z1, x2,y2,z2, r, col)=>{
+      _v.set(x2-x1, y2-y1, z2-z1);
+      const h = _v.length();
+      if(h < 1e-6) return;
+      _q.setFromUnitVectors(_y, _v.divideScalar(h));
+      pipes.push({x:(x1+x2)/2, y:(y1+y2)/2, z:(z1+z2)/2, r, h, col, q:_q.clone()});
+    };
+    const conc = new THREE.MeshStandardMaterial({color: polar?0xaab2c0:0x9aa2b2,
+      map:T.conc, roughness:.93});
     const metal = new THREE.MeshStandardMaterial({color:0xb8434f, roughness:.5, metalness:.4});
-    const grey  = new THREE.MeshStandardMaterial({color:0x6f7686});
-    const bldMat = new THREE.MeshStandardMaterial({color:0xd8dde8, roughness:.7});
-    const tankMat = new THREE.MeshStandardMaterial({color:0xbfc4cf, roughness:.4, metalness:.5});
-    const orangeMat = new THREE.MeshStandardMaterial({color:0xf7941d});
-    // --- Gemeinsam: Plattform, Startturm, Versorgungsarm, Blitzableiter ---
-    const plat = new THREE.Mesh(new THREE.CylinderGeometry(34,40,3,24), conc);
+    const grey  = new THREE.MeshStandardMaterial({color:0x6f7686, roughness:.6, metalness:.35});
+    const bldMat = new THREE.MeshStandardMaterial({color: polar?0xc4ccda:0xdfe4ee,
+      map:T.wall, roughness:.72, metalness:.15});
+    const tankMat = new THREE.MeshStandardMaterial({color:0xbfc4cf, roughness:.35, metalness:.55});
+    const orangeMat = new THREE.MeshStandardMaterial({color:0xf7941d, roughness:.65});
+    const STEEL = polar ? 0x93a0b4 : 0x8d94a6;
+    // Nachts leuchtende Flächen sammeln (Fenster, Lampen, Lichtkegel)
+    const night = [];
+    g.userData.night = night;
+    // --- Gemeinsam: Plattform, Gitterturm, Versorgungsarm, Blitzableiter ---
+    const plat = new THREE.Mesh(new THREE.CylinderGeometry(34,40,3,48), conc);
     plat.position.y = -1.5; g.add(plat);
-    const tower = new THREE.Mesh(new THREE.BoxGeometry(5,46,5), metal);
-    tower.position.set(15,23,0); g.add(tower);
-    for(let y=4;y<44;y+=8){
-      const strut = new THREE.Mesh(new THREE.BoxGeometry(7,0.6,7),
-        new THREE.MeshStandardMaterial({color:0x8d94a6, metalness:.5}));
-      strut.position.set(15,y,0); g.add(strut);
+    // Warnstreifen auf der Plattformkante. ⚠️ RingGeometry legt die UVs PLANAR
+    // an – für umlaufende Streifen müssen sie polar neu gesetzt werden, sonst
+    // laufen sie quer übers Bild (gleiche Falle wie in der Montagehalle; u aus
+    // dem Scheitel-INDEX, damit die Naht bei ganzzahligem repeat unsichtbar ist).
+    {
+      const TS = 96, hg = new THREE.RingGeometry(30.5, 33.5, TS, 1), uv = hg.attributes.uv;
+      for(let j=0;j<=1;j++) for(let i=0;i<=TS;i++) uv.setXY(j*(TS+1)+i, i/TS, j);
+      uv.needsUpdate = true;
+      const hz = T.haz.clone(); hz.needsUpdate = true; hz.repeat.set(34,1);
+      const hm = new THREE.Mesh(hg, new THREE.MeshBasicMaterial({map:hz,
+        transparent:true, opacity:.62}));
+      hm.rotation.x = -Math.PI/2; hm.position.y = 0.05; g.add(hm);
     }
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(9,1,2), conc);
-    arm.position.set(8.5,36,0); g.add(arm);
+    // Brandfleck: Die Rampe ist BENUTZT. Liegt knapp über dem Beton.
+    const scorch = new THREE.Mesh(new THREE.CircleGeometry(30, 40),
+      new THREE.MeshBasicMaterial({map:T.scorch, transparent:true,
+        depthWrite:false, opacity:.85}));
+    scorch.rotation.x = -Math.PI/2; scorch.position.y = 0.09;
+    scorch.renderOrder = 1; g.add(scorch);
+    // Flammengrube unter der Rakete: dunkles Loch mit Abweiskeil. Ohne sie
+    // steht die Rakete auf einer geschlossenen Platte, als wäre der Strahl
+    // dem Beton egal.
+    const dark = new THREE.MeshStandardMaterial({color:0x23272f, roughness:.95});
+    const pit = new THREE.Mesh(new THREE.CylinderGeometry(9, 11, 5, 24, 1, true), dark);
+    pit.position.y = -2.5; pit.material.side = THREE.DoubleSide; g.add(pit);
+    const pitFloor = new THREE.Mesh(new THREE.CircleGeometry(11, 24), dark);
+    pitFloor.rotation.x = -Math.PI/2; pitFloor.position.y = -4.9; g.add(pitFloor);
+    for(const sx of [1,-1])
+      box(sx*7, -2.2, 0, 12, 1.2, 15, 0x4a515e, {x:0, y:0, z:-sx*0.7});
+    /* Offener GITTERTURM statt roter Kiste.
+       ⚠️ Der Startturm war `BoxGeometry(5,46,5)` – ein massiver Balken mit
+       aufgefädelten Scheiben. Ein echter Turm ist Luft mit Stahl drin, und
+       genau die Silhouette gegen den Himmel macht den Unterschied. Kostet
+       nichts: alle Streben landen im Instanz-Puffer. */
+    const lattice = (cx, cz, w, h, col, bay)=>{
+      bay = bay || 6.5;
+      const hw = w/2, d = Math.hypot(bay, w), a = Math.atan2(bay, w);
+      for(const sx of [-1,1]) for(const sz of [-1,1])
+        box(cx+sx*hw, h/2, cz+sz*hw, 0.9, h, 0.9, col);
+      let n = 0;
+      for(let y=0; y+bay <= h+0.01; y+=bay, n++){
+        const yc = y + bay/2, k = (n % 2) ? 1 : -1;
+        box(cx, y+bay, cz-hw, w, 0.55, 0.55, col);
+        box(cx, y+bay, cz+hw, w, 0.55, 0.55, col);
+        box(cx-hw, y+bay, cz, 0.55, 0.55, w, col);
+        box(cx+hw, y+bay, cz, 0.55, 0.55, w, col);
+        // Kreuzverbände, Neigung etagenweise wechselnd (= echtes Zickzack)
+        box(cx, yc, cz-hw, d, 0.45, 0.45, col, {x:0, y:0, z: k*a});
+        box(cx, yc, cz+hw, d, 0.45, 0.45, col, {x:0, y:0, z:-k*a});
+        box(cx-hw, yc, cz, 0.45, 0.45, d, col, {x:-k*a, y:0, z:0});
+        box(cx+hw, yc, cz, 0.45, 0.45, d, col, {x: k*a, y:0, z:0});
+      }
+    };
+    const TOWX = 15, TOWH = 52;
+    lattice(TOWX, 0, 7, TOWH, 0xb8434f, 6.5);
+    // Aufzugsschacht + Treppenpodeste am Turm
+    for(let y=6; y<TOWH-2; y+=6.5) box(TOWX+5.4, y, 0, 3.6, 0.4, 7, STEEL);
+    box(TOWX+5.4, TOWH/2, 0, 0.3, TOWH-8, 7, 0x59627a);
+    // Turmspitze mit Blitzableiter
+    cyl(TOWX, TOWH+7, 0, 0.35, 14, 0xc8ceda);
+    /* Versorgungsarm auf einem Drehgelenk: schwenkt beim Start weg
+       (Animation in Flight.updatePad). Vorher war das eine Betonkiste,
+       die auch beim Abheben stur an der Rakete klebte. */
+    const armPiv = new THREE.Group(); armPiv.name = "padArm";
+    armPiv.position.set(TOWX - 3.5, 36, 0);
+    const armBeam = new THREE.Mesh(new THREE.BoxGeometry(11, 1.1, 2.6),
+      new THREE.MeshStandardMaterial({color:0x9aa2b2, roughness:.6, metalness:.4}));
+    armBeam.position.x = -5.5; armPiv.add(armBeam);
+    const armRail = new THREE.Mesh(new THREE.BoxGeometry(11, 2.6, 0.25),
+      new THREE.MeshStandardMaterial({color:0xf7941d, roughness:.7}));
+    armRail.position.set(-5.5, 1.6, -1.2); armPiv.add(armRail);
+    const armHose = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 9, 8),
+      new THREE.MeshStandardMaterial({color:0x38404f, roughness:.9}));
+    armHose.rotation.z = Math.PI/2; armHose.position.set(-6, -0.9, 0.9); armPiv.add(armHose);
+    g.add(armPiv);
     const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.7,32,8), grey);
     mast.position.set(-24,16,0); g.add(mast);
+    // Abspannseile des Blitzableiters, Mastspitze (−24|32|0) → Deck
+    for(const [ax,az2] of [[-32,-9], [-32,9], [-13,0]])
+      strut(-24, 31, 0, ax, 0.3, az2, 0.16, 0x8a93a4);
     const dishAt = (x,z,r=9)=>{
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(1,1.4,18,8), grey);
       pole.position.set(x,9,z); g.add(pole);
@@ -6572,16 +7233,34 @@ const Flight = {
       dish.position.set(x,19,z); dish.rotation.x = -Math.PI/3; g.add(dish);
     };
     const tankAt = (x,z,r=7,h=20)=>{
-      const tank = new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,16), tankMat);
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,20), tankMat);
       tank.position.set(x,h/2,z); g.add(tank);
-      const cap = new THREE.Mesh(new THREE.SphereGeometry(r,16,8), tankMat);
+      const cap = new THREE.Mesh(new THREE.SphereGeometry(r,20,10), tankMat);
       cap.position.set(x,h,z); g.add(cap);
+      // Ringversteifungen, Steigleiter, Ablaufrohr – ein glatter Zylinder
+      // sieht aus wie ein Platzhalter, ein Tank hat Zeug dran.
+      for(let y=h*0.28; y<h; y+=h*0.34) cyl(x, y, z, r*1.03, 0.5, 0xa8aeba);
+      for(let y=1.5; y<h; y+=2.2) box(x, y, z+r*1.04, 1.9, 0.22, 0.22, 0xd8dde8);
+      box(x, h*0.5, z+r*1.10, 0.22, h, 0.22, 0xd8dde8);
+      cyl(x - r*0.75, h*0.42, z - r*0.75, 0.55, h*0.85, 0x8d94a6);
+      box(x, 0.7, z, r*2.5, 1.4, r*2.5, 0x767e8e);          // Fundament
     };
     const hallAt = (x,z,w,ht,d)=>{
       const hall = new THREE.Mesh(new THREE.BoxGeometry(w,ht,d), bldMat);
       hall.position.set(x,ht/2,z); g.add(hall);
+      // Fensterband, das NACHTS angeht (tagsüber deckungsgleich unsichtbar).
+      // Der Tag/Nacht-Zyklus existiert längst – die Dramatik ist geschenkt.
+      const winMat = new THREE.MeshBasicMaterial({map:T.win, transparent:true,
+        opacity:0, depthWrite:false});
+      const win = new THREE.Mesh(new THREE.BoxGeometry(w*1.006, ht*1.006, d*1.006), winMat);
+      win.position.copy(hall.position); win.renderOrder = 2; g.add(win);
+      night.push({mat:winMat, max:0.92});
       const roof = new THREE.Mesh(new THREE.BoxGeometry(w,ht*0.1,d), orangeMat);
       roof.position.set(x,ht+ht*0.05,z); g.add(roof);
+      box(x, ht+ht*0.1+0.7, z, w*1.03, 1.4, d*1.03, STEEL);          // Attika
+      for(const s of [-0.28, 0.28])                                   // Lüfteraufbauten
+        box(x+s*w, ht+ht*0.1+3, z+d*0.15, w*0.13, 4, d*0.22, 0x76809a);
+      box(x, 3.2, z-d/2-0.4, w*0.16, 6.4, 0.8, 0x39456b);             // Tür
     };
     if(kind==="lmg"){
       // Der bescheidene Schul-Startplatz: Montagehalle, 2 Tanks, 1 Schüssel
@@ -6666,9 +7345,10 @@ const Flight = {
     } else {
       // Polarstation »Skihütte«: zwei Container, kleiner Tank, Radarkuppel
       const contMat = new THREE.MeshStandardMaterial({color:0xc84f3a, roughness:.6});
+      // ⚠️ NICHT `box` nennen – so heißt der Instanz-Sammler dieser Funktion.
       for(const [x,z,ry] of [[-70,40,0.3],[-70,70,-0.15]]){
-        const box = new THREE.Mesh(new THREE.BoxGeometry(24,10,10), contMat);
-        box.position.set(x,5,z); box.rotation.y = ry; g.add(box);
+        const cont = new THREE.Mesh(new THREE.BoxGeometry(24,10,10), contMat);
+        cont.position.set(x,5,z); cont.rotation.y = ry; g.add(cont);
       }
       tankAt(60,-60,5,12);
       const dome = new THREE.Mesh(new THREE.SphereGeometry(8,16,10,0,Math.PI*2,0,Math.PI/2), bldMat);
@@ -6678,6 +7358,151 @@ const Flight = {
         const st = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,5,5), orangeMat);
         st.position.set(-45-k*14,2.5,52+Math.sin(k*2.1)*6); g.add(st);
       }
+    }
+    /* =============================================================
+       GEMEINSAMES DRUMHERUM (alle drei Rampen)
+       Der Startplatz sah aus wie ein Modell auf einer leeren Platte.
+       Was fehlt, ist nicht Auflösung, sondern MENSCHLICHER MASSSTAB und
+       Betriebsspuren: Geländer, Kabelpritschen, Rohre, ein Zaun, ein
+       Zufahrtsweg, Flutlicht – und Leute, an denen man sieht, wie groß
+       die Rakete wirklich ist.
+       ============================================================= */
+    // Geländer um die Plattform (mit Lücke Richtung Turm)
+    for(let k=0;k<44;k++){
+      const a = k/44*Math.PI*2;
+      if(Math.abs(a) < 0.5 || Math.abs(a-Math.PI*2) < 0.5) continue;   // Zugang Ost
+      const px = Math.cos(a)*36.5, pz = Math.sin(a)*36.5;
+      box(px, 2.1, pz, 0.35, 4.2, 0.35, STEEL);
+      box(px, 4.0, pz, 0.3, 0.3, 5.3, STEEL, {x:0, y:-a, z:0});
+      box(px, 2.4, pz, 0.25, 0.25, 5.3, STEEL, {x:0, y:-a, z:0});
+    }
+    /* Kabelpritsche + Versorgungsleitungen. ⚠️ Sie laufen NEBEN der Rampe
+       nach Westen zum Betriebsgelände – nicht quer über das Deck: dort
+       schnitten sie durch Warnstreifen und Geländer und sahen aus, als
+       läge Baumaterial herum. Am Turm gehen sie über einen Steigschacht hoch. */
+    for(let x=-100; x<=-38; x+=6) box(x, 1.3, -20, 5.4, 0.6, 3.0, 0x5b6478);
+    for(let x=-100; x<=-38; x+=12) box(x, 0.65, -20, 0.6, 1.3, 0.6, 0x5b6478);
+    for(const dz of [-19.0, -21.0])
+      for(let x=-100; x<=-38; x+=8) cyl(x, 1.9, dz, 0.34, 8, 0xd0a24a, {x:0,y:0,z:Math.PI/2});
+    // Steigschacht am Turm + kurzer Anschluss aufs Deck
+    box(TOWX+2, 10, -6.5, 1.6, 20, 3.4, 0x5b6478);
+    for(let x=-2; x<=TOWX-1; x+=6) box(x, 0.45, -6.5, 5.4, 0.9, 3.0, 0x5b6478);
+    /* Betonschürze statt Treppe. ⚠️ Die Plattform ist mit dem Boden BÜNDIG
+       (Oberkante y = 0, damit die Rakete bei |pos| = R aufsetzt) – eine
+       Treppe hatte hier gar nichts zu überwinden und stieg ins Leere. */
+    for(let s=0;s<7;s++) box(38 + s*4.4, 0.06 - s*0.012, 0, 4.6, 0.35, 11 - s*0.9, 0x767e8e);
+    // Zufahrt (dunkle Spur durch die Wiese) + Fahrzeuge
+    {
+      const road = new THREE.Mesh(new THREE.PlaneGeometry(14, 210),
+        new THREE.MeshStandardMaterial({color: polar?0xb9c2d0:0x59606e,
+          map:T.way, roughness:.95}));
+      road.rotation.x = -Math.PI/2; road.rotation.z = Math.PI/2;
+      road.position.set(-150, 0.08, 46); g.add(road);
+      box(-96, 2.4, 44, 11, 4.4, 4.6, 0xdfe4ee, {x:0,y:0.12,z:0});   // Transporter
+      box(-96, 5.2, 41.6, 5, 2.4, 4.2, 0x39456b, {x:0,y:0.12,z:0});
+      box(-118, 2.2, 50, 7.5, 3.4, 3.6, 0xf7941d, {x:0,y:-0.3,z:0}); // Kleinbus der AG
+    }
+    // Sicherheitszaun im weiten Bogen um die Rampe
+    for(let k=0;k<64;k++){
+      const a = k/64*Math.PI*2, px = Math.cos(a)*104, pz = Math.sin(a)*104;
+      box(px, 3.2, pz, 0.3, 6.4, 0.3, 0x707a8c);
+      box(px, 5.4, pz, 0.18, 0.18, 10.3, 0x707a8c, {x:0, y:-a, z:0});
+      box(px, 1.4, pz, 0.18, 0.18, 10.3, 0x707a8c, {x:0, y:-a, z:0});
+    }
+    /* Flutlicht: Die Masten am Äquator-Raumhafen hatten emissive Köpfe, die
+       aber NICHTS beleuchtet haben. Jetzt bekommt jede Rampe vier Masten mit
+       Lampenkopf und additivem Lichtkegel, der bei Dämmerung aufgeblendet
+       wird (Steuerung in Flight.updatePad). */
+    for(let k=0;k<4;k++){
+      const a = Math.PI/4 + k/4*Math.PI*2, px = Math.cos(a)*62, pz = Math.sin(a)*62;
+      box(px, 11, pz, 1.1, 22, 1.1, 0x707a8c);
+      box(px, 22.6, pz, 5.4, 1.6, 1.6, 0x59627a, {x:0, y:-a, z:0});
+      /* ⚠️ Die leuchtende Fläche gehört VOR das Gehäuse, nicht hinein: das
+         Gehäuse (Instanz-Box oben, 5,4 breit) umschließt sonst die kleinere
+         Lampe komplett und man sieht nachts einen schwarzen Kasten mitten
+         im eigenen Lichthof. Also eine dünne Linsenplatte auf die zur Rampe
+         zeigende Seite setzen. */
+      const inw = V3(-px, 0, -pz).normalize();
+      const lampMat2 = new THREE.MeshBasicMaterial({color:0xfff0c0,
+        transparent:true, opacity:0, side:THREE.DoubleSide});
+      const head = new THREE.Mesh(new THREE.BoxGeometry(4.6, 1.1, 0.22), lampMat2);
+      head.position.set(px + inw.x*0.95, 22.5, pz + inw.z*0.95);
+      head.rotation.y = -a; g.add(head);
+      night.push({mat:lampMat2, max:1});
+      /* ⚠️ KEIN volumetrischer Lichtkegel. Ein additiver Kegel ohne
+         Streuungs-Shader behält seine harte Silhouette und liest sich als
+         weißer Keil, der halb im Boden steckt – und sobald die Kamera
+         hineinfährt, füllt er den halben Bildschirm. Was ein Flutlicht
+         nachts wirklich ausmacht, ist die LICHTPFÜTZE am Boden plus das
+         Glühen der Lampe selbst. Beides ist billig und hat keine Kanten. */
+      const glowMat = new THREE.SpriteMaterial({map:T.puff, color:0xfff0c8,
+        transparent:true, opacity:0, depthWrite:false,
+        blending:THREE.AdditiveBlending});
+      const glow = new THREE.Sprite(glowMat);
+      glow.position.set(px + inw.x*1.2, 22.5, pz + inw.z*1.2);
+      glow.scale.set(15, 15, 1);
+      glow.renderOrder = 3; g.add(glow);
+      night.push({mat:glowMat, max:0.75});
+      const poolMat = new THREE.MeshBasicMaterial({map:T.puff, color:0xffeec0,
+        transparent:true, opacity:0, depthWrite:false,
+        blending:THREE.AdditiveBlending});
+      const pool = new THREE.Mesh(new THREE.PlaneGeometry(1,1), poolMat);
+      pool.rotation.x = -Math.PI/2; pool.scale.set(74, 74, 1);
+      pool.position.set(px*0.55, 0.14, pz*0.55);
+      pool.renderOrder = 3; g.add(pool);
+      night.push({mat:poolMat, max:0.34});
+    }
+    /* MENSCHLICHER MASSSTAB: drei Figuren am Rand der Sperrzone. Genau das
+       hat die Montagehalle von "riesig" auf "bewohnt" gebracht – und erst
+       daneben sieht man, dass die Rakete gut 40 m hoch ist.
+       Maßstab wie in der Halle (Modell 2,57 × 2,4 ≈ 6 Einheiten). */
+    for(const [fx, fz, fr] of [[-70, 26, 1.1], [-64, 33, -2.0], [-88, -20, 0.4]]){
+      const a = buildAstronaut();
+      a.scale.setScalar(2.4);
+      a.position.set(fx, 1.56, fz); a.rotation.y = fr;
+      g.add(a);
+    }
+    /* LOX-ABDAMPF: Der Sauerstoff kocht im Tank und wird abgeblasen – die
+       weiße Fahne, die auf jedem Startfoto quer über die Rampe zieht.
+       Billig gemacht: acht Sprites, Bewegung in Flight.updatePad. */
+    {
+      const vents = [];
+      const vmat = new THREE.SpriteMaterial({map:T.puff, transparent:true,
+        depthWrite:false, opacity:0});
+      for(let k=0;k<8;k++){
+        const s = new THREE.Sprite(vmat.clone());
+        s.userData = {t:k/8, x:-6, z:16, sp:0.28 + Math.random()*0.16};
+        s.renderOrder = 2;
+        g.add(s); vents.push(s);
+      }
+      g.userData.vents = vents;
+    }
+    /* --- Alles Kleinzeug in ZWEI Draw-Calls (wie in der Montagehalle) --- */
+    {
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(),
+            v = new THREE.Vector3(), sc = new THREE.Vector3(), col = new THREE.Color(),
+            eu = new THREE.Euler();
+      const put = (mesh, arr, sizeOf)=>{
+        arr.forEach((p,i)=>{
+          if(p.q) q.copy(p.q);                 // fertige Drehung (s. strut)
+          else {
+            const r = p.rot;
+            eu.set(r ? (r.x||0) : 0, r ? (r.y||0) : 0, r ? (r.z||0) : 0, "YXZ");
+            q.setFromEuler(eu);
+          }
+          sizeOf(p, sc);
+          mesh.setMatrixAt(i, m4.compose(v.set(p.x,p.y,p.z), q, sc));
+          mesh.setColorAt(i, col.setHex(p.col));
+        });
+        mesh.castShadow = mesh.receiveShadow = true;
+        g.add(mesh);
+      };
+      put(new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1),
+            new THREE.MeshStandardMaterial({roughness:.65, metalness:.35}), props.length),
+          props, (p,s)=>s.set(p.sx,p.sy,p.sz));
+      put(new THREE.InstancedMesh(new THREE.CylinderGeometry(1,1,1,10),
+            new THREE.MeshStandardMaterial({roughness:.55, metalness:.45}), pipes.length),
+          pipes, (p,s)=>s.set(p.r,p.h,p.r));
     }
     // Landing Zone »LZ-1« (Forschung landZone): Beton-Plattform nördlich der Rampe –
     // Ziel des RTLS-Boostbacks. Gibt es an JEDER Rampe.
@@ -6723,6 +7548,99 @@ const Flight = {
       t.position.set(sx*42, 4.5, sz*22); g.add(t);
     }
     return g;
+  },
+  /* ---------- Umgebungs-Spiegelung der Flugszene ----------------------
+     Die Rakete ist Metall – ohne Umgebung hat `metalness` nichts zu
+     spiegeln (Begründung im EnvMap-Abschnitt). Die Umgebung ändert sich
+     mit Tageszeit und Höhe, darf aber nicht pro Frame neu gebacken werden.
+     Deshalb eine grobe SIGNATUR aus Sonnenstand/Helligkeit/Atmosphäre:
+     neu gebaut wird nur, wenn die springt – und höchstens alle 400 ms
+     (auf "Niedrig" alle 1200 ms). Ein Neubau kostet ~1,5 ms. */
+  updateEnv(atmo){
+    const sd = this.groundSunDir || V3(0,1,0);
+    const sig = Math.round(atmo*10) + ":" + Math.round(this.dayLight*10) + ":" +
+      Math.round(sd.x*6) + "," + Math.round(sd.y*8) + "," + Math.round(sd.z*6);
+    if(sig === this._envSig && this.envTex) return;
+    const now = performance.now(), gap = Settings.q.shadow ? 400 : 1200;
+    if(this.envTex && now - (this._envT || 0) < gap) return;
+    this._envSig = sig; this._envT = now;
+    // Der Boden spiegelt vor allem den Himmel zurück, dazu ein Rest
+    // Eigenfarbe (Wiese/Meer). Im All bleibt beides schwarz – dort
+    // spiegelt sich wirklich nur die Sonne, und genau so soll es sein.
+    const gcol = this._envGround || (this._envGround = new THREE.Color());
+    gcol.copy(this.skyHorizon).multiplyScalar(0.34)
+        .add(this._envSoil.copy(this._soilCol).multiplyScalar(0.55*atmo*this.dayLight));
+    this.envTex = EnvMap.build("sky", this.renderer, (x, W, H)=>paintSkyEnv(x, W, H, {
+      zen:this.skyZenith, hor:this.skyHorizon, ground:gcol,
+      sun:sd, sunCol:this.sunTintCol}));
+    this.applySceneEnv();
+  },
+  /* ---------- Leben auf der Rampe ------------------------------------
+     Versorgungsarm, Nachtbeleuchtung und LOX-Abdampf. Alles rein optisch,
+     die Physik merkt davon nichts. */
+  updatePad(alt, dt){
+    const g = this.padGroup;
+    if(!g || !g.visible) return;
+    // --- Versorgungsarm: schwenkt bei der Zündung weg ------------------
+    const s = this.activeSeg();
+    const hot = !this.landed || (s && s.ignited);
+    this._armFold = (this._armFold === undefined) ? 0 : this._armFold;
+    const want = hot ? 1 : 0;
+    this._armFold += Math.max(-dt*0.8, Math.min(dt*0.8, want - this._armFold));
+    if(!this._padArm) this._padArm = g.getObjectByName("padArm") || null;
+    if(this._padArm) this._padArm.rotation.y = this._armFold * 1.5;
+    // --- Nacht: Fensterbänder, Lampenköpfe, Lichtkegel -----------------
+    // Der Tag/Nacht-Zyklus ist längst da; hier wird er nur sichtbar gemacht.
+    const nightF = Math.max(0, Math.min(1, (0.62 - this.dayLight)/0.5));
+    for(const n of (g.userData.night || [])) n.mat.opacity = n.max * nightF;
+    // --- LOX-Abdampf: weiße Fahne, solange die Rakete auf der Rampe steht
+    const vents = g.userData.vents;
+    if(vents){
+      const on = this.landed && !this.crashed && alt < 400;
+      for(const v of vents){
+        v.visible = on;
+        if(!on) continue;
+        const u = v.userData;
+        u.t += dt * u.sp;
+        if(u.t > 1) u.t -= 1;
+        const t = u.t;
+        // aufsteigen und nach Osten wegtreiben, dabei aufblähen und vergehen
+        v.position.set(u.x + t*t*46, 6 + t*20, u.z + t*9);
+        const sz = 7 + t*30;
+        v.scale.set(sz, sz, 1);
+        v.material.opacity = 0.55 * Math.min(1, t*6) * (1 - t) * (1 - t);
+      }
+    }
+  },
+  applySceneEnv(){
+    if(!this.envTex) return;
+    applyEnv(this.rocketGroup,  this.envTex, 1);
+    applyEnv(this.padGroup,     this.envTex, 1);
+    applyEnv(this.droneMesh,    this.envTex, 1);
+    applyEnv(this.stationMesh,  this.envTex, 1);
+  },
+  /* Kontaktschatten unter dem Schiff. Der Boden unter dem Schiff liegt dank
+     `shapeTerrain` immer eben auf der Kugel, die Blase gehört also auf
+     `-up·alt` (Schiff = Szenen-Ursprung). Sie wird mit der Höhe größer und
+     blasser – wie ein echter Halbschatten. */
+  updateShipBlob(alt){
+    const b = this.shipBlob;
+    if(!b) return;
+    // ⚠️ `alt` ist die Höhe der SchiffsMITTE (= Szenen-Ursprung). Auf der
+    // Rampe ist das die halbe Raketenlänge, nicht null. Für den Schatten
+    // zählt der Abstand der UNTERKANTE vom Boden – sonst ist die Blase
+    // schon beim Stehen doppelt so groß und halb durchsichtig.
+    const h = Math.max(0, alt - this.height()/2);
+    const on = !this.map && !this.crashed && this.groundGroup.visible &&
+               h < 140 && alt > -5 && this.dayLight > 0.06;
+    b.visible = on;
+    if(!on) return;
+    const up = this.pos.clone().sub(bodyPos(this.body(), this.t)).normalize();
+    b.position.copy(up).multiplyScalar(-alt + 0.2);
+    b.quaternion.setFromUnitVectors(V3(0,1,0), up);
+    const r = Math.max(9, this.height()*0.26) * (1 + h/55);
+    b.scale.set(r, 1, r);
+    b.material.opacity = 0.8 * (1 - h/140) * Math.min(1, this.dayLight*1.6);
   },
   /* Kartenmarker skalieren: Höhe = ms/2, Breite folgt dem Canvas-Seitenverhältnis
      (der Punkt bleibt so immer exakt auf der Objektposition) */
@@ -6876,6 +7794,10 @@ const Flight = {
     if(this.padGroup) this.world.remove(this.padGroup);
     this.padGroup = this.buildPad(this.pad.id);
     this.world.add(this.padGroup);
+    this.applySceneEnv();   // Rampe & Rakete sind frisch gebaut
+    // ⚠️ Der Versorgungsarm wird pro start() NEU gebaut – der zwischengespeicherte
+    // Verweis zeigt sonst auf das Mesh der alten, längst entfernten Rampe.
+    this._padArm = null; this._armFold = 0;
     // Mechazilla-Arme einsammeln (Catch-Animation in frame())
     this.mzArms = [];
     this.padGroup.traverse(o=>{ if(o.name==="mzArm") this.mzArms.push(o); });
@@ -7073,7 +7995,9 @@ const Flight = {
      sitzen auf der Geländehöhe statt auf y = 0. */
   placeTrees(up, east, north){
     const R = LEIBNIZ.R, d = new THREE.Vector3(), tm = new THREE.Matrix4();
-    const NT = this.treeTrunks.instanceMatrix.count;
+    // Baumzahl kommt aus der Grafikstufe (Optionen) – der Puffer bleibt groß,
+    // gefüllt wird nur so viel, wie der Rechner verträgt.
+    const NT = Math.min(this.treeTrunks.instanceMatrix.count, Settings.q.trees);
     const rnd = seededRand(99);
     const dirAt = (e, n)=>d.copy(up).multiplyScalar(R)
       .addScaledVector(east, e).addScaledVector(north, n).normalize();
@@ -7124,6 +8048,7 @@ const Flight = {
     if(this.rocketGroup) this.scene.remove(this.rocketGroup);
     this.rocketGroup = buildRocketGroup(this.v.stack, this.v.fairingIntact);
     this.scene.add(this.rocketGroup);
+    this.applySceneEnv();   // frische Meshes brauchen die Umgebung neu
     this.attachChute();   // offener Fallschirm überlebt Stufentrennung
   },
   stage(){
@@ -7978,6 +8903,7 @@ const Flight = {
     if(this.stationMesh) this.world.remove(this.stationMesh);
     this.stationMesh = buildStationMesh(stationModsEff());
     this.world.add(this.stationMesh);
+    this.applySceneEnv();
   },
   /* ---------- Missions-Zielorbits: blaue Ringe in der Karte, GRÜN wenn erreicht ----------
      Quellen: orbitGoal der AKTIVEN Missionen (Karriere) bzw. scenario.goalOrbit (Tutorial) */
@@ -8269,8 +9195,11 @@ const Flight = {
     }catch(e){ this._audio = null; }
   },
   setRumble(level){
+    // Rohpegel merken: der SFX-Regler kann mitten im Brennvorgang bewegt
+    // werden und muss dann sofort greifen, ohne auf den nächsten Frame zu warten.
+    this._rumbleWant = level;
     if(!this._audio) return;
-    this._audio.gain.gain.value = level;
+    this._audio.gain.gain.value = level * Settings.sfx;
   },
   /* ---------- Wasseroberfläche in JS ----------------------------------
      Spiegelt EXAKT die Höhenrechnung des Ozean-Vertex-Shaders (gleiche
@@ -9742,6 +10671,8 @@ const Flight = {
     this.skyZenith.multiplyScalar(atmo);
     this.skyHorizon.multiplyScalar(atmo);
     const sky = this.skyZenith;
+    this.updateEnv(f*f);          // Spiegelungen an Himmel & Tageszeit angleichen
+    this.updateShipBlob(alt);     // Kontaktschatten unter dem Schiff
     this.scene.background = this.skyU.uSpaceCol.value;
     this.starField.material.opacity = this.map ? 1 : 1-fEff;
     // Nebel-Kulisse: wie die Sterne in der Atmosphäre ausblenden
@@ -9750,6 +10681,7 @@ const Flight = {
     this.groundGroup.visible = !this.map && alt<16000;
     if(this.groundGroup.visible) this.updateOcean(sky);
     this.padGroup.visible = !this.map && alt<25000;
+    if(this.padGroup.visible) this.updatePad(alt, 1/60);
     for(const [,ring] of this.moonRings) ring.visible = this.map;
     this.shipMarker.visible = this.map && !this.crashed;
     if(this.map){
@@ -10586,7 +11518,7 @@ const TRACKS = {
   space: ["inspace.mp3","inspace2.mp3","inspace3.mp3"]
 };
 const music = new Audio();
-music.volume = 0.45;
+music.volume = Settings.music;      // Regler im Optionen-Screen
 let musicOn = localStorage.getItem("lmgMusic") !== "0";
 let curTrack = null, trackIdx = 0;
 music.addEventListener("ended", ()=>{
@@ -10664,6 +11596,7 @@ function toggleMusic(){
    ================================================================= */
 VAB.init();
 Flight.init();
+applyGraphics();     // Auflösung & Schatten nach der gespeicherten Grafikstufe
 (function loop(){
   requestAnimationFrame(loop);
   const active = document.querySelector(".screen.active");

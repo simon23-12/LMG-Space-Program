@@ -12,6 +12,63 @@ LMG-Branding (orange `--orange` / blau `--blue`).
 - Assets: `mainmenu.png`, `loading.png`, `space.mp3` (Menü), `hangar*.mp3` / `inspace*.mp3` (Playlists, Rotation via `ended`).
 - `.claude/launch.json` – Preview: `npx serve -l 8642` (Name `lmg-space-program`). Eintrag `lmgsongrodeo` gehört dem User – nicht anfassen.
 
+## Optionen & Grafikstufen (`Settings` / `GFX_PRESETS` / `applyGraphics`)
+Screen `#options` (Hauptmenü »⚙️ Optionen«, im VAB der ⚙️-Knopf), gerendert von
+`renderOptions()`. Drei Regler: **Grafik** (niedrig/mittel/hoch), **Musik**, **Geräusche**.
+- ⚠️ **Bewusst im localStorage (`lmgSettings`), NICHT im Spielstand.** Einstellungen gehören
+  zum RECHNER – die Kinder tauschen Saves als Datei aus, sonst erbt der lahme Schulrechner
+  die »Hoch«-Stufe vom Gaming-PC.
+- Eine Stufe schaltet ALLE teuren Schrauben gemeinsam: `dpr` (Auflösung), `shadow`
+  (Schattenkarte in px, 0 = aus), `trees`, `clouds`.
+- **`gfxPixelRatio()` ist der größte Einzelhebel.** Vorher rief niemand `setPixelRatio` auf →
+  auf jedem HiDPI-Bildschirm (Simons Rechner: devicePixelRatio 1,75) rendert das Spiel in
+  ~57 % Linearauflösung und wird hochskaliert. Das war der »irgendwie matschig«-Eindruck.
+  Doppelte dpr = **vierfache** Pixelmenge, deshalb gedeckelt.
+- Wolkenzahl über `geo.instanceCount` (Puffer bleibt voll, gezeichnet wird nur der Anfang) →
+  live umschaltbar ohne Neubau. Bäume über `Settings.q.trees` in `placeTrees`; `applyGraphics`
+  ruft `placeTrees` sofort neu auf, wenn eine Bodenszene steht (sonst wirkt der Regler erst
+  beim nächsten Verankern und sieht kaputt aus).
+- ⚠️ **`shadowMap.enabled` wird NUR am VAB-Renderer geschaltet.** Die Flugszene hat keine
+  Schattenwerfer; sie mitzuschalten bringt kein Pixel, erzwingt aber einen Shader-Neubau der
+  GANZEN Szene inklusive Ozean-, Himmels- und Wolken-Shader = spürbarer Hänger pro Klick.
+- Lautstärke: `music.volume = Settings.music`; `Flight.setRumble` merkt sich den Rohpegel in
+  `_rumbleWant` und multipliziert mit `Settings.sfx`, damit der Regler mitten im Brennvorgang
+  sofort greift. **Einziger SFX im Spiel ist das Triebwerksrumpfeln** (`ensureRumble`,
+  braunes Rauschen über WebAudio) – der Regler ist dafür da, nicht für ein Soundpaket.
+
+## Licht & Spiegelungen (`EnvMap` / `applyEnv` / Kontaktschatten)
+- ⚠️⚠️ **Ohne envMap ist `metalness` in three.js ein MINUS-Geschäft:** Der diffuse Anteil wird
+  um (1−metalness) gekürzt, zurück kommt nur das Glanzlicht der EINEN Richtungslichtquelle.
+  Sämtliche Tanks, Türme, die Mechazilla und die Raketenhüllen (metalness .25–.6) sahen
+  deshalb nicht metallisch aus, sondern schlicht **dunkler und flacher** als gedacht.
+- `EnvMap.build(key, renderer, paint)` backt aus einem 128×64-Canvas (`paintHallEnv` /
+  `paintSkyEnv`) per `PMREMGenerator` eine Umgebung. Canvas-Oberkante = Zenit,
+  u = atan2(z,x) (three-Konvention). Altes RenderTarget IMMER `dispose()`, sonst leckt
+  jeder Neubau eins.
+- ⚠️ **`applyEnv` GEZIELT auf Rakete/Rampe/Droneship/Station – NICHT `scene.environment`.**
+  Letzteres wirkt wie zusätzliches Umgebungslicht und würde die mühsam austarierte
+  Helligkeit von Boden, Meer und Planet mit anheben.
+- ⚠️ **`material.needsUpdate` nur beim ERSTEN Anbau** (Flag `had` in `applyEnv`): Es erzwingt
+  eine Shader-Neuübersetzung. Die Flugszene backt ihre Umgebung im Tagesverlauf immer wieder
+  neu – mit needsUpdate bei jedem Tausch hinge das Spiel bei jedem Sonnenstand-Schritt.
+- `Flight.updateEnv(atmo)` baut nur neu, wenn eine grobe **Signatur** (Atmosphäre,
+  dayLight, Sonnenrichtung) springt, und höchstens alle 400 ms (auf »Niedrig« 1200 ms).
+  Im All wird die Umgebung schwarz – dort spiegelt sich wirklich nur die Sonne.
+  Nach `rebuildRocket`/`rebuildStation`/`start()` muss `applySceneEnv()` laufen, sonst haben
+  die frischen Meshes keine Umgebung.
+- **Hangar-Schatten:** `VAB.renderer.shadowMap` + `sunLight.castShadow`, Ortho-Fenster ±240
+  (bei 2048 px = 23 cm/Texel, eine Figur ist ~6 Einheiten hoch). Die Lichtposition wird auf
+  Länge 520 normiert, damit das Hallendach vor der near-Ebene liegt. ⚠️ **`normalBias` (0,7)
+  statt reinem bias** – auf dem 360 Einheiten großen Boden ist reiner bias entweder zu klein
+  (Streifen-Akne) oder hebt die Schatten von den Füßen ab. `setShadowRes(0)` gibt die Karte
+  wirklich frei (VRAM auf genau dem Rechner, dem er fehlt).
+- **Kontaktschatten** (`shadowBlobTex`): weiche schwarze Radialverlauf-Blasen.
+  - VAB: `VAB.blobs` (InstancedMesh, Rakete + Belegschaft) – **nur auf Stufe »Niedrig«**
+    sichtbar, wo es keine Schattenkarte gibt; sonst doppelte Verdunklung.
+  - Flug: `Flight.shipBlob`, hängt an `scene` (das Schiff IST der Szenen-Ursprung), Position
+    `-up·alt`. ⚠️ Für Größe/Deckkraft zählt die Höhe der **Unterkante** (`alt − height()/2`) –
+    `alt` ist die Höhe der SchiffsMITTE und auf der Rampe die halbe Raketenlänge, nicht null.
+
 ## Architektur (die 5 wichtigsten Muster)
 1. **Floating Origin:** Alles Weltfeste hängt in `Flight.world` (THREE.Group), die pro Frame um `-Flight.pos` verschoben wird. Kamera/Schiff bleiben nahe Ursprung → kein Float32-Jitter. `Flight.rocketGroup` und `shipMarker` hängen an `scene`, nicht an `world`.
 2. **Rails + N-Body:** Planeten laufen "on rails" (`bodyPos(b,t)`/`bodyVel(b,t)`, rekursiv über `parent`; Leibniz↔Monti als exaktes Baryzentrum via `K_LM`). Schiff/Sats/Debris/EVA spüren ALLE `GRAV_BODIES` gleichzeitig (restricted n-body, `Flight.accel`). Volle Planeten-Integration NICHT einbauen – zerstört Knoten-Vorhersage & Warp.
@@ -67,6 +124,44 @@ SUN · KEPLER (Glutplanet innen, 5.3e9 m) · LEIBNIZ (R 600 km, Atmo 70 km) + Mo
 
 ## Startrampen
 `PADS`: lmg (LMG-Startplatz, 55° N, **max 25 t**) · eq (Raumhafen »Schulhof Süd«, Äquator, ∞, Tech padEq) · polar (Polarstation »Skihütte«, 86° N, ∞, Tech padPolar). Der **Breitengrad ist Didaktik und steht fest**, den **Längengrad sucht `_padLonAt(lat)` beim Laden** – dort, wo das prozedurale Terrain wirklich eine Küste hat (Land im Westen, offenes Meer im Osten, Ufer ~1,5 km östlich der Rampe). Kriterien gestaffelt gelockert, weil am 86°-Breitenkreis der ganze Umfang nur ~260 km lang ist; zusätzlich muss die Küste über ±10 km Nord in einem Band bleiben, sonst steht die Rampe auf einer Landzunge und die Bodenszene sieht chaotisch aus. ⚠️ Die Suche MUSS `TERRAIN_OCT_LOCAL` benutzen (wie die Bodenszene) – mit den groben Textur-Oktaven verschiebt sich die Küste um hunderte Meter und die Rampe landet im Wasser. `padStationAngle(p) = −lon` ist der Rampenwinkel in der Stationsebene (steigende Länge läuft nach WESTEN!) und geht in `nextLaunchWindow` ein. **Breitengrad = echte Physik:** Ost-Start → Inklination = Breitengrad (verifiziert: 55,0°), `Flight.orbitInc()` (0–90° via |h.y|/|h|, HUD-Zeile "Inklination"). `Flight.start(vessel, padId?)`: Default `currentPad()`, Tutorials übergeben `t.scenario.pad || "eq"`, `revert()` behält die Rampe; baut `buildPad(kind)`-Mesh + Pad-Anker aus `padDir(pad)` jedes Mal neu (up/east/north generisch aus Kreuzprodukten), Boden polar = weiß. Startfenster/[Z] nur bei lat 0. Massenlimit prüft `UI.launch` via `VAB.totalMass()`; Rampen-Wähler oben im VAB-Info-Panel (`VAB.setPad`, `Game.pad` im Save). Tech-Ast: padEq (35, basic+struct) → padPolar (70, +heavy). Missionen: padEq1 (`s.pad==="eq"` + Orbit) & polar1 (`s.satPolar` – Sat aussetzen bei inc > 75°, gesetzt in deploySat/deploySpecialSat). `migrateGame`: `Game.pad` Default "lmg"; Saves mit erledigtem dock1 kriegen padEq GRATIS (die starteten de facto vom Äquator – sonst wird die Stations-Kette rückwirkend unfair).
+### Optik der Rampen (`padTextures()` + Instanz-Sammler in `buildPad`)
+Die Rampen waren ~30 **einfarbige** Boxen und Zylinder – kein einziges Texel. Genau das war
+der »90er-Jahre«-Eindruck; die Montagehalle sah nur deshalb besser aus, weil sie prozedurale
+Kacheln hat. Dieselbe Rezeptur jetzt hier, gecacht in `_padTex`:
+`concreteTex(rx,ry)` (Beton mit Fugen/Flecken/Rissen; **Canvas geteilt**, zwei Texturen für
+Plattform 8×8 und Crawlerway 30×3), `makeScorchTex` (Brandfleck), `makePadWallTex` +
+`makePadWindowTex` (Trapezblech mit Fensterband / nachts leuchtende Fenster),
+`makeBeamTex`, `makePadPuffTex`, `makeHazardTex`.
+- ⚠️ **Kleinkram in ZWEI InstancedMeshes** (`box()`/`cyl()`-Sammler wie in der Halle, Flush am
+  Ende von `buildPad`). Gitterturm, Geländer, Zaun, Kabelpritschen, Treppen, Rohre wären
+  einzeln ~300 Draw-Calls. `strut(x1,y1,z1,x2,y2,z2,r,col)` legt einen Zylinder ZWISCHEN zwei
+  Punkte – ⚠️ mit geratenen Euler-Winkeln stehen Abspannseile schief, das braucht
+  `setFromUnitVectors`.
+- ⚠️ Im Polar-Zweig heißt die Container-Variable `cont`, **nicht `box`** – so heißt der Sammler.
+- **Gitterturm statt roter Kiste** (`lattice()`): 4 Eckstiele + Etagenrahmen + Kreuzverbände
+  mit etagenweise wechselnder Neigung. Ein echter Turm ist Luft mit Stahl drin, und die
+  Silhouette gegen den Himmel macht den Unterschied.
+- **Brandfleck.** ⚠️ Der Radialverlauf muss LANGE hoch bleiben: Die Mitte verdeckt die Rakete,
+  sichtbar ist der Ring DANEBEN. Gemessen: 26 782 abgedunkelte Pixel gegen 787 ohne.
+  ⚠️ Diagnose-Falle: `material.color` MULTIPLIZIERT mit der fast schwarzen Textur – ein
+  Test mit `color = rot` zeigt deshalb kein Rot und sieht wie »rendert gar nicht« aus.
+- **Versorgungsarm** (`name:"padArm"`, Drehgelenk) schwenkt bei der Zündung weg
+  (`Flight.updatePad`, 0 → 1,5 rad). ⚠️ `_padArm`/`_armFold` in `start()` zurücksetzen – die
+  Rampe wird pro Start NEU gebaut, der Verweis zeigt sonst auf das alte Mesh.
+- **LOX-Abdampf**: 8 Sprites (`g.userData.vents`), steigen auf und treiben nach Osten weg;
+  nur `landed && alt < 400`.
+- **Nacht** (`g.userData.night` = [{mat,max}], `nightF` aus `dayLight` in `updatePad`):
+  Fensterbänder, Lampenlinsen, Lichtpfützen. ⚠️ **KEIN volumetrischer Lichtkegel** – ein
+  additiver Kegel ohne Streuungs-Shader behält seine harte Silhouette, liest sich als weißer
+  Keil und füllt den Bildschirm, sobald die Kamera hineinfährt. Was ein Flutlicht nachts
+  ausmacht, ist die Lichtpfütze am Boden plus das Glühen der Lampe. ⚠️ Die leuchtende Linse
+  gehört VOR das Gehäuse, sonst sieht man einen schwarzen Kasten im eigenen Lichthof.
+- **Menschlicher Maßstab**: drei `buildAstronaut()`-Figuren (Skalierung 2,4 wie in der Halle)
+  am Rand der Sperrzone. Erst daneben sieht man, wie groß die Rakete ist.
+- ⚠️ **Die Plattform ist mit dem Boden BÜNDIG** (Oberkante y = 0, damit die Rakete bei
+  |pos| = R aufsetzt). Eine Treppe hatte hier nichts zu überwinden und stieg ins Leere –
+  jetzt eine flache Betonschürze. Kabelpritschen laufen NEBEN der Rampe nach Westen, nicht
+  quer übers Deck (dort schnitten sie durch Warnstreifen und Geländer).
 - **Küste:** ALLE Rampen liegen am Meer – `Flight.groundGroup` (Basis **X=Ost/Y=hoch/Z=SÜD** via `makeBasis`; ⚠️ {Ost,hoch,Nord} wäre LINKSHÄNDIG = Spiegelmatrix → setFromRotationMatrix kippt die Rampe! Gilt auch für `padGroup`; Mesh-Koordinaten: +Z=Süd, LZ bei z=−260, Mechazilla bei z=+34) enthält `groundPlane` (Land), `groundBeach` (Sand ab ~1 km Ost), `groundSea` (Ozean ab ~1,5 km Ost – Küste liegt bewusst NAH an den Rampen, Meerblick!) und `seaPatch`. Baum-Sperrzone Richtung Strand: ex < 700. ⚠️ Der Sand wird unter Wasser weggeschnitten (`beachClipU`) und der Seegrund abgesenkt – warum, steht im Ozean-Abschnitt unter »Fünfte Flimmer-Ursache«.
 - **⚠️ Die Bodenszene folgt dem SCHIFF, nicht der Rampe** (`Flight.reanchorGround(dir, key)`). Vorher hing sie starr am Startplatz: wer nach einem Wiedereintritt 1000 km entfernt wasserte, sah nur die nackte Planetenkugel – ein flaches türkises Nichts. `frame()` verankert neu, sobald der Bodenpunkt weiter als `max(700, min(12000, alt·0,30))` vom Anker weg ist und alt < 22 km. Drei Ausprägungen (`Flight.groundMode`), aus `landH` bestimmt:
   - ⚠️⚠️ **Die Schwelle MUSS mit der Höhe schrumpfen** – das war die zweite Hälfte des »Bellyflop crasht je nach Landeplatz«-Bugs. `shapeTerrain` legt den ANKER auf y = 0 und zeichnet alles Relief relativ dazu; Physik und Autopiloten messen dagegen die Höhe über der KUGEL. Beides stimmt nur überein, solange der Anker unter dem Schiff sitzt. Mit den alten festen 12 km lag er in hügeligem Gelände im Median **220 m**, im 90. Perzentil **700 m**, im Extremfall **2 km** daneben (gemessen über 300 Zufallspaare auf Land mit Relief). Worst Case verifiziert: Anker im Tal (604 m), Schiff 11 km weiter auf einem Grat (2350 m) → das Starship tauchte schon bei **1743 m** in den sichtbaren Hang, der Flip zündete planmäßig erst bei 240 m über der Kugel = **1,5 km im Berg**. Genau das sah wie »Landing Burn zu spät« aus. Mit 30 % der Höhe ist der Anker unter 3 km Höhe immer näher als 900 m, also **innerhalb der ebenen Zone von `shapeTerrain`** – der sichtbare Boden unter dem Schiff liegt dann exakt auf der Kugel (Raycast gegen das echte Mesh: 243 m bei HUD-Höhe 240 m, vorher 0 Treffer = Schiff unter der Oberfläche).
@@ -193,6 +288,14 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
 - ⚠️ **Draw-Call-Budget:** ALLES Inventar (Regalpfosten, -böden, Kisten, Werkbänke, Gerüst, Geländer, Wandstützen, Tor) sammeln `box()`/`cyl()` in zwei Arrays; `flushProps()` baut daraus **zwei InstancedMeshes** (Einheitswürfel + Zylinder, Größe und Farbe pro Instanz via Matrix + `setColorAt`). Einzelmeshes wären ~200 Draw-Calls für ein paar Regale; so sind es insgesamt 40–120.
 - ⚠️ **Maßstab:** Eine Figur ist **6,2 Einheiten** hoch (Modellhöhe 2,57 × Skalierung 2,4), 1 Einheit ≈ 0,37 m. Werkbankplatte gehört auf ~3,3 (nicht 9 – das wäre über Kopfhöhe!), Regalebenen ~15 auseinander, Geländer 3,4 hoch, Lichtbogen auf Brusthöhe ~2 Einheiten vor der Figur. Erst mit diesen Maßen wirkt die Halle bewohnt statt riesig.
 - **Belegschaft** (`buildCrew`/`stepWorker`, 10 Leute): Rollen `walk` (Wegpunkte; Beine schwingen aus Hüftgelenken, Oberkörper wippt, Drehung wird über den KÜRZESTEN Weg eingeschliffen und es wird erst losgelaufen, wenn die Nase ungefähr stimmt) · `weld` (an der Werkbank, zuckendes PointLight + Funken aus einem `THREE.Points`-Pool = 1 Draw-Call) · `carry` (Kiste am Körper, Regal zu Regal) · `talk` (gestikulierendes Duo). Vorher: sechs Figuren, die mit `|sin(t)|·0,5` HÜPFTEN und ihre Blickrichtung pro Frame hart umsprangen.
+- ⚠️⚠️ **Schweißen ist EPILEPSIE-relevant und deshalb bewusst selten und weich.** Früher zündete
+  jede der zwei Werkbänke alle 2–6 s und die Helligkeit wurde PRO FRAME gewürfelt
+  (`0.30 + Math.random()*0.70`) – das sind 60 Hz Stroboskop mit voller Amplitude, im
+  Randbereich des Blickfelds, während man auf die Rakete schaut. Jetzt: Pause 62–120 s,
+  Bogen 2,4–4,6 s (zusammen ~1,2 Lichtbögen/Minute, 6,7 % der Zeit hell), Helligkeit als
+  Schwebung zweier Sinus (~1 Hz, ±26 %, max. 4 % Sprung pro Frame) und weiches Ein-/Ausblenden
+  über eine Hüllkurve. Beim Betreten der Halle zündet ~60 s lang nichts, und die beiden
+  Bänke sind gegeneinander versetzt. **Nicht wieder hochdrehen.**
 - ⚠️ `buildAstronaut()` hat dafür **Gelenk-Gruppen** `name:"arm"` / `name:"leg"` bekommen (mit `userData.side`). Die Ruhepose ist exakt die alte: Der Versatz der Gruppen ist so gewählt, dass die Zylinder wieder bei (±0,48 | 0,70) bzw. (±0,18 | −0,30) sitzen – gilt auch für die EVA-Figur in der Flugszene.
 - **`VAB.oops()`** = die Mannschaft zuckt zusammen, 1–2 fallen um (Sturz mit Zappeln und Wiederaufstehen nach ~3 s). Ausgelöst von jedem abgelehnten Start (`UI.launch`: ungültig / zu schwer / Superheavy auf falscher Rampe / zu teuer) und von den Booster-Caps in `VAB.add`; dazu selten ein zufälliger Stolperer beim Laufen.
 
@@ -241,7 +344,7 @@ Dazu weiter: Wirbel-Blobs an Emittern (Heck-Totwasser + Stufen, blähen sich mit
 - Partikel-Pool (110 Sprites, `fresh`-Flag, altern mit Sim-Zeit `simmed`), Rauch nur in Atmosphäre.
 - Tutorials: `Tut.start(id)` erzwingt Sandbox + ∞-Strom; Szenario: `stack`, `orbit:{body,alt,pe?}` oder `nearStation:<m hinter Station>`; Checks `check(o,F)` laufen pro Frame.
 - Admin-Cam: `AdminCam` (eigene Three-Szene, echte Ephemeriden, Fokus-Buttons, Zeitraffer) – Vollbild aus dem Universum-Screen.
-- localStorage: `lmgAutoSave`, `lmgMusic`, `lmgLoadedOnce`, `lmgHint_*`, `tutsDone` im Save, `lmgRockets` (💾/📂-Hangar: gespeicherte Raketen `{name,stack}`; Laden in Karriere nur mit erforschten Teilen).
+- localStorage: `lmgAutoSave`, `lmgMusic`, `lmgSettings` (Grafik/Lautstärke, s. Optionen-Abschnitt), `lmgLoadedOnce`, `lmgHint_*`, `tutsDone` im Save, `lmgRockets` (💾/📂-Hangar: gespeicherte Raketen `{name,stack}`; Laden in Karriere nur mit erforschten Teilen).
 
 ## Tastenkürzel
 Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · F Fairing · N Satellit · G Panele · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · V EVA · K Knoten · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp · WASD/QE drehen · ↑↓ Schub · **Z auf Rampe = Orbit-Ziel wählen (nur Äquator-Rampe)**, im Flug Vollgas · X Schub aus
