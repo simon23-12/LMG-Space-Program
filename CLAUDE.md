@@ -180,9 +180,37 @@ Krater ins Höhenfeld gestempelt → Schummerung aus dem Gradienten → Farbramp
 - ⚠️ Gasriesen (`spec.gas`) bekommen **keine** Schummerung (Wolken werfen keine Bergschatten).
   Ihr Trick ist **Domain Warping**: der Breitengrad wird vor dem Streifen-Sinus mit Rauschen
   verschoben – ohne das ist ein Gasriese eine gestreifte Tapete.
-- Auflösung nach NÄHE im Spiel: Leibniz 2048, **Monti 1024** (dort landet man), alles andere
-  512. Gemessen (warm, aktives Fenster): 140 ms für alle acht Körper zusammen, Monti allein 69.
-  Gecacht in `b._tex`, weil Flug-Szene UND Admin-Cam dieselben Körper aufbauen.
+- Auflösung nach NÄHE im Spiel: Leibniz 2048, **Monti 1024** (dort landet man), Planeten 512,
+  Kleinkörper 256. Gemessen (warm, aktives Fenster): 140 ms für alle acht Planeten/Monde
+  zusammen, Monti allein 69; die vier Kleinkörper 38–64 ms. Gecacht in `b._tex`, weil
+  Flug-Szene UND Admin-Cam dieselben Körper aufbauen.
+- ⚠️ Die Halbauflösung gilt nur über 256 px (`sub`-Schalter): bei den 256er-Karten der
+  Kleinkörper bliebe ein 128×64-Rauschfeld übrig, und das sah man als grobes 2×2-Blockraster.
+- ⚠️ `relief` bei Kleinkörpern **nicht über ~34**: die Schummerung ist auf 0,55–1,35 geklemmt,
+  bei 56 lag halb Halley an den Anschlägen und wirkte posterisiert. Gegenprobe: Anteil
+  vollständig weißer/schwarzer Texel messen – muss ≈ 0 sein.
+
+### Kleinkörper-Meshes (`makeSmallBodyMesh`, `BODY_PAINT.astC/astM/metDust/comet`)
+Vorher `IcosahedronGeometry(R,1)` (80 Flächen) mit Zufallszacken und EINFARBIGEM Material –
+aus der Nähe ein grauer Diamant. Jetzt eine verbeulte Kugel mit echter Textur, gemeinsam
+gebaut für Flug-Szene und Admin-Cam.
+- ⚠️ **`SphereGeometry`, nicht `IcosahedronGeometry`**, obwohl der Brocken alles andere als
+  rund ist: nur die Kugel hat äquirektangulare UVs, und nur damit passt `paintProceduralBody`.
+- ⚠️ Die Verschiebung hängt an der NORMALISIERTEN Position, nicht am Vertex-Index: an der
+  UV-Naht und an den Polen liegen mehrere Vertices auf demselben Punkt und müssen identisch
+  verschoben werden, sonst reißt die Kugel auf.
+- ⚠️ **`metalness` niedrig halten (Emmy: 0,20)**, auch beim Metall-Asteroiden – ohne envMap
+  kürzt three.js den diffusen Anteil um (1−metalness) und lässt nur das Glanzlicht der einen
+  Lichtquelle übrig: mit 0,85 wurde der Brocken dunkler und bekam einen grellen weißen Fleck.
+  Metallisch wirkt er über die TEXTUR (kühles Hellgrau, Rillen, blanke Stellen).
+- ⚠️ Kraterradien im WINKELMASS: bei einem 1,4-km-Brocken deckt ein 300-m-Krater 0,2 rad ab –
+  hier also 0,03–0,40 statt der 0,01–0,16 der Planeten.
+- ⚠️ Albedo bewusst **aufgehellt**: echte C-Typen (0,05) und Kometenkerne (0,04) sind physikalisch
+  fast schwarz; ehrlich gemalt sah man auf dem Brocken gar nichts.
+- `AdminCam.setFocus` dreht die Kamera jetzt auf die **Sonnenseite** (`az = atan2(−z,−x)+0,55`,
+  el 0,22): Der Winkel blieb sonst vom vorherigen Körper stehen, und wer Pech hatte, landete
+  auf der Nachtseite. Der Versatz lässt bewusst etwas Terminator stehen – erst der macht
+  Krater plastisch.
 
 ### Komet »Whipple« (`ASTEROIDS`-Eintrag mit `ecc`, `buildCometFx`/`updateCometFx`)
 Der einzige Kleinkörper auf einer **Ellipse** (a = 4,0e10, e = 0,72, 537 Tage): Perihel 11,2e9 m
@@ -195,10 +223,19 @@ Kepler-Gleichung `M = E − e·sin E` per Newton-Verfahren (5 Schritte). `cometA
 - ⚠️ Gerendert als **Kette aus Billboard-Sprites**, nicht als Kegel-Mesh – dieselbe Lehre wie
   beim Plasmaschweif: ein Mesh hat eine harte Silhouette und sieht aus wie ein Plastiktrichter.
   Sprites stehen außerdem immer zur Kamera, also keine Orientierungsmathematik.
-- ⚠️ Die Sprites sitzen **nach k^1.55 gestaffelt** (dicht am Kopf, weit auseinander am Ende).
-  Gleichmäßig verteilt war der Schweif eine sichtbare Perlenkette: vorne sind die Sprites klein,
-  der Abstand aber genauso groß wie hinten, wo sie viermal so breit sind. Faustregel:
-  Sprite-Breite ≳ 1,3 × Nachbarabstand.
+- ⚠️ Die Sprites sitzen **nach k^1.35 gestaffelt** (dicht am Kopf, weiter auseinander am Ende)
+  und es sind **30 + 32** davon. Gleichmäßig verteilt und in kleiner Zahl war der Schweif eine
+  sichtbare Perlenkette: vorne sind die Sprites klein, der Abstand aber genauso groß wie
+  hinten, wo sie viermal so breit sind. Faustregel: Sprite-Breite ≳ **2 ×** Nachbarabstand.
+  Die Sprites kosten fast nichts (additiv, kein Tiefenschreiben, kein Sortieren).
+- ⚠️⚠️ **`AdminCam.setFocus` muss beim Kometen den SCHWEIF einrahmen.** Ein Komet ist zwei
+  Objekte in einem: 1,8-km-Kern und 5 Mio. km Schweif – sechs Zehnerpotenzen auseinander. Mit
+  der Normalformel `b.R*4.5` stand die Kamera **4 km** am Kern und vom Schweif war nichts zu
+  sehen (so gemeldet). Jetzt: aktiv → `2,6e9 × (0,45+0,55·act)`, inaktiv → Kern.
+- ⚠️ **`phase` so gewählt, dass er beim Spielstart schon INNEN ist** (Aktivität 0,70, Perihel
+  in ~31 Tagen). Mit der alten Phase stand er bei t = 0 satte 62,9 Mio. km draußen: Aktivität 0,
+  nächstes Perihel in 362 Spieltagen – in der Admin-Cam bei 1 min/s erst nach sechs Stunden
+  Zusehen. Die Statuszeile nennt zusätzlich Aktivität, Sonnenabstand und Perihel-Countdown.
 - ⚠️ Bahnlinien mit **512 statt 256 Stützstellen**: die Punkte sind gleichmäßig in der ZEIT
   verteilt, am Perihel rast er – sonst bekommt die Ellipse dort eine sichtbare Ecke.
 - 2D-Karte: echte Ellipse (`mapPos` schickt den Bahnradius durch dieselbe stilisierte Skala

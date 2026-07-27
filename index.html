@@ -1305,20 +1305,29 @@ function anomalyFound(id){ return (Game.anomaliesFound||[]).includes(id); }
 const ASTEROIDS = [
   {id:"astGauss", name:"»Gauß«", icon:"🪨", kind:"Asteroid", sci:70, R:1400,
    orbitR:1.72e10, incl:7*Math.PI/180, phase:0.9, color:0x9a8a66,
+   paint:"astC", seed:3, rough:0.98, metal:0.02, lumpy:0.62,
    info:"C-Typ-Asteroid zwischen Leibniz und Minzi: dunkle Kruste aus uraltem Kohlenstoff, unverändert seit der Frühzeit des Systems. Benannt nach Carl Friedrich Gauß, der 1801 die Bahn des allerersten Asteroiden (Ceres) berechnete."},
   {id:"astEmmy", name:"»Emmy«", icon:"⚙️", kind:"Asteroid", sci:90, R:2600,
    orbitR:2.9e10, incl:11*Math.PI/180, phase:3.8, color:0xb8b2c4,
+   paint:"astM", seed:11, rough:0.55, metal:0.20, lumpy:0.52,
    info:"M-Typ-Brocken aus fast reinem Metall, benannt nach der Mathematikerin Emmy Noether. Glänzt im Teleskop wie ein Spiegel – eine fliegende Schatzkammer aus Eisen und Nickel."},
   {id:"metHalley", name:"»Halley«", icon:"☄️", kind:"Meteoroid", sci:110, R:500,
    orbitR:9.2e9, incl:14*Math.PI/180, phase:5.5, color:0xd8c8a8,
+   paint:"metDust", seed:23, rough:0.96, metal:0.04, lumpy:0.78,
    info:"Winziger, flinker Meteoroid INNERHALB der Leibniz-Bahn – rast mit über 11 km/s um die Sonne. Benannt nach Edmond Halley, der als Erster die Wiederkehr eines Kometen vorhersagte."},
   /* Der Komet: als EINZIGER Kleinkörper auf einer stark elliptischen Bahn
      (ecc 0,72). Genau das macht einen Kometen aus – draußen ist er ein toter
      Eisbrocken, nahe der Sonne verdampft das Eis und bläst die beiden
      Schweife auf. `orbitR` ist hier die große HALBACHSE. */
+  /* ⚠️ `phase` ist so gewählt, dass Whipple beim Spielstart schon INNEN ist
+     (Aktivität ~0,55, Perihel in ~31 Tagen). Mit der alten Phase 2,05 stand er
+     bei t = 0 satte 62,9 Mio. km draußen: Aktivität 0, kein Schweif, nächstes
+     Perihel erst in 362 Spieltagen – in der Admin-Cam bei 1 min/s also erst
+     nach sechs Stunden Zusehen. Wer auf »Whipple« klickt, soll einen Kometen
+     sehen, keinen toten Kiesel. */
   {id:"comWhipple", name:"»Whipple«", icon:"💫", kind:"Komet", sci:140, R:900,
-   orbitR:4.0e10, ecc:0.72, argP:2.3, incl:18*Math.PI/180, phase:2.05, color:0x8fa2b8,
-   tail:true,
+   orbitR:4.0e10, ecc:0.72, argP:2.3, incl:18*Math.PI/180, phase:-0.37, color:0x8fa2b8,
+   tail:true, paint:"comet", seed:31, rough:0.95, metal:0.02, lumpy:0.70,
    info:"Ein »schmutziger Schneeball« aus Eis, Staub und Gestein – so nannte Fred Whipple 1950 die Kometen, und genau so ist es. Seine Bahn ist eine lange Ellipse: Im Aphel weit hinter Newton ist er dunkel und tot, im Perihel INNERHALB der Leibniz-Bahn kocht das Eis und er bekommt zwei Schweife. ⚠️ Beide zeigen IMMER von der Sonne weg – nicht nach hinten! Der bläuliche Ionenschweif steht kerzengerade im Sonnenwind, der helle Staubschweif bleibt gekrümmt hinter der Bahn zurück."}
 ];
 /* ⚠️ Bei der Ellipse ist `orbitR` die große Halbachse – Kepler III gilt
@@ -1356,7 +1365,10 @@ function asteroidPos(a, t){
 function cometActivity(a, t){
   const r = asteroidPos(a, t).length();
   const k = (2.6e10/Math.max(r, 6e9));
-  return Math.max(0, Math.min(1, (k*k - 0.35)/1.6));
+  // Schwelle bei r ≈ 5,2e10 (statt 4,4e10): echte Kometen sind auch nur ein
+  // Viertel ihrer Bahn aktiv, aber für den Unterricht darf man ihn öfter
+  // erwischen, ohne stundenlang vorzuspulen.
+  return Math.max(0, Math.min(1, (k*k - 0.25)/1.4));
 }
 function asteroidScanned(id){ return (Game.asteroidsScanned||[]).includes(id); }
 
@@ -2687,18 +2699,7 @@ const AdminCam = {
     // Kleinkörper: Fels-Meshes + Bahnlinien – fokussierbar wie Planeten (Follow-Cam)
     this.astMeshes = [];
     for(const a of ASTEROIDS){
-      const geo = new THREE.IcosahedronGeometry(a.R, 1);
-      // Noise MUSS aus der Position kommen (Hash), nicht aus einem Lauf-Index:
-      // Icosahedron-Vertices sind pro Face dupliziert – sonst reißt die Fläche auf!
-      const posA = geo.attributes.position;
-      for(let i=0;i<posA.count;i++){
-        const px=posA.getX(i), py=posA.getY(i), pz=posA.getZ(i);
-        const f = 0.82 + 0.36*Math.abs(Math.sin(px*12.9898 + py*78.233 + pz*37.719 + a.R));
-        posA.setXYZ(i, px*f, py*f, pz*f);
-      }
-      geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo,
-        new THREE.MeshStandardMaterial({color:a.color, roughness:.95, flatShading:true}));
+      const m = makeSmallBodyMesh(a);
       this.scene.add(m);
       let fx = null;
       if(a.tail){ fx = buildCometFx(); this.scene.add(fx); }
@@ -2810,9 +2811,45 @@ const AdminCam = {
     this.minDist = b.R*1.6;
     this.dist = b===SUN ? SUN.R*9 : b.R*4.5;
     const isAst = ASTEROIDS.includes(b);
+    /* ⚠️ Kamera auf die SONNENSEITE stellen. Der Blickwinkel blieb bisher vom
+       vorherigen Körper stehen – wer Pech hatte, landete auf der Nachtseite
+       und sah einen schwarzen Fleck (bei den dunklen Asteroiden besonders
+       ärgerlich). +0,55 rad Versatz lässt einen Streifen Schatten stehen:
+       erst der Terminator macht Krater und Berge plastisch. */
+    if(b !== SUN){
+      const c = isAst ? asteroidPos(b, this.t) : bodyPos(b, this.t);
+      if(c.lengthSq() > 0){
+        this.az = Math.atan2(-c.z, -c.x) + 0.55;
+        this.el = 0.22;
+      }
+    }
+    let cometNote = "";
+    if(b.tail){
+      /* ⚠️ Ein Komet ist zwei Objekte in einem: ein 1,8-km-Kern und ein
+         5 Mio. km langer Schweif – sechs Zehnerpotenzen auseinander. Mit
+         `b.R*4.5` (hier 4 km!) stand die Kamera am Kern und vom Schweif war
+         NICHTS zu sehen; genau so wurde es gemeldet. Wenn er aktiv ist, wird
+         deshalb der SCHWEIF eingerahmt – der ist das Sehenswerte. */
+      const act = cometActivity(b, this.t);
+      if(act > 0.05) this.dist = 2.6e9*(0.45 + 0.55*act);
+      const r = asteroidPos(b, this.t).length();
+      // Zeit bis zum nächsten Perihel aus der mittleren Anomalie
+      let M = (2*Math.PI*this.t/b.period + b.phase) % (2*Math.PI);
+      if(M < 0) M += 2*Math.PI;
+      const toPeri = ((2*Math.PI - M)/(2*Math.PI))*b.period/86400;
+      cometNote = act > 0.05
+        ? `<br><b style="color:#9fd8f0">☄️ Aktiv (${Math.round(act*100)} %)</b>
+           <span style="color:var(--muted)">· ${(r/1e9).toFixed(1)} Mio. km von der Sonne ·
+           Kamera zeigt den Schweif – mit dem Mausrad hineinzoomen für den Kern.</span>`
+        : `<br><b style="color:#e8b45e">🧊 Gerade kein Schweif</b>
+           <span style="color:var(--muted)">· ${(r/1e9).toFixed(1)} Mio. km von der Sonne, das Eis
+           bleibt gefroren. Nächstes Perihel in ${Math.round(toPeri)} Tagen –
+           Zeitraffer ⏩ aufdrehen, dann blüht er auf!</span>`;
+    }
     document.getElementById("admInfo").innerHTML = isAst
       ? `<b style="color:var(--orange);font-size:16px;">${b.icon} ${b.kind} ${b.name}</b> ·
          Ø ${(b.R*2/1000).toFixed(1)} km · umkreist die Sonne (${(b.period/86400).toFixed(0)} Tage, ${Math.round(b.incl*180/Math.PI)}° geneigt)
+         ${cometNote}
          <br><small style="color:var(--muted)">${b.info} – Vorbeiflug-Scan unter 1000 km bringt +${b.sci} 🧪!</small>`
       : `<b style="color:var(--orange);font-size:16px;">${b.name}</b> · Radius ${(b.R/1000).toFixed(0)} km`+
         (b.parent ? ` · umkreist ${b.parent.name} (${b.period>1e6?(b.period/86400).toFixed(0)+" Tage":(b.period/3600).toFixed(1)+" h"})` : "")+
@@ -3751,7 +3788,9 @@ function makeBodyTexture(b){
   // Auflösung nach NÄHE im Spiel, nicht nach Größe: Auf Monti landet man
   // (und sieht die Krater aus 2 km), die fernen Welten sieht man fast immer
   // als Scheibe – 512 reicht dort und spart das Vierfache an Rechenzeit.
-  const W = b===LEIBNIZ ? 2048 : (b===MONTI ? 1024 : 512), HH = W/2;
+  // Kleinkörper sind nur wenige Kilometer groß: 256 sind bei »Gauß« schon
+  // 34 m je Texel, feiner als alles, was man dort je zu sehen bekommt.
+  const W = b===LEIBNIZ ? 2048 : (b===MONTI ? 1024 : (b.R < 20000 ? 256 : 512)), HH = W/2;
   const c = document.createElement("canvas"); c.width=W; c.height=HH;
   const x = c.getContext("2d");
   if(b===LEIBNIZ){
@@ -3973,12 +4012,19 @@ function _stampCraters(hBuf, W, H, n, seed, rMin, rMax, depth){
    glatt verdoppelt – derselbe Fehler, den die Leibniz-Textur mit `lh` schon
    einmal gemacht hat. */
 function paintProceduralBody(b, ctx, W, H){
-  const spec = BODY_PAINT[b.name] || BODY_PAINT._default;
+  // `b.paint` erlaubt mehreren Körpern dasselbe Rezept (Kleinkörper heißen
+  // »Gauß« mit Anführungszeichen – als Schlüssel unbrauchbar).
+  const spec = BODY_PAINT[b.paint || b.name] || BODY_PAINT._default;
   const n = spec.n || 1;
-  const RW = W>>1, RH = H>>1;
+  /* ⚠️ Die Halbauflösung lohnt nur bei großen Karten. Bei den 256er-Texturen
+     der Kleinkörper bliebe ein 128×64-Rauschfeld übrig – das sah man als
+     grobes 2×2-Blockraster im Bild. Unter 512 wird deshalb voll gerechnet;
+     32 000 Texel kosten ohnehin nichts. */
+  const sub = W > 256 ? 1 : 0;                 // 1 = halbe Auflösung
+  const RW = W>>sub, RH = H>>sub;
   const fld = new Float32Array(RW*RH*n);
   const u = {x:0, y:0, z:0};
-  // --- 1) Rausch-Felder in halber Auflösung ------------------------
+  // --- 1) Rausch-Felder --------------------------------------------
   for(let ry=0; ry<RH; ry++){
     const lat = (0.5-(ry+0.5)/RH)*Math.PI, cl = Math.cos(lat), sl = Math.sin(lat);
     for(let rx=0; rx<RW; rx++){
@@ -3990,8 +4036,8 @@ function paintProceduralBody(b, ctx, W, H){
   // --- 2) Höhenfeld auf volle Auflösung + Krater -------------------
   const hBuf = new Float32Array(W*H);
   for(let py=0; py<H; py++){
-    const ro = Math.min(RH-1, py>>1)*RW;
-    for(let px=0; px<W; px++) hBuf[py*W+px] = fld[(ro + (px>>1))*n];
+    const ro = Math.min(RH-1, py>>sub)*RW;
+    for(let px=0; px<W; px++) hBuf[py*W+px] = fld[(ro + (px>>sub))*n];
   }
   if(spec.craters) spec.craters.forEach(c=>_stampCraters(hBuf, W, H, c[0], c[1], c[2], c[3], c[4]));
   // --- 3) Schummerung ----------------------------------------------
@@ -4020,10 +4066,10 @@ function paintProceduralBody(b, ctx, W, H){
   const out = [0,0,0];
   for(let py=0; py<H; py++){
     const lat = (0.5-(py+0.5)/H)*Math.PI;
-    const ro = Math.min(RH-1, py>>1)*RW;
+    const ro = Math.min(RH-1, py>>sub)*RW;
     for(let px=0; px<W; px++){
       const i = py*W+px;
-      spec.color(hBuf[i], fld, (ro + (px>>1))*n, lat, shade[i], out);
+      spec.color(hBuf[i], fld, (ro + (px>>sub))*n, lat, shade[i], out);
       const o = i*4;
       d[o]   = out[0]<0?0:out[0]>255?255:out[0];
       d[o+1] = out[1]<0?0:out[1]>255?255:out[1];
@@ -4220,6 +4266,89 @@ const BODY_PAINT = {
       _mix(o, 152, 144, 132, Math.max(0, f[i+1]-0.62)*1.4);
       o[0]*=sh; o[1]*=sh; o[2]*=sh;
     }},
+  /* ---- Kleinkörper ------------------------------------------------------
+     ⚠️ Ihre Krater sind im WINKELMASS riesig: ein 300-m-Krater auf einem
+     1,4-km-Brocken deckt gut 0,2 rad ab. Deshalb hier ganz andere Radien als
+     bei den Planeten – mit Planetenwerten (0,01 rad) wäre die Oberfläche
+     spiegelglatt. Und `relief` ist höher, weil auf einem Brocken ohne
+     Atmosphäre nichts erodiert: die Kanten bleiben scharf. */
+  /* Gauß – C-Typ: Kohlenstoff, eine der dunkelsten Oberflächen überhaupt
+     (Albedo ~0,05). Fast schwarz mit einem Stich ins Bräunliche, dazu heller
+     aufgeworfener Auswurf um die jüngsten Krater. */
+  astC:{
+    n:2, relief:34,
+    craters:[[46, 3101, 0.09, 0.34, 0.42], [120, 3102, 0.03, 0.10, 0.30]],
+    calc:(u, lat, f, i)=>{
+      f[i]   = 0.5 + _pFbm(u.x,u.y,u.z, 5, 2.4, 3)*0.44;
+      f[i+1] = _pFbm(u.x,u.y,u.z, 4, 7, 61);        // Regolith-Flecken
+    },
+    color:(h, f, i, lat, sh, o)=>{
+      // ⚠️ Echte C-Typen haben Albedo ~0,05 – physikalisch ehrlich gemalt war
+      // der Brocken ein schwarzer Fleck, auf dem man nichts erkannte. Hier
+      // bewusst aufgehellt: dunkel genug, um »Kohlenstoff« zu lesen, hell
+      // genug, um die Krater zu sehen.
+      const g = 76 + (h-0.5)*78;
+      o[0]=g*1.10; o[1]=g*1.00; o[2]=g*0.86;
+      _mix(o, 132, 122, 104, Math.max(0, f[i+1]-0.66)*1.7);
+      o[0]*=sh; o[1]*=sh; o[2]*=sh;
+    }},
+  /* Emmy – M-Typ: fast reines Eisen-Nickel. Hell, kühl-grau, und statt
+     Kratern vor allem lange RILLEN – Metall bricht, es zersplittert nicht.
+     ⚠️ Der metallische Eindruck kommt aus der TEXTUR (kühles Hellgrau, hoher
+     Kontrast, blanke Stellen), NICHT aus `metalness`. Ohne envMap ist eine
+     hohe metalness in three.js ein Minus-Geschäft: der diffuse Anteil wird um
+     (1−metalness) gekürzt, übrig bleibt nur das Glanzlicht der einen
+     Lichtquelle – der Brocken wurde damit dunkler und bekam einen grellen
+     weißen Fleck. Deshalb metal 0,2 / rough 0,55. */
+  astM:{
+    n:2, relief:32,
+    craters:[[26, 1101, 0.08, 0.26, 0.32]],
+    calc:(u, lat, f, i)=>{
+      const groove = _pRidge(u.x,u.y,u.z, 4, 3.2, 17);
+      f[i]   = 0.5 + _pFbm(u.x,u.y,u.z, 5, 2.6, 11)*0.40 - groove*0.26;
+      f[i+1] = groove;
+    },
+    color:(h, f, i, lat, sh, o)=>{
+      const g = 150 + (h-0.5)*96;
+      o[0]=g*0.99; o[1]=g*0.99; o[2]=g*1.05;
+      _mix(o,  84,  86,  98, Math.max(0, f[i+1]-0.74)*3.0);   // Rillen
+      // ⚠️ Kraterwälle heben h über 1 – mit `(h-0.78)*2.2` wurden daraus harte
+      // weiße Flecken. Weicher Übergang und gedeckelt.
+      _mix(o, 212, 214, 222, _sm(0.82, 1.08, h)*0.5);         // blanke Stellen
+      o[0]*=sh; o[1]*=sh; o[2]*=sh;
+    }},
+  /* Halley – winziger, staubiger Meteoroid: hell-sandfarben und komplett
+     zerkratert (bei 500 m Radius trifft ihn alles). */
+  metDust:{
+    n:1, relief:30,
+    craters:[[52, 2301, 0.10, 0.36, 0.40], [90, 2302, 0.04, 0.12, 0.28]],
+    calc:(u, lat, f, i)=>{ f[i] = 0.5 + _pFbm(u.x,u.y,u.z, 5, 2.8, 23)*0.46; },
+    color:(h, f, i, lat, sh, o)=>{
+      // ⚠️ gedämpft: mit 118+t*104 und einer Schummerung bis ×1,35 landeten
+      // die Sonnenhänge über 255 und der Brocken war weiß ausgebrannt.
+      const t = _sm(0.2, 0.85, h);
+      o[0]=104+t*72; o[1]= 94+t*66; o[2]= 78+t*56;
+      o[0]*=sh; o[1]*=sh; o[2]*=sh;
+    }},
+  /* Whipple – der Kometenkern. ⚠️ Kometenkerne gehören zu den DUNKELSTEN
+     Objekten im Sonnensystem (Albedo ~0,04): Das Eis liegt unter einer
+     schwarzen Staubkruste. Hell ist nur, wo die Kruste aufgerissen ist – und
+     genau dort treten die Gasfontänen aus, die die Schweife speisen. Also
+     fast schwarz mit ein paar leuchtenden Eisflecken. */
+  comet:{
+    n:2, relief:34,
+    craters:[[30, 3301, 0.11, 0.40, 0.50]],
+    calc:(u, lat, f, i)=>{
+      f[i]   = 0.5 + _pFbm(u.x,u.y,u.z, 5, 2.2, 31)*0.46;
+      f[i+1] = _pFbm(u.x,u.y,u.z, 4, 5.5, 77);      // aufgerissene Eisflächen
+    },
+    color:(h, f, i, lat, sh, o)=>{
+      // wie bei Gauß aufgehellt – ein Albedo-0,04-Kern wäre im Bild ein Loch
+      const g = 70 + (h-0.5)*66;
+      o[0]=g*0.98; o[1]=g*1.02; o[2]=g*1.12;
+      _mix(o, 208, 232, 246, Math.min(1, Math.max(0, f[i+1]-0.70)*2.6));  // frisches Eis
+      o[0]*=sh; o[1]*=sh; o[2]*=sh;
+    }},
   _default:{
     n:1, relief:30,
     craters:[[140, 9901, 0.012, 0.11, 0.5]],
@@ -4275,7 +4404,7 @@ function glowSpriteTexture(){
   _glowTex = new THREE.CanvasTexture(c);
   return _glowTex;
 }
-const COMET_ION = 22, COMET_DUST = 24;
+const COMET_ION = 30, COMET_DUST = 32;
 function buildCometFx(){
   const tex = glowSpriteTexture(), g = new THREE.Group();
   const mk = (col)=>{
@@ -4308,25 +4437,26 @@ function updateCometFx(g, a, pos, t, scale){
   const Lion  = 5.2e9*s*act;
   const Ldust = 3.4e9*s*act;
   const p = new THREE.Vector3();
-  /* ⚠️ Die Sprites sitzen NICHT gleichmäßig verteilt, sondern nach k^1.55:
-     dicht am Kopf, weit auseinander am Ende. Gleichmäßig verteilt war der
-     Schweif eine sichtbare Perlenkette – vorne sind die Sprites klein, der
-     Abstand aber genauso groß wie hinten, wo sie viermal so breit sind.
-     Faustregel: Sprite-Breite ≳ 1,3 × Abstand zum Nachbarn, dann addieren
-     sich die weichen Ränder zu einer durchgehenden Fahne. */
+  /* ⚠️ Die Sprites sitzen NICHT gleichmäßig verteilt, sondern nach k^1.35:
+     dicht am Kopf, weiter auseinander am Ende – vorne sind sie klein, hinten
+     viermal so breit. Gleichmäßig verteilt war der Schweif eine sichtbare
+     Perlenkette. Faustregel: Sprite-Breite ≳ 2 × Abstand zum Nachbarn, dann
+     addieren sich die weichen Ränder zu einer durchgehenden Fahne. Deshalb
+     auch die hohe Sprite-Zahl – sie kosten fast nichts (additiv, kein
+     Tiefenschreiben, kein Sortieren). */
   for(let i=0;i<COMET_ION;i++){
-    const k = Math.pow((i+0.5)/COMET_ION, 1.55);
+    const k = Math.pow((i+0.5)/COMET_ION, 1.35);
     const sp = U.ion[i];
     sp.visible = true;
     p.copy(pos).addScaledVector(away, Lion*k);
     sp.position.copy(p);
     // schmal und gerade; nach hinten breiter und blasser
-    const w = (0.40 + 1.75*k)*3.0e8*s;
+    const w = (0.45 + 1.60*k)*3.0e8*s;
     sp.scale.set(w, w, 1);
-    sp.material.opacity = act*0.30*(1-k*0.88);
+    sp.material.opacity = act*0.26*(1-k*0.88);
   }
   for(let i=0;i<COMET_DUST;i++){
-    const k = Math.pow((i+0.5)/COMET_DUST, 1.55);
+    const k = Math.pow((i+0.5)/COMET_DUST, 1.35);
     const sp = U.dust[i];
     sp.visible = true;
     // ⚠️ Die Krümmung wächst QUADRATISCH mit dem Abstand: der Staub wurde
@@ -4334,9 +4464,9 @@ function updateCometFx(g, a, pos, t, scale){
     // der alten Bahn weitergeflogen. Linear sähe der Schweif nur schief aus.
     p.copy(pos).addScaledVector(away, Ldust*k).addScaledVector(lag, Ldust*0.78*k*k);
     sp.position.copy(p);
-    const w = (0.55 + 2.4*k)*3.2e8*s;
+    const w = (0.60 + 2.2*k)*3.2e8*s;
     sp.scale.set(w, w, 1);
-    sp.material.opacity = act*0.24*(1-k*0.9);
+    sp.material.opacity = act*0.21*(1-k*0.9);
   }
   const cw = (2.2e8 + 3.4e8*act)*s;
   U.coma.visible = U.core.visible = true;
@@ -4344,6 +4474,38 @@ function updateCometFx(g, a, pos, t, scale){
   U.coma.material.opacity = 0.30 + 0.5*act;
   U.core.position.copy(pos); U.core.scale.set(cw*0.34, cw*0.34, 1);
   U.core.material.opacity = 0.55 + 0.45*act;
+}
+/* =================================================================
+   KLEINKÖRPER-MESHES (Asteroiden, Meteoroid, Kometenkern)
+   -----------------------------------------------------------------
+   Vorher: `IcosahedronGeometry(R,1)` (80 Flächen) mit ein paar Zufallszacken
+   und einem EINFARBIGEN Material – aus der Nähe ein grauer Diamant, kein
+   Himmelskörper. Jetzt eine verbeulte Kugel mit echter prozeduraler Textur.
+   ⚠️ `SphereGeometry` statt `IcosahedronGeometry`, obwohl der Brocken alles
+   andere als rund ist: NUR die Kugel hat äquirektangulare UVs, und nur damit
+   passt die Textur aus `paintProceduralBody`, die in genau dieser Konvention
+   gemalt wird. Die Beulen kommen aus DEMSELBEN Rauschfeld wie die Textur –
+   deshalb sitzt jede gemalte Kraterdelle auch geometrisch in einer Delle.
+   ⚠️ Die Verschiebung hängt an der NORMALISIERTEN Position, nicht am Vertex-
+   Index: an der UV-Naht und an den Polen liegen mehrere Vertices auf demselben
+   Punkt, die müssen identisch verschoben werden – sonst reißt die Kugel auf.
+   (Genau der Fehler, den das alte Icosaeder-Rauschen schon einmal hatte.) */
+function makeSmallBodyMesh(a){
+  const geo = new THREE.SphereGeometry(a.R, 72, 36);
+  const p = geo.attributes.position, v = new THREE.Vector3();
+  const lump = a.lumpy || 0.6, seed = a.seed || 0;
+  for(let i=0;i<p.count;i++){
+    v.set(p.getX(i), p.getY(i), p.getZ(i)).normalize();
+    // grobe Gestalt + mittlere Beulen; das Feinrelief macht die Textur
+    const d = 1 + (_pFbm(v.x,v.y,v.z, 3, 1.5, seed)-0.5)*lump
+                + (_pFbm(v.x,v.y,v.z, 3, 4.5, seed+40)-0.5)*lump*0.30;
+    p.setXYZ(i, v.x*a.R*d, v.y*a.R*d, v.z*a.R*d);
+  }
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    map: makeBodyTexture(a),
+    roughness: a.rough===undefined ? 0.95 : a.rough,
+    metalness: a.metal===undefined ? 0.04 : a.metal}));
 }
 /* Wolkendecke des Planeten (Äquirektangular, aus dem Orbit sichtbar):
    FBM-Wertrauschen statt gemalter Ellipsen – ergibt Wirbel und ausgefranste
@@ -7704,18 +7866,7 @@ const Flight = {
     this.stationMarker = mkMarker("Große Pause","#39c2ff");
     // Kleinkörper: unregelmäßige Fels-Meshes + Kartenmarker + Bahnlinien um die Sonne
     this.astObjs = ASTEROIDS.map(a=>{
-      const geo = new THREE.IcosahedronGeometry(a.R, 1);
-      // Noise MUSS aus der Position kommen (Hash), nicht aus einem Lauf-Index:
-      // Icosahedron-Vertices sind pro Face dupliziert – sonst reißt die Fläche auf!
-      const posA = geo.attributes.position;
-      for(let i=0;i<posA.count;i++){
-        const px=posA.getX(i), py=posA.getY(i), pz=posA.getZ(i);
-        const f = 0.82 + 0.36*Math.abs(Math.sin(px*12.9898 + py*78.233 + pz*37.719 + a.R));
-        posA.setXYZ(i, px*f, py*f, pz*f);
-      }
-      geo.computeVertexNormals();
-      const mesh = new THREE.Mesh(geo,
-        new THREE.MeshStandardMaterial({color:a.color, roughness:.95, flatShading:true}));
+      const mesh = makeSmallBodyMesh(a);
       this.world.add(mesh);
       const marker = mkMarker(a.icon, "#d8c39a");
       // ⚠️ 512 statt 256 Stützstellen bei Ellipsen: Am Perihel rast der Komet,
