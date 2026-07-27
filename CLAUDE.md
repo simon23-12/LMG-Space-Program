@@ -46,9 +46,23 @@ Screen `#options` (Hauptmenü »⚙️ Optionen«, im VAB der ⚙️-Knopf), ger
   sofort greift.
 
 ### Triebwerksklang: echte Raptor-Aufnahme (`RAPTOR` / `setRaptor` / `updateRaptor`)
-Zwei Schichten: `raptor.mp3` (Originalmitschnitt) trägt den Klang, das synthetische Rumpeln
-(`ensureRumble`, braunes Rauschen über WebAudio) liegt als Tiefton darunter – deshalb ist es
-leiser als früher. Beide hängen an `Settings.sfx` und an Schub × Luftdichte.
+⚠️⚠️ **Die Aufnahme läuft NUR, wenn auch wirklich ein Raptor brennt** (`segHasRaptor(seg)` →
+Flag `raptor:true` in PARTS: `engRapSL`, `engRapVac`, `superheavy`, `starship`,
+`starshipTank`; neues Raptor-Teil = nur das Flag setzen). `raptor.mp3` ist ein
+Original-Prüfstandsmitschnitt und lag vorher unter JEDEM Triebwerk – auch unter der
+Feststoffbooster-Rakete aus der ersten Stunde und unter dem Ionenantrieb. Zwei Fälle:
+- **Raptor brennt** → Aufnahme trägt den Klang, das synthetische Rumpeln (`ensureRumble`,
+  braunes Rauschen über WebAudio) liegt nur als LEISER Tiefton darunter: `0,02 + 0,08·Schub`.
+- **alles andere** → wie vor der Aufnahme: allein das Rumpeln, im alten, kräftigen Pegel
+  `0,04 + 0,14·Schub`. Unter der Aufnahme wäre dieser Pegel zu viel, ohne sie zu wenig –
+  deshalb **zwei Formeln, nicht eine**. Verifiziert: Ochse/Zwerg/Donner/Nuklear/Feststoff
+  0,18 und keine Aufnahme · Raptor SL/Vac/Superheavy 0,10 + Aufnahme.
+- ⚠️ Maßgeblich ist der **FLÜSSIG**-Brand der aktiven Stufe (`liquidBurn`), nicht `burning`:
+  Eine Stufe kann gleichzeitig einen Feststoffbooster haben, und wenn nur der noch brennt
+  (oder der Raptor-Tank leer ist), klingt das nicht nach Raptor. Die Seitenbooster
+  (`boosterBurn`) sind ohnehin immer Feststoff. Getestet: Stufentrennung in BEIDE Richtungen
+  schaltet die Aufnahme korrekt an/aus (beim Einschalten mit frischem Spin-up).
+Beide Schichten hängen an `Settings.sfx` und an Schub × Luftdichte.
 Die Aufnahme zerfällt gemessen in drei Abschnitte: **0,00–3,10 s** Turbopumpen-Spin-up und
 Zündung (−23 → −6 dB) · **3,15–18,60 s** Volllast bei konstant −6 dB ← das ist der Loop ·
 **18,80–19,60 s** Ausklingen (im Loop unbrauchbar). Gespielt wird: Spin-up EINMAL bei der

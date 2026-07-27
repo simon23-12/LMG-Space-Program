@@ -217,10 +217,11 @@ input[type=file]{display:none;}
       <input type="range" min="0" max="100" id="optSfx" oninput="Settings.setVol('sfx', this.value/100)">
       <span class="val" id="optSfxVal"></span>
     </label>
-    <div class="opt-note">Geräusche = das Triebwerk im Flug: Originalmitschnitt eines
-      <b>Raptor</b>-Triebwerks mit Turbopumpen-Spin-up beim Zünden, darunter ein tiefes
-      Rumpeln. Wird lauter, je mehr Schub und je dichter die Luft – im Vakuum bleibt fast
-      nur das Rumpeln übrig, das ist Absicht.</div>
+    <div class="opt-note">Geräusche = das Triebwerk im Flug: ein tiefes Rumpeln, das
+      lauter wird, je mehr Schub und je dichter die Luft – im Vakuum bleibt fast nichts
+      übrig, das ist Absicht. Fliegst du mit einem <b>Raptor</b> (auch Superheavy oder
+      Starship), hörst du zusätzlich den Originalmitschnitt eines echten Raptor-Triebwerks
+      samt Turbopumpen-Spin-up beim Zünden.</div>
   </div>
 </div>
 
@@ -1046,20 +1047,29 @@ const PARTS = {
   engT:   {name:"Triebwerk »Floh«",          type:"engine", cat:"sat", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"fine", info:"Winziges Manövriertriebwerk (8 kN)."},
   dock:   {name:"Docking-Port »Klette«",     type:"dock",   cat:"cmd", mass:80, w:10,h:3, tech:"payload",
            info:"Koppelstutzen an die Spitze bauen! Langsam (< 3 m/s) und nah (< 30 m) an die Raumstation »Große Pause« heranfliegen – [L] dockt an und ab."},
-  engRapSL:{name:"Raptor »Meereshöhe«",      type:"engine", cat:"lower", mass:1600, thrust:750000, isp:330, w:12,h:10, tech:"raptorSL",
+  engRapSL:{name:"Raptor »Meereshöhe«",      type:"engine", cat:"lower", mass:1600, thrust:750000, isp:330, w:12,h:10, tech:"raptorSL", raptor:true,
            info:"Vollstrom-Methantriebwerk: 750 kN bei Isp 330 s – Effizienz-Weltmeister für die erste Stufe."},
-  engRapVac:{name:"Raptor »Vakuum«",         type:"engine", cat:"upper", mass:1700, thrust:700000, isp:380, w:12,h:12, tech:"raptorVac",
+  engRapVac:{name:"Raptor »Vakuum«",         type:"engine", cat:"upper", mass:1700, thrust:700000, isp:380, w:12,h:12, tech:"raptorVac", raptor:true,
            info:"Riesige Glocke, Isp 380 s im Vakuum – das effizienteste Oberstufen-Triebwerk überhaupt."},
-  superheavy:{name:"Superheavy-Booster",     type:"superheavy", cat:"lower", mass:3600, fuel:26000, thrust:4600000, isp:330, w:14,h:68, tech:"raptorSL",
+  superheavy:{name:"Superheavy-Booster",     type:"superheavy", cat:"lower", mass:3600, fuel:26000, thrust:4600000, isp:330, w:14,h:68, tech:"raptorSL", raptor:true,
            info:"Riesentank + 33 Raptoren in EINEM Teil (26 t Treibstoff, 4600 kN). Mit Gitterflossen ausrüsten – dann landet ihn der Autopilot!"},
-  starship:{name:"Starship",                 type:"starship", cat:"cmd", mass:5200, fuel:9500, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:900, flaps:true, bay:2500,
+  starship:{name:"Starship",                 type:"starship", cat:"cmd", mass:5200, fuel:9500, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:900, flaps:true, bay:2500, raptor:true,
            info:"Das ultimative Schiff: 6 Crew ODER große Nutzlast, Hitzeschutz-Kacheln, Bellyflop-Landung mit [C] (mindestens 200 m Höhe!). Frachtraum: 2,5 t Satelliten (PEZ-Dispenser, seitlicher Auswurf mit [N])."},
-  starshipTank:{name:"Tanker-Starship",      type:"starship", cat:"cmd", mass:4400, fuel:16000, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:400, tanker:true, bay:0,
+  starshipTank:{name:"Tanker-Starship",      type:"starship", cat:"cmd", mass:4400, fuel:16000, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:400, tanker:true, bay:0, raptor:true,
            info:"Starship ohne Flaps, dafür voller Tanks: Im Orbit parken (Flug dort beenden) – das nächste Schiff tankt bei ihm auf (< 60 m, < 4 m/s). Unbemannt, keine Bellyflop-Landung, KEIN Frachtraum – da sitzen die Tanks!"}
 };
 /* Radialteile (Flossen, Seitenbooster): hängen seitlich am Nachbartank
    und belegen KEINE eigene Höhe im Stack – wie in echt. */
 function isRadial(id){ const t = PARTS[id] && PARTS[id].type; return t==="fin" || t==="sideboost" || t==="gridfin"; }
+/* Brennt in dieser Stufe ein echtes RAPTOR? `raptor.mp3` ist ein Original-
+   mitschnitt eines Raptor-Prüfstandslaufs und darf deshalb nur zu hören sein,
+   wenn auch wirklich eines läuft (Raptor SL/Vac, Superheavy, Starship – der
+   Superheavy ist ja nichts anderes als 33 davon). Alle übrigen Triebwerke –
+   »Ochse«, »Floh«, Vakuum, Nuklear, Ionen, Feststoff – bleiben beim alten,
+   synthetischen Rumpeln. Neues Raptor-Teil = nur `raptor:true` in PARTS setzen. */
+function segHasRaptor(seg){
+  return !!seg && (seg.parts||[]).some(id=>PARTS[id] && PARTS[id].raptor);
+}
 /* Sitzt ein Starship MIT Frachtraum im Stack, reisen Satelliten darin
    (PEZ-Dispenser wie bei Starlink): sie belegen dann keine Stack-Höhe und
    werden nicht gemalt. ⚠️ Der Tanker hat `bay:0` – bei ihm stapeln sich
@@ -12056,15 +12066,26 @@ const Flight = {
           0.18+Math.random()*0.12, 0.45, 0xdfe8ff);
       }
     }
-    // Triebwerks-Sound: lauter mit Schub, leiser mit dünner Luft (Vakuum = fast still).
-    // Zwei Schichten: die Raptor-Aufnahme trägt den Klang, das synthetische
-    // Rumpeln liegt als Tiefton darunter (deshalb ist es leiser als früher).
+    /* Triebwerks-Sound: lauter mit Schub, leiser mit dünner Luft (Vakuum = fast still).
+       ⚠️ Die Raptor-Aufnahme läuft NUR, wenn auch ein Raptor brennt (s.
+       `segHasRaptor`) – sie ist ein Originalmitschnitt und passte vorher unter
+       jede Feststoffbooster-Kinderrakete. Deshalb zwei Fälle:
+         Raptor  → Aufnahme trägt den Klang, das synthetische Rumpeln liegt nur
+                   als LEISER Tiefton darunter (0,02 + 0,08·Schub).
+         sonst   → wie vor der Aufnahme: allein das Rumpeln, im alten, kräftigen
+                   Pegel (0,04 + 0,14·Schub). Unter der Aufnahme wäre das zu viel.
+       ⚠️ Für den Raptor zählt der FLÜSSIG-Brand: Eine Stufe kann gleichzeitig
+       einen Feststoffbooster haben, und der klingt nicht nach Raptor. Die
+       Seitenbooster (`boosterBurn`) sind ohnehin immer Feststoff. */
     const engOn = (burning || boosterBurn) && !this.paused;
-    const engLvl = engOn ? (0.25+0.75*(burning?this.throttle:1))*(0.25+0.75*f) : 0;
-    this.setRumble(engOn ? (0.02+0.08*(burning?this.throttle:1))*(0.25+0.75*f) : 0);
+    const thr = burning ? this.throttle : 1;
+    const rho = 0.25 + 0.75*f;
+    const liquidBurn = !!(s && s.ignited && warp<=2 && s.fuelLeft>0 && s.thrust && this.throttle>0);
+    const raptorOn = engOn && liquidBurn && segHasRaptor(s);
+    this.setRumble(engOn ? (raptorOn ? 0.02+0.08*thr : 0.04+0.14*thr)*rho : 0);
     // ⚠️ Nach dem Cutoff blendet updateRaptor noch ~0,3 s aus – deshalb steht
     // der Aufruf AUSSERHALB des engOn-Zweigs und läuft in jedem Frame.
-    this.setRaptor(engLvl);
+    this.setRaptor(raptorOn ? (0.25+0.75*thr)*rho : 0);
     this.updateRaptor(1/60);
     // Partikel altern mit SIMULATIONS-Zeit (sonst driften sie bei Warp gegen die Planetenbewegung)
     this.waterFx(simmed);
