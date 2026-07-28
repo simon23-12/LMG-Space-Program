@@ -10,6 +10,15 @@ LMG-Branding (orange `--orange` / blau `--blue`).
 - `three.min.js` – Three.js **r128** UMD, lokal (funktioniert via file://). Kein Modul-Build verwenden!
 - `nebulae.js` – `NEBULAE`: 5 Nebel-Fotos als Base64-Data-URIs (file:// erlaubt keine Datei-Bilder als WebGL-Textur!). `NEBULA_DEFS` + `nebulaTextures()` (Canvas mit Radial-Alpha-Maske) + `addNebulae(scene,radius,sizeScale,opacityScale)`: Flug-Szene (Radius 7e10, Opacity via `frame()` an Sternen-Ausblendung gekoppelt, Kamera-Far dafür 2.2e11), AdminCam (1.8e11, ×2.6) und die 2D-Universum-Karte (`universeFrame` zeichnet `tex.image` additiv).
 - Assets: `mainmenu.png`, `loading.png`, `space.mp3` (Menü), `hangar*.mp3` / `inspace*.mp3` (Playlists, Rotation via `ended`), **`raptor.mp3`** (Original-Triebwerksmitschnitt, s. »Triebwerksklang«).
+- ⚠️ **Musik liegt als VBR-Mono (`ffmpeg -q:a 7 -ac 1`) vor, NICHT mehr 256 kbps Stereo.**
+  Grund ist Vercels Gratis-Kontingent (100 GB Fast Data Transfer): Die sechs Titel waren
+  91,7 MB, jetzt 16,5 MB (−81 %). Eine Schüler-Sitzung kostete damit ~94 MB, jetzt ~19 MB –
+  bei 30 Kindern der Unterschied zwischen ~35 und ~175 Sitzungen pro Jahr. `raptor.mp3` ist
+  bewusst **unangetastet** (die Loop-Marken 3,15/18,60 s hängen an genau dieser Datei), die
+  PNGs ebenfalls (User will keine sichtbare Pixel-Einbuße).
+- `vercel.json`: Cache-Header (Medien 1 Woche hart + 4 Wochen `stale-while-revalidate`,
+  Spielcode `must-revalidate`). ⚠️ Das Schema erlaubt in einem Header-Eintrag NUR
+  `source`/`headers`/`has`/`missing` – ein `comment`-Schlüssel lässt den Deploy scheitern.
 - `.claude/launch.json` – Preview: `npx serve -l 8642` (Name `lmg-space-program`). Eintrag `lmgsongrodeo` gehört dem User – nicht anfassen.
 
 ## Optionen & Grafikstufen (`Settings` / `GFX_PRESETS` / `applyGraphics`)
@@ -101,10 +110,12 @@ Zündung, danach endlos das Volllast-Stück, solange gebrannt wird.
   Im All wird die Umgebung schwarz – dort spiegelt sich wirklich nur die Sonne.
   Nach `rebuildRocket`/`rebuildStation`/`start()` muss `applySceneEnv()` laufen, sonst haben
   die frischen Meshes keine Umgebung.
-- **Hangar-Schatten:** `VAB.renderer.shadowMap` + `sunLight.castShadow`, Ortho-Fenster ±240
-  (bei 2048 px = 23 cm/Texel, eine Figur ist ~6 Einheiten hoch). Die Lichtposition wird auf
-  Länge 520 normiert, damit das Hallendach vor der near-Ebene liegt. ⚠️ **`normalBias` (0,7)
-  statt reinem bias** – auf dem 360 Einheiten großen Boden ist reiner bias entweder zu klein
+- **Hangar-Schatten:** `VAB.renderer.shadowMap` + `sunLight.castShadow`, Ortho-Fenster ±380
+  (bei 2048 px = 0,37 Einheiten ≈ 14 cm/Texel, eine Figur ist ~6 Einheiten hoch). Das Fenster
+  muss die GANZE Halle fassen (> HW·√2), sonst brechen die Schatten an den Wänden abrupt ab.
+  Die Lichtposition wird auf Länge 700 normiert, damit das Hallendach vor der near-Ebene liegt
+  (near 80 / far 1300 umschließen die Hallenecke |(HW,HH,HW)| ≈ 500). ⚠️ **`normalBias` (0,7)
+  statt reinem bias** – auf dem 600 Einheiten großen Boden ist reiner bias entweder zu klein
   (Streifen-Akne) oder hebt die Schatten von den Füßen ab. `setShadowRes(0)` gibt die Karte
   wirklich frei (VRAM auf genau dem Rechner, dem er fehlt).
 - **Kontaktschatten** (`shadowBlobTex`): weiche schwarze Radialverlauf-Blasen.
@@ -118,7 +129,16 @@ Zündung, danach endlos das Volllast-Stück, solange gebrannt wird.
 1. **Floating Origin:** Alles Weltfeste hängt in `Flight.world` (THREE.Group), die pro Frame um `-Flight.pos` verschoben wird. Kamera/Schiff bleiben nahe Ursprung → kein Float32-Jitter. `Flight.rocketGroup` und `shipMarker` hängen an `scene`, nicht an `world`.
 2. **Rails + N-Body:** Planeten laufen "on rails" (`bodyPos(b,t)`/`bodyVel(b,t)`, rekursiv über `parent`; Leibniz↔Monti als exaktes Baryzentrum via `K_LM`). Schiff/Sats/Debris/EVA spüren ALLE `GRAV_BODIES` gleichzeitig (restricted n-body, `Flight.accel`). Volle Planeten-Integration NICHT einbauen – zerstört Knoten-Vorhersage & Warp.
 3. **⚠️ Relativ-Geschwindigkeits-Gotcha:** Leibniz rast mit ~9,3 km/s um die Sonne. JEDE physikalisch sichtbare Geschwindigkeit (SAS-Prograde, Drag/airVel, Reentry-Hitze/Glühen, Navball, Knoten-Frame, Statistiken, Docking) MUSS relativ zum dominanten Körper (`vel - bodyVel(body,t)`) gerechnet werden.
-4. **Trajektorien im mitbewegten Frame:** Vorhersagepunkte = `p_abs - bodyPos(frameBody, t_zukunft) + bodyPos(frameBody, jetzt)` – sonst "Fluchtwellen"-Artefakte. **frameBody WECHSELT pro Punkt** via `bodyAt(p,t)` (SOI-Übergang wie KSP): Abschnitte in Montis Sphäre plotten relativ zu Monti-JETZT – gilt für orange UND grüne (Knoten-)Bahn; Ap/Pe-Marker nur auf Punkten im Ursprungs-Frame suchen. Periode aus großer Halbachse, RK2 mit Substeps, Horizont ×1.08. **Linien-Vertices IMMER relativ zu `Flight.pos` in den Float32-Buffer schreiben** und den großen Anteil in `line.position` legen (Float64-Matrixverkettung) – absolute ~1e10-Koordinaten haben in Float32 nur ~1 km Auflösung → Zitter-Bug beim Ranzoomen.
+4. **Trajektorien als PATCHED CONICS (`Flight.traceOrbit`, EINE Routine für orange UND grün):** Vorhersagepunkte = `p_abs - bodyPos(frameBody, t) + anker`. Periode aus großer Halbachse, RK2 mit Substeps, Horizont ×1.08. **Linien-Vertices IMMER relativ zu `Flight.pos` in den Float32-Buffer schreiben** und den großen Anteil in `line.position` legen (Float64-Matrixverkettung) – absolute ~1e10-Koordinaten haben in Float32 nur ~1 km Auflösung → Zitter-Bug beim Ranzoomen.
+   - ⚠️⚠️ **Der Anker ist NICHT mehr pauschal `bodyPos(frameBody, jetzt)`.** Genau das war der »Orbit schließt sich nicht / ich bin plötzlich auf Fluchtbahn zur Sonne«-Bug: Bei jedem SOI-Wechsel sprang der Anker, und die Linie riss um die Strecke, die der neue Bezugskörper zwischen Wechselzeitpunkt und JETZT zurücklegt. Gemessen: Leibniz↔Monti nach 1 h 1 969 km, nach 17 h 23 511 km (mehr als Montis ganzer Bahnradius von 12 000 km); Leibniz↔Sonne nach 7 d **5 531 491 km**. Der größte Sprung in der grünen Linie lag bei **2 226 735 km** – heute 129 km.
+   - **ABSTIEG in einen Mond** (`bHere.parent === frameBody`): Anker = **Geisterposition** `bodyPos(mond,t) − bodyPos(alt,t) + anker_alt` – also dort, wo der Mond bei der ANKUNFT steht. Nachgerechnet exakt stetig (der Übergangspunkt fällt in beiden Rahmen zusammen), und die Begegnungsschleife liegt um ein sichtbares Objekt: `Flight.ghostMesh` + `ghostRing` (türkis) zeigen den »Geister-Monti« (`showGhost`). Beantwortet die eigentliche Frage: *Wo* treffe ich ihn?
+   - **AUFSTIEG zum Mutterkörper:** dorthin gibt es keine stetige Linie, also **ZWEITER Linienzug** (`trajLine2` / `nodeTrajLine2`, halbtransparent). Getrennte Objekte, damit three.js keine falsche Verbindung zeichnet. Mehr als zwei Patches werden abgeschnitten (unlesbar).
+   - ⚠️ `anchorFor(b,t)` ist die EINE Quelle für den Anker – auch der Δv-Knotenmarker benutzt sie, sonst sitzt der Marker am heutigen Monti und die grüne Bahn an der Begegnungsstelle.
+   - ⚠️ **Halbachse für den Horizont auf `body.soi` kappen** (beide Bahnen): Wer nur knapp eingefangen ist, hat rechnerisch eine riesige Ellipse (gemessen nach einem Monti-Einfangbrennen: a = 14 918 km = **6,1× Montis Sphäre**, Periode 1,4e6 s), verlässt die Sphäre aber vorher. Ohne die Kappung lief der Horizont in den 600 000-s-Deckel = 4 Leibniz-Umläufe bei 333-s-Schritten.
+   - ⚠️ Bezugskörper der GEPLANTEN Bahn ist der Körper **am Knoten** (`nBody`), nicht `this.body()` unter dem Schiff – sonst falsches µ und falscher Mittelpunkt, sobald Knoten und Schiff in verschiedenen Sphären liegen.
+   - Ap/Pe-Marker nur auf Punkten im Ursprungs-Frame des ERSTEN Patches suchen.
+   - Der Integrator ist NICHT die Fehlerquelle: 333-s-Substeps ergeben über 7 Tage nur ~40 km Abweichung gegen eine 5-s-Referenz. Wer hier Zeit investiert, investiert sie falsch.
+   - ⚠️ `trajLine2`/`nodeTrajLine2`/Geister in `toggleMap()` mit ausblenden – `predict()` läuft nur bei offener Karte und würde sie sonst nie zurücksetzen.
 5. **SOI-Hierarchie:** `Flight.bodyAt(p,t)` prüft innerste zuerst: MONTI→LEIBNIZ→MINZI→KEPLER→HUYGENS→NEWTON→SUN.
 
 ## Prozedurales Terrain von Leibniz (EINE Quelle für alles)
@@ -504,6 +524,28 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
 `PARTS` (Reihenfolge im Stack: Index 0 = SPITZE). **Radialteile** (`isRadial`: fin, sb2/sb4) belegen KEINE Stack-Höhe (`stackHeight()` statt Summe!) und werden in `buildRocketGroup` an den benachbarten Tank montiert (`radialHost`: erst darunter, dann darüber; `buildPartMesh(id, {r,h})`). **Sidebooster = Pool PRO STUFE** (`seg.boost` in buildVessel, kein globales v.boost mehr!): zünden mit IHRER Stufe (Zündung/Stufentrennung setzt `n.boost.ignited`) oder [R] (aktive Stufe), [J] wirft NUR die Booster der aktiven Stufe ab (nächstes [J] nach der Trennung = nächste Stufe); abgeworfene Stufen nehmen ihren Pool automatisch mit (hängt am Segment). Physik/HUD/Gauge/Flammen lesen `activeSeg().boost`; Flammen von Oberstufen-Boostern via `bflame.userData.upper` aus (gesetzt in buildRocketGroup, wenn Decoupler darunter). Trümmer-Mesh = `buildStrapOnMesh(strapOnHeight(stack,i))` – NICHT das srb-Mesh (Formwechsel-Bug). Servicebuchten (`bayCoverage()`): `bay` = »M« verkleidet 2 Teile darüber, `bayS` 1 (`PARTS[..].covers`) – aber NUR Typen aus `BAY_FITS` (battery/solar/probe/antenna/lab), sonst "verschluckt" die Bucht z. B. Oberstufen-Triebwerke; geschlossene Bucht schützt Solarpanele vor Fahrtwind, [G] öffnet sie automatisch mit. Oberstufen-Triebwerke (Decoupler darunter) kriegen `flame.userData.idle` – `setFlames` lässt sie aus, bis sie unterste Stufe sind. VAB-Info: Seitenbooster zählen zu Gesamtmasse + TWR IHRER Stufe (nicht Δv, `segBoost[]`); jede Stufe zeigt Leergewicht, Rakete gesamt »Leergewicht (Tanks leer)«. Solarflügel (`name:"wing"`) starten eingefahren (scale.x 0.1) – für Orbit-Sats `deployWings()`. Fairing verkleidet alles darüber.
 
 ## Montagehalle (VAB-3D-Szene)
+### ⚠️ Hallenmaße hängen an der Kamera (`HW`/`HH` ↔ `camDist`-Deckel)
+`const HW = 300, HH = 260` (halbe Breite / Höhe, Halle also 600×600×260). **`HW` MUSS größer
+bleiben als der `camDist`-Deckel im wheel-Handler (250)** – sonst steht die Kamera beim
+Rauszoomen in der Wand, und bei einer hohen Rakete sieht man statt der Rakete nur Trapezblech
+(so gemeldet: »bei komplexeren Raketen ist die Hallenwand im Weg«). Faustregel: HW ≈ camDist_max + 50.
+Wer hier dreht, muss mitziehen: Stützen-/Binder-/Lampen-Loops (laufen über `HW`), die
+Textur-`repeat` (an `HW`/`HH` gekoppelt, sonst ziehen die Betonkacheln lang) und das
+Schatten-Ortho-Fenster (s. Licht-Abschnitt).
+### Formeltafel an der Nordwand (`makeFormulaBoardTex`)
+Die Wand gegenüber dem Tor war die einzige leere – und dorthin schaut man, sobald man um die
+Rakete dreht. 2048×960-Canvas, Schiefergrün, 8 Formeln mit den **echten** Konstanten des
+Spiels (Leibniz/Monti), damit die AG nachschlagen kann, was das HUD anzeigt.
+- ⚠️ Die Wand entsteht mit `mkWall(0,HW,Math.PI)`, zeigt also nach **−z**; Tafel und Rahmen
+  brauchen dieselbe Drehung (PlaneGeometry zeigt ungedreht nach +z).
+- ⚠️ **Tief-/Hochstellung wird selbst gesetzt** (Markup `_{sp}` / `^{2}`, Mini-Parser in `chalk`).
+  Unicode ₀₁₂ ist kein Ersatz: Georgia hat dafür keine echten Glyphen, der Browser setzt
+  Ersatzzeichen auf die Grundlinie – aus `g₀` wird sichtbar »go«, aus `m₁` ein »m1«.
+  Underscores wie `v_f` zu schreiben sieht dagegen nach Quellcode aus.
+- ⚠️ **`emissiveMap` mit derselben Textur (0.35)**: Die Halle ist absichtlich düster, rein
+  diffus beleuchtet ist die Kreide aus 300 Einheiten nicht mehr lesbar.
+- Schreibschrift nur für Überschriften (Fallback-Kette bis `cursive` – auf Schulrechnern ist
+  ungewiss, welche Font existiert); Formeln in einer Serifen-Font.
 ### Layout: passt sich der Fensterbreite an (13"-Laptop bis 27"-Schreibtisch)
 Drei Spalten (`#partList` · `#vabCenter` · `#vabInfo`), Breiten und die Größen in der
 Werkzeugleiste `#vabTop` per `clamp()` an `vw` gekoppelt.
