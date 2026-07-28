@@ -533,8 +533,13 @@ const Settings = {
   setVol(which, v){
     this[which] = Math.max(0, Math.min(1, v)); this.save();
     if(which === "music" && typeof music !== "undefined") music.volume = this.music;
-    if(which === "sfx" && typeof Flight !== "undefined" && Flight.setRumble)
+    if(which === "sfx" && typeof Flight !== "undefined" && Flight.setRumble){
       Flight.setRumble(Flight._rumbleWant || 0);   // laufendes Rumpeln sofort nachziehen
+      // ⚠️ _rcsWant zurücksetzen, sonst greift der Regler beim Zischen erst,
+      // wenn sich der Zielpegel das nächste Mal ÄNDERT (setRcsHiss steigt bei
+      // gleichem Wert früh aus).
+      const w = Flight._rcsWant || 0; Flight._rcsWant = null; Flight.setRcsHiss(w);
+    }
     renderOptions();
   }
 };
@@ -1826,6 +1831,7 @@ const UI = {
     // Raptor hat keine laufende Frame-Schleife mehr, die ihn ausblenden könnte.
     if(id!=="flight" && typeof Flight!=="undefined" && Flight.setRumble){
       Flight.setRumble(0);
+      Flight.setRcsHiss(0);
       Flight.setRaptor(0);
       Flight.stopRaptor();
     }
@@ -10584,6 +10590,46 @@ const Flight = {
     if(!this._audio) return;
     this._audio.gain.gain.value = level * Settings.sfx;
   },
+  /* ---------- RCS-Steuerdüsen: kurzes Zischen ----------------------------
+     Kaltgas ist ein SCHARFES Zischen, kein Grollen – deshalb eine eigene
+     Kette mit Hochpass statt des braunen Rauschens von `ensureRumble`.
+     ⚠️ Kein `decodeAudioData`: das braucht fetch(), und das ist per file://
+     gesperrt (dasselbe Argument wie beim Raptor-Klang). Also synthetisch.
+     ⚠️ Der AudioContext von ensureRumble wird MITBENUTZT – ein zweiter Context
+     pro Seite ist auf manchen Browsern hart limitiert und würde still scheitern. */
+  ensureRcsAudio(){
+    if(this._rcs !== undefined) return;
+    this.ensureRumble();
+    if(!this._audio){ this._rcs = null; return; }
+    try{
+      const ctx = this._audio.ctx;
+      const len = 2*ctx.sampleRate;
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i=0;i<len;i++) d[i] = Math.random()*2-1;      // weißes Rauschen
+      const src = ctx.createBufferSource();
+      src.buffer = buf; src.loop = true;
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass"; hp.frequency.value = 1400; hp.Q.value = 0.7;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass"; bp.frequency.value = 3200; bp.Q.value = 0.9;
+      const gain = ctx.createGain(); gain.gain.value = 0;
+      src.connect(hp).connect(bp).connect(gain).connect(ctx.destination);
+      src.start();
+      this._rcs = {ctx, gain};
+    }catch(e){ this._rcs = null; }
+  },
+  /* Zielpegel des Zischens. Der Anstieg ist schnell (Ventil auf), das
+     Ausklingen träge – ein hart abgeschnittenes Rauschen klickt hörbar. */
+  setRcsHiss(level){
+    if(level === this._rcsWant) return;   // pro Frame neu planen wäre Verschwendung
+    this._rcsWant = level;
+    if(!this._rcs) return;
+    const g = this._rcs.gain.gain, want = level * Settings.sfx * 0.075;
+    const now = this._rcs.ctx.currentTime;
+    g.cancelScheduledValues(now);
+    g.setTargetAtTime(want, now, want > g.value ? 0.012 : 0.09);
+  },
   /* ---------- Triebwerksklang: echte Raptor-Aufnahme ----------------------
      `raptor.mp3` (Originalmitschnitt) zerfällt gemessen in drei Abschnitte:
        0,00–3,10 s  Turbopumpen-Spin-up und Zündung (Pegel −23 → −6 dB)
@@ -10781,6 +10827,62 @@ const Flight = {
     p.spr.material.opacity = 0.85;
     p.spr.visible = true;
   },
+  /* Sichtbare Gasstöße der Steuerdüsen.
+     ⚠️ Ein reines Drehmoment ist ein KRÄFTEPAAR: gleich große, entgegen-
+     gesetzte Schübe an Bug und Heck. Für die Drehachse t (Körperframe) ist
+     d = t × Y die Kraftrichtung am Bug (Y = Nase) – ausgestoßen wird das Gas
+     GEGEN die Kraft, die Fahne zeigt also nach −d. Nur so pustet die Düse
+     sichtbar auf der Seite, die zur Drehrichtung passt.
+     ⚠️ Beim ROLLEN (t ∥ Y) entartet das Kreuzprodukt zu null – dort sitzen
+     die Düsen tangential am Rumpf, das braucht einen eigenen Zweig. */
+  rcsPuff(axisBody, dt){
+    this._rcsT = (this._rcsT || 0) - dt;
+    if(this._rcsT > 0) return;
+    this._rcsT = 0.05;                       // ~20 Stöße/s – mehr frisst nur den Pool
+    const Y = V3(0,1,0);
+    /* ⚠️ Rumpfradius aus dem BREITESTEN Bauteil (`w` ist in Szenen-Einheiten
+       der Durchmesser, nicht der Radius). Eine feste Zahl geht nicht: gemessen
+       ist ein Standard-Träger 58,5 Einheiten hoch bei Ø 10 – mit den anfangs
+       geratenen 2,2 saßen die Fahnen mitten im Rumpf und man sah nichts.
+       Größe und Tempo der Stöße hängen ebenfalls daran, sonst sind sie an
+       einem Starship unsichtbar und an einer Sonde riesig. */
+    const rad = Math.max(...this.v.stack.map(id => (PARTS[id] && PARTS[id].w) || 10))/2 + 0.4;
+    const h2 = Math.max(2, this.height()/2);
+    const t = axisBody.clone().normalize();
+    const perp = t.clone().cross(Y);
+    let jets;
+    /* ⚠️ Die Düse sitzt auf der Seite, auf der das Gas HINAUS soll – also
+       entgegen der Kraft. Andersherum (Düse auf der Kraftseite) blasen die
+       Fahnen quer durch den Rumpf und sammeln sich auf der Mittelachse;
+       gemessen landeten sie 5 m statt 25 m vom Schiffsmittelpunkt entfernt. */
+    if(perp.lengthSq() > 1e-4){              // Nicken / Gieren
+      const d = perp.normalize();            // Kraftrichtung am BUG
+      jets = [{at: Y.clone().multiplyScalar( h2*0.85).addScaledVector(d, -rad), dir: d.clone().negate()},
+              {at: Y.clone().multiplyScalar(-h2*0.85).addScaledVector(d,  rad), dir: d.clone()}];
+    } else {                                 // Rollen: tangential am Ausleger
+      // Kraft am +X-Ausleger ist −Z·sgn, das Gas geht also nach +Z·sgn.
+      const sgn = t.y >= 0 ? 1 : -1;
+      jets = [{at: V3( rad,0,0).addScaledVector(Y, h2*0.7), dir: V3(0,0, sgn)},
+              {at: V3(-rad,0,0).addScaledVector(Y, h2*0.7), dir: V3(0,0,-sgn)}];
+    }
+    /* ⚠️⚠️ Die Partikel-Sprites hängen an `world`, NICHT an der Szene, und
+       `world.position` ist der Floating-Origin-Versatz (~1,4e10 m). Position
+       und Geschwindigkeit müssen deshalb ABSOLUT übergeben werden – also
+       `this.pos` bzw. `this.vel` aufaddieren, genau wie beim Abgasstrahl.
+       Rein schiffsrelativ übergeben landen die Fahnen Millionen Kilometer
+       entfernt und man sieht schlicht nichts. */
+    for(const j of jets){
+      const pos = this.pos.clone().add(j.at.clone().applyQuaternion(this.q));
+      const dir = j.dir.clone().applyQuaternion(this.q);
+      for(let i=0;i<2;i++)
+        this.spawnParticle(pos,
+          this.vel.clone()
+            .addScaledVector(dir, rad*(2.0 + Math.random()*1.8))
+            .addScaledVector(V3(Math.random()-.5, Math.random()-.5, Math.random()-.5), rad*0.7),
+          0.20 + Math.random()*0.18,
+          rad*(0.18 + Math.random()*0.24), 0xdfe9f5);
+    }
+  },
   updateParticles(dt){
     for(const p of this.particles){
       if(p.life<=0) continue;
@@ -10807,6 +10909,7 @@ const Flight = {
         i%3 ? 0xff8a30 : 0x664433);
     }
     this.setRumble(0);
+    this.setRcsHiss(0);
     this.setRaptor(0);
   },
   jettisonFairing(){
@@ -11243,6 +11346,14 @@ const Flight = {
       const rot = agility*dt, k=this.keys;
       const dq = new THREE.Quaternion();
       const apply=(axis,ang)=>{ dq.setFromAxisAngle(axis,ang); this.q.multiply(dq); };
+      // Drehachse im Körperframe mitschreiben – daraus entstehen unten die
+      // sichtbaren Düsenstöße (Vorzeichen wie bei apply(), damit die Fahnen
+      // auf der richtigen Seite herauskommen).
+      const tq = V3(0,0,0);
+      if(k["w"]) tq.x += 1;  if(k["s"]) tq.x -= 1;
+      if(k["a"]) tq.z += 1;  if(k["d"]) tq.z -= 1;
+      if(k["q"]) tq.y += 1;  if(k["e"]) tq.y -= 1;
+      this._rcsAxis = tq.lengthSq() > 0 ? tq.clone() : null;
       if(k["w"]) apply(V3(1,0,0), rot);
       if(k["s"]) apply(V3(1,0,0),-rot);
       if(k["a"]) apply(V3(0,0,1), rot);
@@ -11281,11 +11392,29 @@ const Flight = {
           const stepQ = new THREE.Quaternion().slerp(full,
             ang > 1e-6 ? Math.min(1, agility*dt/ang) : 1);
           this.q.premultiply(stepQ);
+          /* Auch SAS pustet – aber nur, solange es wirklich dreht. Die
+             Drehachse steckt im xyz-Anteil von stepQ (Weltframe); ins
+             Körpersystem gedreht ist sie dieselbe Größe wie `tq` oben.
+             Schwelle 0,004 rad/s: darunter zittert SAS nur um die Ziellage
+             herum, und ein Dauerzischen im Orbit wäre schlicht nervig. */
+          if(ang > 1e-6 && agility*dt/Math.max(ang,1e-9) < 1 && ang > 0.004){
+            const ax = V3(stepQ.x, stepQ.y, stepQ.z);
+            if(ax.lengthSq() > 1e-12)
+              this._rcsAxis = ax.normalize().applyQuaternion(this.q.clone().invert());
+          }
         }
       }
       if(k["arrowup"])   this.throttle=Math.min(1,this.throttle+1.2*dt);
       if(k["arrowdown"]) this.throttle=Math.max(0,this.throttle-1.2*dt);
     }
+    /* ⚠️ Hier wird die Drehachse NUR GEMERKT. Die sichtbaren Stöße entstehen
+       in frame() – aus zwei Gründen: (1) `this.pos` ist an dieser Stelle noch
+       der Zustand VOR der Integration, die Fahnen säßen also konstant ein
+       Frame hinter dem Schiff (gemessen 178 m bei 11 km/s); (2) step() läuft
+       im Zeitraffer mehrfach pro Frame und würde den Partikel-Pool leerpusten.
+       Genauso machen es Abgasstrahl und Plasmaschweif. */
+    this._rcsWasRot = nRcs > 0 && !!this._rcsAxis && warp <= 2 && !this.eva &&
+                      !this.powerDead && !this.commDead && !this.landed;
     const m = this.mass(), s = this.activeSeg();
     // Ingenieur*innen an Bord sparen Treibstoff
     const fuelEff = 1 + 0.04*this.crewLvl("ing");
@@ -11548,10 +11677,17 @@ const Flight = {
     this.checkMissions();
     this.checkRescue();
     this.checkTanker();
-    // Warnung beim Überschreiten der Fluchtgeschwindigkeit (relativ zu Leibniz)
+    /* Warnung beim Überschreiten der Fluchtgeschwindigkeit (relativ zu Leibniz).
+       ⚠️⚠️ NUR wenn Leibniz auch wirklich der dominante Körper ist. In Montis
+       Sphäre ist die Leibniz-Zweikörper-Energie bedeutungslos: Das Schiff trägt
+       Montis 542 m/s Bahngeschwindigkeit mit sich, und Leibniz' Fluchtgeschwindig-
+       keit auf Montis Abstand beträgt nur 767 m/s – die Schwelle reißt damit
+       JEDER normale Mondanflug. Gemessen im Monti-Tutorial: Die Meldung »Du
+       verlässt Leibniz Richtung Sonnenorbit« kam mitten im Einfanganflug, also
+       genau dann, wenn man verlässliche Rückmeldung braucht (Bug-Report Simon). */
     const relL = this.pos.clone().sub(bodyPos(LEIBNIZ,this.t));
     const rL = relL.length();
-    if(rL < LEIBNIZ.soi){
+    if(rL < LEIBNIZ.soi && this.body() === LEIBNIZ){
       const eL = this.vel.clone().sub(bodyVel(LEIBNIZ,this.t)).lengthSq()/2 - LEIBNIZ.mu/rL;
       if(eL >= 0 && !this._escWarned && !this.landed){
         this._escWarned = true;
@@ -12615,6 +12751,18 @@ const Flight = {
         }
       }
     }
+    /* RCS-Steuerdüsen: Gasstöße + Zischen (Zustand kommt aus step(), gezeichnet
+       wird hier – s. Kommentar dort). In der Karte bleibt es sichtbar still,
+       das Zischen läuft aber weiter: man steuert dort durchaus. */
+    this.setRcsHiss(this._rcsWasRot ? 1 : 0);
+    if(this._rcsWasRot){
+      this.ensureRcsAudio();
+      // ⚠️ ECHTE Zeit (1/60), nicht `frameT`: das ist die simulierte Zeit und
+      // wächst mit dem Zeitraffer – die Ausstoßrate soll aber am Bildschirm
+      // konstant bleiben und nicht bei Warp den Partikel-Pool leerräumen.
+      if(!this.map) this.rcsPuff(this._rcsAxis, 1/60);
+    }
+    this._rcsAxis = null; this._rcsWasRot = false;
     // Wiedereintritts-Glühen: Plasma bei hoher Geschwindigkeit in dichter Luft
     // (Geschwindigkeit relativ zum Planeten, nicht zur Sonne!)
     const vAir = this.vel.clone().sub(bodyVel(LEIBNIZ, this.t)).length();
@@ -13151,7 +13299,10 @@ const Flight = {
       <div class="row"><span>Höhe (${o.body.name})</span><span>${fmt(Math.max(0,o.alt))}</span></div>
       <div class="row"><span>Geschwindigkeit</span><span>${o.speed.toFixed(0)} m/s</span></div>
       <div class="row"><span>Apoapsis</span><span>${fmtAp(o.ap)}</span></div>
-      <div class="row"><span>Periapsis</span><span>${o.pe<-o.body.R*0.99?"–":fmt(o.pe)}</span></div>
+      <div class="row"><span>Periapsis</span><span>${
+        o.pe < -o.body.R*0.99 ? "–"
+        : o.pe < 0 ? '<b style="color:var(--red)">Aufschlag!</b>'
+        : fmt(o.pe)}</span></div>
       ${!this.landed ? `<div class="row"><span>Inklination</span><span>${this.orbitInc().toFixed(0)}°</span></div>` : ""}
       <div class="row"><span>Stufen übrig</span><span>${this.v.segs.length}</span></div>
       <div class="row"><span>Treibstoff (Stufe)</span><span>${(s&&s.fuel)?fuelPct.toFixed(0)+" %":"–"}</span></div>

@@ -139,6 +139,18 @@ Zündung, danach endlos das Volllast-Stück, solange gebrannt wird.
    - Ap/Pe-Marker nur auf Punkten im Ursprungs-Frame des ERSTEN Patches suchen.
    - Der Integrator ist NICHT die Fehlerquelle: 333-s-Substeps ergeben über 7 Tage nur ~40 km Abweichung gegen eine 5-s-Referenz. Wer hier Zeit investiert, investiert sie falsch.
    - ⚠️ `trajLine2`/`nodeTrajLine2`/Geister in `toggleMap()` mit ausblenden – `predict()` läuft nur bei offener Karte und würde sie sonst nie zurücksetzen.
+   - ⚠️⚠️ **Die Fluchtgeschwindigkeits-Warnung nur zeigen, wenn Leibniz auch der DOMINANTE
+     Körper ist** (`this.body() === LEIBNIZ`). In Montis Sphäre ist die Leibniz-Zweikörper-
+     Energie bedeutungslos: Das Schiff trägt Montis 542 m/s mit sich, Leibniz' Fluchtgeschwindig-
+     keit auf Montis Abstand sind nur 767 m/s – die Schwelle reißt damit JEDER normale
+     Mondanflug. Die Meldung »Du verlässt Leibniz Richtung Sonnenorbit« kam deshalb mitten im
+     Einfanganflug (Bug-Report Simon, Monti-Tutorial).
+   - **Periapsis < 0 heißt Aufschlagbahn** und wird im HUD auch so benannt (rot), nicht als
+     negative Zahl. Das ist der eigentliche Grund, warum ein Einfangbrennen ABSEITS der
+     Periapsis »nicht zirkularisiert«: Nachgerechnet im Monti-Anflug – an der Periapsis
+     373 m/s → Ap 1988 / Pe 329 km (echter Orbit), dieselbe Bremsung 1500 km zu früh
+     603 m/s → Ap 2000 / **Pe −183 km**, also eine Bahn mitten durch den Mond. Die Physik ist
+     korrekt, nur sah man es dem HUD vorher nicht an.
 5. **SOI-Hierarchie:** `Flight.bodyAt(p,t)` prüft innerste zuerst: MONTI→LEIBNIZ→MINZI→KEPLER→HUYGENS→NEWTON→SUN.
 
 ## Prozedurales Terrain von Leibniz (EINE Quelle für alles)
@@ -646,6 +658,32 @@ Dazu weiter: Wirbel-Blobs an Emittern (Heck-Totwasser + Stufen, blähen sich mit
 - **Stufenadapter** (`interXS`/`inter`/`interL`, type "inter", Ø 8/10/12): offene Röhre (`shroudH` 10/16/18) wächst von der Unterkante nach OBEN über Stufentrenner + Oberstufen-Triebwerk (belegt selbst nur h≈3 Stack-Höhe, Radius ×1.06 gegen Z-Fighting). Direkt UNTER den Decoupler bauen → gehört zum unteren Segment (segments() teilt NACH dem Decoupler) und bleibt wie der Falcon-9-Interstage auf der abgeworfenen Stufe. Rein strukturell (nur Masse). Tutorials orbit/launchwindow/booster haben ihn im Stack.
 - Fairing: `buildFairingShell(r,H,phiStart?,phiLength?)` (Lathe-Ogive); [F] spawnt 2 Halbschalen als Debris (seitlich + Spin).
 - Partikel-Pool (110 Sprites, `fresh`-Flag, altern mit Sim-Zeit `simmed`), Rauch nur in Atmosphäre.
+- ⚠️⚠️ **Partikel-Sprites hängen an `Flight.world`, nicht an der Szene.** Position UND
+  Geschwindigkeit müssen deshalb ABSOLUT übergeben werden (`this.pos` bzw. `this.vel`
+  aufaddieren, s. Abgasstrahl). Rein schiffsrelativ übergeben landen sie um den Floating-Origin-
+  Versatz (~1,4e10 m) daneben und man sieht schlicht nichts. (`explode()` macht es anders –
+  dort ist es egal, weil das Schiff in dem Moment ohnehin weg ist.)
+
+### RCS-Steuerdüsen: Gasstöße & Zischen (`rcsPuff` / `ensureRcsAudio` / `setRcsHiss`)
+Nur wenn `type:"rcs"` im Stack liegt – ohne Düsen dreht die Rakete über Flossen und
+Reaktionsräder und darf nicht pusten (verifiziert: 0 Partikel, Zischen 0).
+- ⚠️⚠️ **Erzeugt wird in `frame()`, nicht in `step()`.** In step() ist `this.pos` der Zustand
+  VOR der Integration – die Fahnen säßen konstant ein Frame hinter dem Schiff (gemessen 178 m
+  bei 11 km/s). Außerdem läuft step() im Zeitraffer mehrfach pro Frame und würde den Pool
+  leerpusten. step() merkt sich nur die Drehachse (`_rcsAxis`/`_rcsWasRot`).
+- ⚠️ Die Ausstoßrate hängt an der **echten** Zeit (1/60), nicht an `frameT` – das ist die
+  simulierte Zeit und wächst mit dem Warp.
+- ⚠️ Ein reines Drehmoment ist ein **Kräftepaar**: Für die Drehachse t ist `d = t × Y` die
+  Kraft am Bug (Y = Nase). Die **Düse sitzt auf der −d-Seite** und bläst nach −d, sonst
+  schießen die Fahnen quer durch den Rumpf (gemessen: 5 m statt 25 m von der Achse).
+  Beim ROLLEN (t ∥ Y) entartet das Kreuzprodukt – eigener Zweig mit tangentialen Auslegern.
+- ⚠️ Rumpfradius aus dem breitesten Bauteil (`w` ist der DURCHMESSER): eine feste Zahl sitzt
+  bei einem 58-Einheiten-Träger mitten im Rumpf. Größe und Tempo der Stöße hängen mit daran.
+- Klang: eigene WebAudio-Kette (weißes Rauschen → Hochpass 1400 Hz → Bandpass 3200 Hz),
+  ⚠️ im **selben** AudioContext wie `ensureRumble` – ein zweiter Context pro Seite scheitert
+  auf manchen Browsern still. Anstieg schnell, Ausklingen träge (hart abgeschnitten klickt es).
+  `setRcsHiss` steigt bei unverändertem Pegel früh aus; der SFX-Regler muss `_rcsWant`
+  deshalb vorher auf `null` setzen, sonst greift er erst beim nächsten Wechsel.
 - Tutorials: `Tut.start(id)` erzwingt Sandbox + ∞-Strom; Szenario: `stack`, `orbit:{body,alt,pe?}` oder `nearStation:<m hinter Station>`; Checks `check(o,F)` laufen pro Frame.
 - Admin-Cam: `AdminCam` (eigene Three-Szene, echte Ephemeriden, Fokus-Buttons, Zeitraffer) – Vollbild aus dem Universum-Screen. Start-Zeitraffer `speedI:0` = **1 min/s** (mit 1 h/s wirbelten die inneren Planeten los, bevor man überhaupt hingesehen hat). ⚠️ **Die Bahnhof-Marker hängen als KINDER am Leibniz-Mesh** und erben dessen sichtbare Drehung (`rotation.y` in `frame()`); als Szenen-Kinder auf `padDir(p)·R` blieben sie stur im Weltraum-Frame stehen und wanderten über fremde Kontinente. Für die Physik sind die Rampen weiterhin inertial fix – die Admin-Cam ist ein Schaukasten, kein Simulationsschritt. Die Station bleibt Szenen-Kind (echter Orbit, on rails).
 - localStorage: `lmgAutoSave`, `lmgMusic`, `lmgSettings` (Grafik/Lautstärke, s. Optionen-Abschnitt), `lmgLoadedOnce`, `lmgHint_*`, `tutsDone` im Save, `lmgRockets` (💾/📂-Hangar: gespeicherte Raketen `{name,stack}`; Laden in Karriere nur mit erforschten Teilen).
