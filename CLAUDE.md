@@ -544,6 +544,17 @@ Spiels (Leibniz/Monti), damit die AG nachschlagen kann, was das HUD anzeigt.
   Underscores wie `v_f` zu schreiben sieht dagegen nach Quellcode aus.
 - ⚠️ **`emissiveMap` mit derselben Textur (0.35)**: Die Halle ist absichtlich düster, rein
   diffus beleuchtet ist die Kreide aus 300 Einheiten nicht mehr lesbar.
+- ⚠️⚠️ **Der Rahmen ist ein echter RAHMEN aus vier Leisten, KEINE Platte hinter der Tafel.**
+  Als Platte lag seine Vorderseite 0,2 Einheiten hinter der Tafelebene – auf 400 Einheiten
+  Entfernung sind das nur ~2 Tiefenstufen. Folge (Bug-Report Simon): schwarze Kacheln in der
+  Rahmenfarbe wanderten bei jeder Mausbewegung über die Formeln. Vier Leisten AUSSERHALB der
+  Tafelfläche haben keine gemeinsame Ebene – unabhängig von der Tiefengenauigkeit der
+  Grafikkarte. Aus demselben Grund steht die Tafel 6 Einheiten vor der Wand.
+- ⚠️ Dazu **VAB-Kamera `near` von 0,1 auf 1** gesetzt: Die Tiefengenauigkeit hängt fast nur an
+  der Nahebene (`Δz ≈ z²·(far−near)/(near·far·2^bits)`), 0,1 verschenkte in einer 600 Einheiten
+  großen Halle Faktor 10. Näher als ~14 Einheiten kommt die Kamera nie an Geometrie (kleinster
+  `camDist` 20, Raketenradius ~6). **Nicht wieder senken** – Schulrechner mit 16-Bit-Tiefenpuffer
+  sind hier nochmal 256× empfindlicher.
 - Schreibschrift nur für Überschriften (Fallback-Kette bis `cursive` – auf Schulrechnern ist
   ungewiss, welche Font existiert); Formeln in einer Serifen-Font.
 ### Layout: passt sich der Fensterbreite an (13"-Laptop bis 27"-Schreibtisch)

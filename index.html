@@ -6758,7 +6758,14 @@ const VAB = {
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x10182c);
     this.scene.fog = new THREE.Fog(0x10182c, 320, 900);
-    this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 2000);
+    /* ⚠️ near = 1, NICHT 0,1: Die Tiefengenauigkeit hängt fast nur an der
+       Nahebene (Δz ≈ z²·(far−near)/(near·far·2^bits)). Mit 0,1 lagen auf 400
+       Einheiten Entfernung – dort steht die Nordwand – nur ~0,095 Einheiten
+       zwischen zwei Tiefenstufen, und dicht beieinanderliegende Flächen
+       flimmerten. Näher als ~14 Einheiten kommt die Kamera ohnehin nie an
+       Geometrie heran (kleinster camDist ist 20, die Rakete misst ~6 im
+       Radius), 1 ist also gefahrlos und bringt Faktor 10. */
+    this.camera = new THREE.PerspectiveCamera(50, 1, 1, 2000);
     /* =============================================================
        MONTAGEHALLE
        Alles prozedural (kein Bild-Asset, läuft per Doppelklick).
@@ -6854,14 +6861,28 @@ const VAB = {
        ⚠️ emissiveMap mit derselben Textur: die Halle ist absichtlich düster,
        rein diffus beleuchtet ist die Kreide aus 300 Einheiten nicht mehr zu
        lesen. 0.35 hebt sie an, ohne dass die Tafel selbst leuchtet. */
-    box(0, 86, HW-1.8, 262, 128, 3.2, 0x241d14);        // Rahmen
-    box(0, 20, HW-5.6, 262, 3.4, 7, 0x3a2c1c);          // Kreideablage
-    for(const dx of [-88, 88]) cyl(dx, 21.5, HW-7.6, 1.5, 5, 0xe8ecf5, 0, Math.PI/2); // Kreidestücke
+    /* ⚠️⚠️ Der Rahmen ist ein echter RAHMEN aus vier Leisten, KEINE Platte
+       hinter der Tafel. Als Platte lag seine Vorderseite 0,2 Einheiten hinter
+       der Tafelebene – bei der VAB-Kamera (near 1, far 2000) sind das auf 400
+       Einheiten Entfernung nur wenige Tiefenstufen, und auf Rechnern mit
+       16-Bit-Tiefenpuffer gar keine. Ergebnis war Z-Fighting: schwarze Kacheln
+       (die Rahmenfarbe!) wanderten bei jeder Mausbewegung über die Formeln.
+       Vier Leisten AUSSERHALB der Tafelfläche haben keine gemeinsame Ebene,
+       das Problem kann also gar nicht mehr auftreten – unabhängig von der
+       Tiefengenauigkeit der Grafikkarte. Aus demselben Grund steht die Tafel
+       6 Einheiten vor der Wand (vorher 3,6). */
+    const BY = 86, BW = 125, BH = 58.5, BAR = 8, BZ = HW-6;  // Mitte, halbe Tafel, Leiste
+    for(const sy of [-1, 1])                                   // Leisten oben/unten
+      box(0, BY + sy*(BH+BAR/2), HW-5.2, 2*BW+2*BAR, BAR, 5, 0x241d14);
+    for(const sx of [-1, 1])                                   // Leisten seitlich
+      box(sx*(BW+BAR/2), BY, HW-5.2, BAR, 2*BH, 5, 0x241d14);
+    box(0, 16, HW-5.6, 262, 3.4, 7, 0x3a2c1c);          // Kreideablage
+    for(const dx of [-88, 88]) cyl(dx, 17.5, HW-7.6, 1.5, 5, 0xe8ecf5, 0, Math.PI/2); // Kreidestücke
     const boardTex = makeFormulaBoardTex();
-    const board = new THREE.Mesh(new THREE.PlaneGeometry(250, 117),
+    const board = new THREE.Mesh(new THREE.PlaneGeometry(2*BW, 2*BH),
       new THREE.MeshStandardMaterial({map:boardTex, roughness:.93, metalness:0,
         emissive:0xffffff, emissiveMap:boardTex, emissiveIntensity:.35}));
-    board.position.set(0, 86, HW-3.6); board.rotation.y = Math.PI;
+    board.position.set(0, BY, BZ); board.rotation.y = Math.PI;
     this.scene.add(board);
     const lampMat = new THREE.MeshBasicMaterial({color:0xfff4c8}); // auch fürs Dach
     for(const dx of [-80, 80]){                          // Tafellampen
