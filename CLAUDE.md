@@ -138,6 +138,14 @@ Zündung, danach endlos das Volllast-Stück, solange gebrannt wird.
    - ⚠️ Bezugskörper der GEPLANTEN Bahn ist der Körper **am Knoten** (`nBody`), nicht `this.body()` unter dem Schiff – sonst falsches µ und falscher Mittelpunkt, sobald Knoten und Schiff in verschiedenen Sphären liegen.
    - Ap/Pe-Marker nur auf Punkten im Ursprungs-Frame des ERSTEN Patches suchen.
    - Der Integrator ist NICHT die Fehlerquelle: 333-s-Substeps ergeben über 7 Tage nur ~40 km Abweichung gegen eine 5-s-Referenz. Wer hier Zeit investiert, investiert sie falsch.
+   - ⚠️ **Monti-Orbits schließen sich sichtbar NICHT – das ist korrekt, kein Bug.** Leibniz'
+     Gezeitenkraft stört die Bahn, und zwar stark, weil Montis Sphäre klein ist (2430 km).
+     Gemessener Anteil an Montis eigener Anziehung: 100 km Höhe 0,2 % · 300 km 0,8 % ·
+     500 km 2,2 % · **869 km 7,7 %** · 1500 km 30,8 %. Lücke pro Umlauf entsprechend:
+     Monti 308/168 km → 13,5 km, Monti 869/673 km → 71 km; Leibniz 300 km Kreisbahn → 0,1 km.
+     Gegenprobe gegen Rechenfehler: dieselbe Bahn mit 20× feinerer Integration ergibt 70,9
+     statt 71,1 km – die Lücke ist also Dynamik, nicht Numerik. Didaktisch brauchbar: genau
+     deshalb brauchen echte Mondsonden Bahnkorrekturen, und hohe Mondorbits sind instabil.
    - ⚠️ `trajLine2`/`nodeTrajLine2`/Geister in `toggleMap()` mit ausblenden – `predict()` läuft nur bei offener Karte und würde sie sonst nie zurücksetzen.
    - ⚠️⚠️ **Die Fluchtgeschwindigkeits-Warnung nur zeigen, wenn Leibniz auch der DOMINANTE
      Körper ist** (`this.body() === LEIBNIZ`). In Montis Sphäre ist die Leibniz-Zweikörper-
@@ -673,12 +681,20 @@ Reaktionsräder und darf nicht pusten (verifiziert: 0 Partikel, Zischen 0).
   leerpusten. step() merkt sich nur die Drehachse (`_rcsAxis`/`_rcsWasRot`).
 - ⚠️ Die Ausstoßrate hängt an der **echten** Zeit (1/60), nicht an `frameT` – das ist die
   simulierte Zeit und wächst mit dem Warp.
+- ⚠️⚠️ **Die Stöße kommen aus dem RCS-BAUTEIL** (`rcsPorts()`), nicht aus Spitze und Heck.
+  Der erste Wurf setzte sie auf ±0,85·(halbe Höhe) – dann quoll das Gas aus der Nasenspitze
+  und aus der Triebwerksglocke (Bug-Report Simon). `rcsPorts()` rechnet die Y-Lage exakt wie
+  `buildRocketGroup` (Unterkanten von unten aufsummieren, Radialteile und Fracht im Starship
+  belegen keine Höhe) und zieht am Ende `H/2` ab – **der Schiffsursprung ist die MITTE**.
+  Mehrere RCS-Teile im Stack pusten alle.
 - ⚠️ Ein reines Drehmoment ist ein **Kräftepaar**: Für die Drehachse t ist `d = t × Y` die
-  Kraft am Bug (Y = Nase). Die **Düse sitzt auf der −d-Seite** und bläst nach −d, sonst
+  Kraftrichtung (Y = Nase). Die **Düse sitzt auf der −d-Seite** und bläst nach −d, sonst
   schießen die Fahnen quer durch den Rumpf (gemessen: 5 m statt 25 m von der Achse).
-  Beim ROLLEN (t ∥ Y) entartet das Kreuzprodukt – eigener Zweig mit tangentialen Auslegern.
-- ⚠️ Rumpfradius aus dem breitesten Bauteil (`w` ist der DURCHMESSER): eine feste Zahl sitzt
-  bei einem 58-Einheiten-Träger mitten im Rumpf. Größe und Tempo der Stöße hängen mit daran.
+  Beim NICKEN/GIEREN feuert EINE Düse des Blocks, und **welche, hängt vom Vorzeichen von
+  `port.y` ab** – ein Block im Heck muss andersherum schieben als einer im Bug.
+  Beim ROLLEN (t ∥ Y) entartet das Kreuzprodukt – eigener Zweig mit zwei tangentialen Düsen.
+- ⚠️ Radius und Größe der Stöße kommen aus `w/2` des RCS-Teils (`w` ist der DURCHMESSER):
+  eine feste Zahl sitzt bei einem 58-Einheiten-Träger mitten im Rumpf.
 - Klang: eigene WebAudio-Kette (weißes Rauschen → Hochpass 1400 Hz → Bandpass 3200 Hz),
   ⚠️ im **selben** AudioContext wie `ensureRumble` – ein zweiter Context pro Seite scheitert
   auf manchen Browsern still. Anstieg schnell, Ausklingen träge (hart abgeschnitten klickt es).

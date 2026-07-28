@@ -10835,35 +10835,51 @@ const Flight = {
      sichtbar auf der Seite, die zur Drehrichtung passt.
      ⚠️ Beim ROLLEN (t ∥ Y) entartet das Kreuzprodukt zu null – dort sitzen
      die Düsen tangential am Rumpf, das braucht einen eigenen Zweig. */
+  /* Wo sitzen die Steuerdüsen? Dort, wo das RCS-Bauteil im Stack steckt –
+     NICHT an Spitze und Heck (so kam der erste Wurf: die Fahnen quollen aus
+     der Nasenspitze und aus der Triebwerksglocke, Bug-Report Simon).
+     Y-Lage exakt wie in `buildRocketGroup`: Unterkanten von unten aufsummieren,
+     Radialteile und Fracht im Starship belegen keine Höhe. ⚠️ Der Schiffs-
+     ursprung ist die MITTE, deshalb am Ende `− H/2`. */
+  rcsPorts(){
+    const st = this.v.stack, H = stackHeight(st), out = [];
+    let yy = 0;
+    for(let i = st.length-1; i >= 0; i--){
+      const id = st[i], p = PARTS[id];
+      if(!p) continue;
+      if(p.type === "rcs") out.push({y: yy + p.h/2 - H/2, r: p.w/2 + 0.4});
+      if(!isRadial(id) && !satInStarship(st, id)) yy += p.h;
+    }
+    return out;
+  },
   rcsPuff(axisBody, dt){
     this._rcsT = (this._rcsT || 0) - dt;
     if(this._rcsT > 0) return;
     this._rcsT = 0.05;                       // ~20 Stöße/s – mehr frisst nur den Pool
     const Y = V3(0,1,0);
-    /* ⚠️ Rumpfradius aus dem BREITESTEN Bauteil (`w` ist in Szenen-Einheiten
-       der Durchmesser, nicht der Radius). Eine feste Zahl geht nicht: gemessen
-       ist ein Standard-Träger 58,5 Einheiten hoch bei Ø 10 – mit den anfangs
-       geratenen 2,2 saßen die Fahnen mitten im Rumpf und man sah nichts.
-       Größe und Tempo der Stöße hängen ebenfalls daran, sonst sind sie an
-       einem Starship unsichtbar und an einer Sonde riesig. */
-    const rad = Math.max(...this.v.stack.map(id => (PARTS[id] && PARTS[id].w) || 10))/2 + 0.4;
-    const h2 = Math.max(2, this.height()/2);
+    const ports = this.rcsPorts();
+    if(!ports.length) return;
     const t = axisBody.clone().normalize();
     const perp = t.clone().cross(Y);
-    let jets;
     /* ⚠️ Die Düse sitzt auf der Seite, auf der das Gas HINAUS soll – also
-       entgegen der Kraft. Andersherum (Düse auf der Kraftseite) blasen die
-       Fahnen quer durch den Rumpf und sammeln sich auf der Mittelachse;
-       gemessen landeten sie 5 m statt 25 m vom Schiffsmittelpunkt entfernt. */
-    if(perp.lengthSq() > 1e-4){              // Nicken / Gieren
-      const d = perp.normalize();            // Kraftrichtung am BUG
-      jets = [{at: Y.clone().multiplyScalar( h2*0.85).addScaledVector(d, -rad), dir: d.clone().negate()},
-              {at: Y.clone().multiplyScalar(-h2*0.85).addScaledVector(d,  rad), dir: d.clone()}];
-    } else {                                 // Rollen: tangential am Ausleger
-      // Kraft am +X-Ausleger ist −Z·sgn, das Gas geht also nach +Z·sgn.
-      const sgn = t.y >= 0 ? 1 : -1;
-      jets = [{at: V3( rad,0,0).addScaledVector(Y, h2*0.7), dir: V3(0,0, sgn)},
-              {at: V3(-rad,0,0).addScaledVector(Y, h2*0.7), dir: V3(0,0,-sgn)}];
+       entgegen der Kraft. Andersherum blasen die Fahnen quer durch den Rumpf
+       und sammeln sich auf der Mittelachse (gemessen 5 m statt 25 m von ihr). */
+    const jets = [];
+    for(const port of ports){
+      const mid = Y.clone().multiplyScalar(port.y);
+      if(perp.lengthSq() > 1e-4){
+        /* Nicken/Gieren: EINE Düse des Blocks feuert. Welche, hängt davon ab,
+           ob der Block ÜBER oder UNTER der Schiffsmitte sitzt – ein Block im
+           Heck muss andersherum schieben als einer im Bug, sonst dreht die
+           Rakete verkehrt herum zur gedrückten Taste. */
+        const d = perp.clone().normalize().multiplyScalar(port.y >= 0 ? 1 : -1);
+        jets.push({at: mid.clone().addScaledVector(d, -port.r), dir: d.negate(), r: port.r});
+      } else {
+        // Rollen: zwei gegenüberliegende Düsen des Blocks feuern tangential.
+        const sgn = t.y >= 0 ? 1 : -1;
+        jets.push({at: mid.clone().add(V3( port.r,0,0)), dir: V3(0,0, sgn), r: port.r},
+                  {at: mid.clone().add(V3(-port.r,0,0)), dir: V3(0,0,-sgn), r: port.r});
+      }
     }
     /* ⚠️⚠️ Die Partikel-Sprites hängen an `world`, NICHT an der Szene, und
        `world.position` ist der Floating-Origin-Versatz (~1,4e10 m). Position
@@ -10877,10 +10893,10 @@ const Flight = {
       for(let i=0;i<2;i++)
         this.spawnParticle(pos,
           this.vel.clone()
-            .addScaledVector(dir, rad*(2.0 + Math.random()*1.8))
-            .addScaledVector(V3(Math.random()-.5, Math.random()-.5, Math.random()-.5), rad*0.7),
+            .addScaledVector(dir, j.r*(2.0 + Math.random()*1.8))
+            .addScaledVector(V3(Math.random()-.5, Math.random()-.5, Math.random()-.5), j.r*0.7),
           0.20 + Math.random()*0.18,
-          rad*(0.18 + Math.random()*0.24), 0xdfe9f5);
+          j.r*(0.18 + Math.random()*0.24), 0xdfe9f5);
     }
   },
   updateParticles(dt){
