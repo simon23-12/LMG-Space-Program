@@ -2788,8 +2788,12 @@ const AdminCam = {
     host.appendChild(this.renderer.domElement);
     this.scene = new THREE.Scene(); this.scene.background = new THREE.Color(0x02030a);
     this.camera = new THREE.PerspectiveCamera(50, 1, 1000, 4e11);
-    this.scene.add(new THREE.AmbientLight(0x8090b0, .45));
-    this.scene.add(new THREE.PointLight(0xfff2dd, 1.5, 0, 0));   // die Sonne strahlt
+    /* ⚠️ Zusammen unter 1,5 bleiben! Vorher 0,45 + 1,5 = 1,95: Damit brannte
+       alles mit einer Albedo über ~0,5 zu reinem Weiß aus – Leibniz' Gebirge
+       sah aus, als hätte jemand mit Tipp-Ex Adern über die Kontinente gezogen,
+       und auf Newtons Eiswelt war überhaupt keine Struktur mehr zu sehen. */
+    this.scene.add(new THREE.AmbientLight(0x8090b0, .30));
+    this.scene.add(new THREE.PointLight(0xfff2dd, 1.12, 0, 0));  // die Sonne strahlt
     // Sonne mit Photosphären-Shader + Korona (s. makeSunMesh): hier darf sie
     // aufwendig sein – man zoomt in der Admin-Cam bis auf 9 Sonnenradien heran.
     const sun = makeSunMesh(SUN.R, {corona:true});
@@ -2797,8 +2801,13 @@ const AdminCam = {
     this.sunMesh = sun;
     this.meshes = new Map([[SUN, sun]]);
     for(const b of ORBIT_BODIES){
-      const m = new THREE.Mesh(new THREE.SphereGeometry(b.R, 96, 48),
-        new THREE.MeshStandardMaterial({map:makeBodyTexture(b), roughness:.9}));
+      // Leibniz bekommt denselben Oberflächen-Shader wie in der Flug-Szene
+      // (s. planetMaterial) – hier zoomt man bis auf wenige Kilometer heran.
+      let mat;
+      if(b===LEIBNIZ){ makeBodyTexture(LEIBNIZ); mat = planetMaterial(LEIBNIZ, {sea:true, aux:_leibnizAux}); }
+      else if(b.kind !== "gas") mat = planetMaterial(b, {sea:false});
+      else mat = new THREE.MeshStandardMaterial({map:makeBodyTexture(b), roughness:.9});
+      const m = new THREE.Mesh(new THREE.SphereGeometry(b.R, 96, 48), mat);
       if(b.ring) m.add(buildRingMesh(b));
       this.scene.add(m); this.meshes.set(b, m);
     }
@@ -3096,6 +3105,21 @@ const AdminCam = {
     this.camera.lookAt(c);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
+    /* Leibniz' Oberflächen-Shader füttern. ⚠️ Anders als in der Flug-Szene
+       DREHT sich das Mesh hier (Schaukasten-Drehung, s. oben) – Kamera und
+       Sonnenrichtung müssen deshalb in seinen gedrehten Objektraum, sonst
+       wandern Meeresglanz und Feinrelief über die Kugel. Die Sonne steht im
+       Ursprung, ihre Richtung ist also einfach −Planetenposition. */
+    const px = 2*Math.tan(this.camera.fov*Math.PI/360)/Math.max(1, h);
+    for(const [b, mesh] of this.meshes){
+      const P = mesh.material.userData && mesh.material.userData.pU;
+      if(!P) continue;
+      const ry = -mesh.rotation.y;
+      P.uCam.value.copy(this.camera.position).sub(mesh.position).applyAxisAngle(V3(0,1,0), ry);
+      P.uSun.value.copy(mesh.position).negate().normalize().applyAxisAngle(V3(0,1,0), ry);
+      P.uPx.value = px;
+      P.uCloudI.value = 0;              // hier gibt es keine Wolkenschale
+    }
     this.renderer.render(this.scene, this.camera);
   }
 };
@@ -3976,7 +4000,7 @@ function makeSunMesh(R, opt){
 /* =================================================================
    Planeten-Texturen (prozedural)
    ================================================================= */
-let _leibnizTex = null;
+let _leibnizTex = null, _leibnizAux = null;
 function makeBodyTexture(b){
   // ⚠️ ALLE Texturen werden gecacht: Flug-Szene und Admin-Cam bauen dieselben
   // Körper auf, und seit die Welten prozedural sind (statt gemalter Ellipsen)
@@ -4008,6 +4032,7 @@ function makeBodyTexture(b){
     const RW = W>>1, RH = HH>>1;
     const relH = new Float32Array(RW*RH), relF = new Float32Array(RW*RH);
     const relS = new Float32Array(RW*RH);         // fertige Schummerung
+    const relG = new Float32Array(RW*RH);         // Hangneigung (für uAux)
     // Durchgang 1: `landH` EINMAL in voller Auflösung. Es ist mit Abstand der
     // teuerste Teil (8 Oktaven je Texel) und wird von der Farbe UND vom
     // Relief gebraucht – zweimal gerechnet kostet es ~90 ms extra.
@@ -4058,6 +4083,7 @@ function makeBodyTexture(b){
         const gx = (relAt(rx+1, ry) - relAt(rx-1, ry))/(2*dxM);
         const gy = (relAt(rx, ry+1) - relAt(rx, ry-1))/(2*dyM);
         const g = Math.sqrt(gx*gx + gy*gy);
+        relG[i] = Math.min(1, g*2.5);            // Detailstärke im Shader
         // ⚠️ Nur ±30 %. Die Textur ist ALBEDO – in der Szene kommt noch das
         // Sonnenlicht drauf. Mit stärkerer Schummerung (vorher bis 1,6)
         // brannten alle besonnten Hänge zu weißen Flecken aus.
@@ -4111,10 +4137,53 @@ function makeBodyTexture(b){
       }
     }
     x.putImageData(img, 0, 0);
+    /* ---- Hilfsfeld für den Oberflächen-Shader (uAux, s. planetMaterial) ----
+       R = vorzeichenbehafteter KÜSTENABSTAND in Metern (±12 km, 0,5 = Ufer)
+       G = Tiefe/Höhe (0,5 = Meeresspiegel, 0 = Tiefsee, 1 = höchster Gipfel)
+       B = Hangneigung (steuert, wo Feinrelief sichtbar wird)
+       ⚠️ Ein ABSTANDSFELD statt der rohen Rauschwerte: Ein Abstandsfeld ist
+       zwischen zwei Texeln praktisch linear, die Küstenkante bleibt also
+       beim Heranzoomen scharf – die gemalte Farbkante verwäscht dagegen auf
+       1,8 km. Genau das ist der Unterschied zwischen »Klötzchen« und Küste.
+       ⚠️ Alpha bleibt 255 (Canvas speichert premultipliziert, s. oben). */
+    const auxC = document.createElement("canvas"); auxC.width=W; auxC.height=HH;
+    const aImg = new ImageData(W, HH), ad = aImg.data;
+    const dyMa = Math.PI*LEIBNIZ.R/HH;
+    for(let py=0; py<HH; py++){
+      const la = (0.5 - (py+0.5)/HH)*Math.PI;
+      // am Pol geht der Ost-Abstand gegen 0 – begrenzen wie bei der Schummerung
+      const dxMa = Math.max(600, 2*Math.PI*LEIBNIZ.R*Math.cos(la)/W);
+      const ry = Math.min(RH-1, py>>1);
+      // Zeilenanfänge vorab (2 Mio. Texel – Modulo und Closure kosten hier
+      // mehr als die eigentliche Rechnung)
+      const rC = py*W, rU = Math.max(0, py-1)*W, rD = Math.min(HH-1, py+1)*W;
+      for(let px=0; px<W; px++){
+        const lh = lhBuf[rC+px];
+        const xm = px === 0 ? W-1 : px-1, xp = px === W-1 ? 0 : px+1;
+        const gx = (lhBuf[rC+xp] - lhBuf[rC+xm])/(2*dxMa);
+        const gy = (lhBuf[rD+px] - lhBuf[rU+px])/(2*dyMa);
+        const gm = Math.max(1e-9, Math.sqrt(gx*gx + gy*gy));
+        const sd = Math.max(-12000, Math.min(12000, lh/gm));   // ≈ Meter zur Küste
+        const ri = ry*RW + Math.min(RW-1, px>>1);
+        const o = (py*W+px)*4;
+        ad[o]   = Math.round((sd/24000 + 0.5)*255);
+        ad[o+1] = Math.round(255*(lh > 0
+          ? 0.5 + 0.5*Math.min(1, relH[ri]/TERRAIN_MAX_H)
+          : 0.5 - 0.5*Math.min(1, -lh/0.30)));
+        ad[o+2] = Math.round(relG[ri]*255);
+        ad[o+3] = 255;
+      }
+    }
+    auxC.getContext("2d").putImageData(aImg, 0, 0);
+    _leibnizAux = new THREE.CanvasTexture(auxC);
+    _leibnizAux.wrapS = THREE.RepeatWrapping;    // Datumsgrenze nahtlos
   } else {
     paintProceduralBody(b, x, W, HH);
   }
   const tex = new THREE.CanvasTexture(c);
+  // ⚠️ Der Shader tastet die Textur VERZOGEN ab (Domain Warping) – dabei kann
+  // u knapp über die Datumsgrenze laufen. Ohne Repeat gäbe das dort eine Naht.
+  tex.wrapS = THREE.RepeatWrapping;
   if(b===LEIBNIZ) _leibnizTex = tex;
   else b._tex = tex;         // Flug-Szene UND Admin-Cam brauchen dieselbe
   return tex;
@@ -4738,8 +4807,13 @@ function makeCloudTexture(){
     const band = 0.42 + 0.58*Math.abs(Math.cos(lat*3.1));
     for(let x=0;x<W;x++){
       const u = (x+0.5)/W;
+      // Domain Warping: erst das Koordinatenfeld selbst mit grobem Rauschen
+      // verbiegen. Ohne das sind die Wolkenbänder gerade Streifen; damit
+      // entstehen die Wirbel und Haken, die einen Wetterplaneten ausmachen.
+      const uu = u + (nz(oct[1], u, v) - 0.5)*0.10;
+      const vv = v + (nz(oct[1], u+0.37, v+0.21) - 0.5)*0.05;
       let f = 0, amp = 0.5, sum = 0;
-      for(const o of oct){ f += amp*nz(o, u, v); sum += amp; amp *= 0.55; }
+      for(const o of oct){ f += amp*nz(o, uu, vv); sum += amp; amp *= 0.55; }
       f /= sum;
       // Schwelle bestimmt den Bedeckungsgrad – hoch genug, dass Kontinente
       // und Ozeane durchschauen (sonst ist der Planet ein Wattebausch)
@@ -4757,6 +4831,451 @@ function makeCloudTexture(){
   tex.anisotropy = 4;
   return tex;
 }
+
+/* =================================================================
+   PLANETEN-FEINRELIEF  (detailNoiseTex / PLANET_GLSL / planetMaterial)
+   -----------------------------------------------------------------
+   Die Kugeltextur von Leibniz hat 2048×1024 Texel = 1,8 km je Texel.
+   Aus 200 km Höhe ist EIN Texel rund 8 Bildschirmpixel groß – genau
+   daher der »Nintendo-64«-Eindruck: treppige Küsten, matschige
+   Farbflächen, ein Ozean wie blaues Tonpapier. Global feiner backen
+   hilft kaum: 4096² kostet 32 MB und ~1,6 s Ladezeit und HALBIERT die
+   Klötzchen nur. Das fehlende Detail kommt deshalb aus dem Shader:
+
+   1. DOMAIN WARPING – die Textur wird mit kachelbarem Rauschen im
+      METER-Maßstab verzogen (~1 km). Die Küste bekommt fraktale
+      Fransen statt Treppenstufen, und weil der Versatz unter
+      Texelgröße bleibt, wandert kein Kontinent von seinem Platz.
+   2. ECHTES MEER – Farbe, Rauheit und Sonnenglitzer des Ozeans rechnet
+      der Shader stufenlos aus einem Küsten-ABSTANDSFELD (uAux). Ein
+      Abstandsfeld ist zwischen zwei Texeln linear, ist also selbst
+      beim 20-fachen Heranzoomen noch scharf – im Gegensatz zu einer
+      gemalten Farbkante. Der Ozean ist ~65 % der Oberfläche.
+   3. BUMP – derselbe Rauschgradient verbiegt die Normale: Streiflicht
+      auf Bergen und Küstenebenen statt Plakatfarbe.
+   4. LUFTHÜLLE – blauer Dunst zum Rand hin (uHaze) + Wolkenschatten.
+
+   ⚠️ Alles hängt an EINER kachelbaren 256er-Textur, die dreifach
+   planar (triplanar) abgetastet wird – nur so gibt es weder eine Naht
+   an der Datumsgrenze noch Gequetsche an den Polen. Kosten: 6 Textur-
+   zugriffe (auf »Niedrig« 3, s. uD2/PDETAIL_FINE). */
+let _detailTex = null, _detailGradK = 1;
+function detailNoiseTex(){
+  if(_detailTex) return _detailTex;
+  const S = 256, rnd = seededRand(48271);
+  // Vier periodische Gitter: 4/8/16/32 Zellen je Kachel. Die feinste hat
+  // damit 8 px je Zelle – fein genug für Detail, grob genug zum Filtern.
+  const grids = [];
+  for(let o=0;o<4;o++){
+    const n = 4<<o, g = new Float32Array(n*n);
+    for(let i=0;i<n*n;i++) g[i] = rnd();
+    grids.push({n, g});
+  }
+  const sm = t=>t*t*(3-2*t);
+  const nz = (o, u, v)=>{
+    const x = u*o.n, y = v*o.n, x0 = Math.floor(x), y0 = Math.floor(y);
+    const fx = sm(x-x0), fy = sm(y-y0);
+    const at = (a,b)=>o.g[(((b%o.n)+o.n)%o.n)*o.n + (((a%o.n)+o.n)%o.n)];
+    return (at(x0,y0)*(1-fx) + at(x0+1,y0)*fx)*(1-fy)
+         + (at(x0,y0+1)*(1-fx) + at(x0+1,y0+1)*fx)*fy;
+  };
+  const h = new Float32Array(S*S);
+  for(let y=0;y<S;y++) for(let x=0;x<S;x++){
+    let f = 0, a = 0.5, s = 0;
+    for(const o of grids){ f += a*nz(o, (x+0.5)/S, (y+0.5)/S); s += a; a *= 0.5; }
+    h[y*S+x] = f/s;
+  }
+  /* Gradient (periodisch, zentrale Differenzen) in Einheiten »dh je Kachel«.
+     ⚠️ Skaliert auf EFFEKTIVWERT 1, nicht auf das Maximum: Sonst hängt die
+     Stärke aller Effekte an einem einzigen Ausreißer-Texel, und Amplituden im
+     Shader wären reine Rätselraterei. So heißt »uWarp = 700« wirklich
+     »die Küste franst typischerweise um 700 m aus«. Geklippt bei 4σ. */
+  const gu = new Float32Array(S*S), gv = new Float32Array(S*S);
+  const at = (x,y)=>h[(((y%S)+S)%S)*S + (((x%S)+S)%S)];
+  let g2 = 0;
+  for(let y=0;y<S;y++) for(let x=0;x<S;x++){
+    const a = (at(x+1,y) - at(x-1,y))*S/2, b = (at(x,y+1) - at(x,y-1))*S/2;
+    gu[y*S+x] = a; gv[y*S+x] = b;
+    g2 += a*a + b*b;
+  }
+  const rms = Math.sqrt(g2/(2*S*S));
+  _detailGradK = 4*rms;                        // Rückskalierung für den Shader
+  const q8 = v=>Math.max(0, Math.min(255,
+    Math.round((v/_detailGradK + 0.5)*255)));
+  const c = document.createElement("canvas"); c.width = c.height = S;
+  const img = new ImageData(S, S), d = img.data;
+  for(let i=0;i<S*S;i++){
+    d[i*4]   = Math.round(h[i]*255);
+    d[i*4+1] = q8(gu[i]);
+    d[i*4+2] = q8(gv[i]);
+    // ⚠️ Alpha MUSS 255 bleiben: Ein Canvas speichert intern PREMULTIPLIZIERT.
+    // Mit A < 255 kämen aus RGB gerundete, zu dunkle Werte zurück – und die
+    // Gradienten wären Datenmüll.
+    d[i*4+3] = 255;
+  }
+  c.getContext("2d").putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  // ⚠️ Anisotropie bewusst NIEDRIG (wie bei der Meeres-Normalmap): schärfer
+  // gefiltertes Rauschen holt Sub-Pixel-Details zurück, die im Glanzlicht
+  // als Moiré flimmern. Weichzeichnen ist bei Rauschen die richtige Antwort;
+  // das Ausblenden feiner Oktaven macht ohnehin die Mipmap-Kette von selbst.
+  tex.anisotropy = 2;
+  return (_detailTex = tex);
+}
+
+/* Gemeinsamer GLSL-Baustein: dreifach-planares Abtasten des Feinrauschens.
+   Rückgabe: xyz = Gradient in 1/m (Objektraum), w = Höhe (−0,5…0,5).
+   ⚠️ In diesem Template-Literal NIEMALS Backticks benutzen (auch nicht in
+   Kommentaren) – sie beenden das Literal und die ganze Datei parst nicht. */
+const PLANET_GLSL = `
+uniform sampler2D uNoise;
+uniform float uGradK, uL1, uL2, uR;
+varying vec3 vObj;
+/* xyz = Gradient des Höhenfeldes, DIMENSIONSLOS und auf Effektivwert 1
+   normiert (»wie stark neigt sich das Rauschen je Kachel«), w = Höhe −0,5…0,5.
+   ⚠️ Bewusst NICHT durch L geteilt: Der Warp braucht den Gradienten als
+   RICHTUNG mal einer Amplitude in Metern, der Bump dagegen eine echte
+   Steigung (Höhe/L). Beide Umrechnungen stehen an der Verwendungsstelle –
+   vorher steckte hier ein /L, das den Warp auf ~0,4 m schrumpfen ließ
+   (sichtbarer Effekt: keiner). */
+vec4 pDetail(vec3 p, float L, vec3 w, float fp){
+  /* ⚠️ Oktaven-LOD wie beim Wellen-LOD des Ozeans: Eine Oktave wird
+     ausgeblendet, sobald ihre Wellenlänge (L/4) unter ~16 Bildschirmpixel
+     fällt. Zwei Gründe – (1) darunter flimmert sie nur noch, (2) die Kachel
+     WIEDERHOLT sich alle L Meter, und aus der Ferne liest das Auge daraus ein
+     regelmäßiges Gittermuster (im Test: ein deutliches Rautenmuster über der
+     ganzen Wolkendecke aus 1900 km Höhe). Mipmapping hilft dagegen NICHT –
+     es glättet nur INNERHALB der Kachel, nicht die Wiederholung selbst. */
+  float f = smoothstep(4.0, 11.0, 0.25*L/max(fp, 1.0));
+  if(f <= 0.0) return vec4(0.0);
+  vec3 q = p/L;
+  vec4 a = texture2D(uNoise, q.zy);
+  vec4 b = texture2D(uNoise, q.xz);
+  vec4 c = texture2D(uNoise, q.xy);
+  float h = a.r*w.x + b.r*w.y + c.r*w.z - 0.5;
+  vec2 ga = a.gb - 0.5, gb = b.gb - 0.5, gc = c.gb - 0.5;
+  vec3 g = vec3(0.0, ga.y, ga.x)*w.x
+         + vec3(gb.x, 0.0, gb.y)*w.y
+         + vec3(gc.x, gc.y, 0.0)*w.z;
+  return vec4(g*uGradK, h)*f;
+}
+vec3 pWeights(vec3 n){
+  vec3 w = abs(n); w *= w; w *= w;      // ^4 = harter, sauberer Übergang
+  return w/(w.x + w.y + w.z);
+}
+/* Äquirektangulare UV EXAKT nach THREE.SphereGeometry:
+   x = -cos(phi)*sin(theta), y = cos(theta), z = sin(phi)*sin(theta),
+   u = phi/2pi, v = 1 - theta/pi. */
+vec2 sphUV(vec3 n){
+  return vec2(fract(atan(n.z, -n.x)*0.15915494),
+              1.0 - acos(clamp(n.y, -1.0, 1.0))*0.31830989);
+}
+`;
+
+/* Materialien für Planetenkugeln. `sea:true` schaltet Ozean, Küstenkante und
+   Lufthülle zu (nur Leibniz hat ein uAux-Feld). Die Uniforms landen in
+   mat.userData.pU – Flug-Szene und Admin-Cam füttern sie getrennt, weil dort
+   Kamera, Sonne und Planetendrehung verschieden sind. */
+function planetMaterial(b, opt){
+  opt = opt || {};
+  const mat = new THREE.MeshStandardMaterial({map:makeBodyTexture(b), roughness:.92});
+  const pU = {
+    uNoise:{value:detailNoiseTex()}, uGradK:{value:_detailGradK},
+    uAux:{value:opt.aux || null},
+    uL1:{value:16000}, uL2:{value:4200},   // Kachelgröße; Wellenlänge = /4
+    uR:{value:b.R},
+    /* ⚠️ Der Küstenversatz muss in der Größenordnung eines TEXELS liegen
+       (1,84 km), sonst passiert sichtbar nichts: Aus 200 km Höhe ist ein Texel
+       ~6 Bildschirmpixel groß – ein Versatz von 600 m sind 2 Pixel und bricht
+       keine Treppenstufe. 1,1 km fransen die Kante hörbar aus und verschieben
+       die Küste trotzdem um weniger als einen Texel, die Kontinente bleiben
+       also da, wo `landH` sie hingerechnet hat. */
+    uWarp:{value:new THREE.Vector2(1100, 320)},  // Küstenversatz in METERN
+    uBump:{value:new THREE.Vector2(2600, 700)}, // Reliefhöhe in METERN
+    uMott:{value:0.13},                    // Farbfleckigkeit auf Land
+    uCam:{value:new THREE.Vector3(0, 0, b.R*4)},
+    uSun:{value:new THREE.Vector3(1, 0, 0)},
+    uPx:{value:0.002},                     // Meter je Pixel je Meter Abstand
+    uDeep:{value:new THREE.Color(0x0d2c50)},
+    uShallow:{value:new THREE.Color(0x3f9fbe)},
+    /* ⚠️ Meeres-Rauheit nicht zu klein: Bei 0,34 war der Sonnenglanz aus dem
+       Orbit ein winziger, weiß ausgebrannter Punkt. Echtes Meer glitzert auf
+       hunderten Kilometern, weil jede Welle eine eigene kleine Spiegelfläche
+       ist – im Shader macht das die Rauheit (plus, aus der Nähe, uSeaBump). */
+    uSeaRough:{value:0.47}, uSeaBump:{value:0.13},
+    uHaze:{value:new THREE.Color(0x5b93d8)}, uHazeI:{value:1},
+    uCloudTex:{value:null}, uCloudRot:{value:0}, uCloudI:{value:0},
+    uCloudH:{value:b.R*0.006}
+  };
+  mat.userData.pU = pU;
+  const sea = opt.sea ? "1" : "0";
+  const fine = Settings.q.dpr <= 1 ? "0" : "1";   // »Niedrig«: nur eine Oktave
+  /* ⚠️⚠️ PFLICHT, sobald es zwei Varianten gibt: three cacht Shader-Programme
+     und benutzt als Schlüssel standardmäßig `onBeforeCompile.toString()` – und
+     der QUELLTEXT ist bei sea:true und sea:false identisch, nur die Closure-
+     Variable unterscheidet sich. Ohne eigenen Schlüssel bekäme der Mond das
+     Ozean-Programm des Planeten (oder umgekehrt): ein Fehler, der erst beim
+     zweiten Körper auftritt und wie ein Zufall aussieht. */
+  mat.customProgramCacheKey = ()=> "lmgPlanet|" + sea + fine;
+  mat.onBeforeCompile = sh=>{
+    Object.assign(sh.uniforms, pU);
+    sh.vertexShader = sh.vertexShader
+      .replace("void main() {", "varying vec3 vObj;\nvoid main() {")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\n  vObj = position;");
+    sh.fragmentShader = sh.fragmentShader
+      .replace("void main() {",
+        "#define PSEA " + sea + "\n#define PFINE " + fine + "\n" +
+        "uniform sampler2D uAux, uCloudTex;\n" +
+        "uniform vec2 uWarp, uBump;\n" +
+        "uniform float uMott, uPx, uSeaRough, uSeaBump, uHazeI, uCloudRot, uCloudI, uCloudH;\n" +
+        "uniform vec3 uCam, uSun;\n" +
+        "uniform vec3 uDeep, uShallow, uHaze;\n" +
+        "uniform mat3 normalMatrix;\n" + PLANET_GLSL + "\nvoid main() {")
+      /* ---- Farbe: Warping, Ozean, Küstenkante, Wolkenschatten ---- */
+      .replace("#include <map_fragment>", `
+  vec3 pN = normalize(vObj);
+  vec3 pW = pWeights(pN);
+  float pFp = distance(vObj, uCam)*uPx;        // Meter je Bildschirmpixel
+  vec4 pD1 = pDetail(vObj, uL1, pW, pFp);
+  #if PFINE
+    vec4 pD2 = pDetail(vObj, uL2, pW, pFp);
+  #else
+    vec4 pD2 = vec4(0.0);
+  #endif
+  // Nord/Ost-Basis auf der Kugel (an den Polen abgefangen)
+  vec3 pNo = vec3(0.0, 1.0, 0.0) - pN*pN.y;
+  float pNl = length(pNo);
+  pNo = pNl > 1e-4 ? pNo/pNl : vec3(1.0, 0.0, 0.0);
+  vec3 pEa = cross(pNo, pN);
+  // DOMAIN WARP: tangentialer Versatz in METERN → UV
+  vec3 pG = pD1.xyz*uWarp.x + pD2.xyz*uWarp.y;
+  pG -= pN*dot(pG, pN);
+  float pCl = max(0.18, length(pN.xz));
+  vec2 pUv = vUv + vec2(dot(pG, pEa)/(6.2831853*uR*pCl),
+                        dot(pG, pNo)/(3.1415927*uR));
+  vec4 texelColor = texture2D(map, pUv);
+  texelColor = mapTexelToLinear(texelColor);
+  float pLand = 1.0;
+  #if PSEA
+    vec3 pAux = texture2D(uAux, pUv).rgb;
+    // R = vorzeichenbehafteter Küstenabstand (±12 km), + = Land
+    float pSd = (pAux.r - 0.5)*24000.0;
+    // Kantenbreite wächst mit dem Pixel-Fußabdruck = analytisches Antialiasing
+    float pAA = max(240.0, pFp*1.6);
+    pLand = smoothstep(-pAA, pAA, pSd);
+    // Meerfarbe stufenlos aus der Tiefe (G < 0,5 = Wasser)
+    float pDep = clamp((0.5 - pAux.g)*2.0, 0.0, 1.0);
+    vec3 pSea = mix(uShallow, uDeep, sqrt(pDep));
+    // Eiskappen: dort ist die gebackene Textur weiß – Meerfarbe ausblenden
+    float pIce = clamp((abs(asin(clamp(pN.y, -1.0, 1.0))) - 1.26)/0.20, 0.0, 1.0);
+    pSea = mix(pSea, texelColor.rgb, pIce);
+    // Farbfleckigkeit aus BEIDEN Oktaven: die feine fällt aus der Ferne dem
+    // LOD zum Opfer, dann trägt die grobe – sonst wird das Land aus 200 km
+    // Höhe wieder zur einfarbigen Fläche.
+    float pMot = (pD2.w + pD1.w*0.7)*uMott*(0.30 + 0.70*pAux.b);
+    texelColor.rgb = mix(pSea, texelColor.rgb*(1.0 + pMot), pLand);
+  #else
+    // Monde & Felsplaneten: kein Meer, aber dieselbe Fleckigkeit gegen die
+    // einfarbig verwaschenen Flächen beim Heranzoomen.
+    texelColor.rgb *= 1.0 + (pD2.w + pD1.w*0.7)*uMott;
+  #endif
+  diffuseColor *= texelColor;
+  // Wolkenschatten: Oberflächenpunkt entlang der Sonne auf die Wolkenschale
+  // schieben und dort die Deckung abtasten (die Schale dreht sich, also den
+  // Abtastpunkt um -uCloudRot zurückdrehen).
+  if(uCloudI > 0.0){
+    float pNs = dot(pN, uSun);
+    if(pNs > 0.05){
+      vec3 pC = vObj + ((uSun - pN*pNs)/pNs)*uCloudH;
+      float pCc = cos(uCloudRot), pCs = sin(uCloudRot);
+      vec3 pRr = vec3(pC.x*pCc - pC.z*pCs, pC.y, pC.x*pCs + pC.z*pCc);
+      float pCa = texture2D(uCloudTex, sphUV(normalize(pRr))).a;
+      diffuseColor.rgb *= 1.0 - pCa*uCloudI*clamp(pNs*4.0, 0.0, 1.0);
+    }
+  }`)
+      /* ---- Rauheit: Wasser spiegelt, Land nicht ---- */
+      .replace("#include <roughnessmap_fragment>", `
+  float roughnessFactor = roughness;
+  #if PSEA
+    roughnessFactor = mix(uSeaRough, roughness, pLand);
+  #endif`)
+      /* ---- Normale: Feinrelief + Lufthülle ---- */
+      .replace("#include <normal_fragment_begin>", `
+  #include <normal_fragment_begin>
+  {
+    // Steigung = Reliefhöhe / Kachelgröße
+    vec3 pB = pD1.xyz*(uBump.x/uL1) + pD2.xyz*(uBump.y/uL2);
+    pB -= pN*dot(pB, pN);
+    #if PSEA
+      // Auf See nur ein Hauch (Wellenglitzer), an Land nach Hangneigung:
+      // die Küstenebene bleibt flach, das Gebirge wird rau.
+      pB *= mix(uSeaBump, 0.35 + 0.65*pAux.b, pLand);
+    #endif
+    normal = normalize(normalMatrix*normalize(pN - pB));
+  }
+  #if PSEA
+  {
+    // Lufthülle: zum Rand hin blauer Dunst, aber nur auf der Tagseite und
+    // nur von außen (bodennah macht das die Himmelskuppel).
+    vec3 pV = normalize(uCam - vObj);
+    float pRim = pow(1.0 - clamp(dot(pN, pV), 0.0, 1.0), 3.0);
+    float pSu = clamp(dot(pN, uSun)*1.8 + 0.18, 0.0, 1.0);
+    float pAlt = smoothstep(uR*0.06, uR*0.22, length(uCam) - uR);
+    totalEmissiveRadiance += uHaze*(pRim*pSu*pAlt*uHazeI*0.55);
+  }
+  #endif`);
+  };
+  return mat;
+}
+
+/* Wolkendecke aus dem Orbit: dieselbe Kur wie die Oberfläche. Die 1024er
+   Textur hat 3,7 km je Texel – aus 200 km Höhe ein weißer Schmier. Der Shader
+   verzieht sie im Meter-Maßstab und moduliert die Deckung mit Feinrauschen,
+   dann franst der Rand aus, statt zu verwaschen. Zusätzlich ein Bump: eine
+   Wolke von oben ist eine Blumenkohl-Landschaft, keine Milchglasscheibe. */
+function cloudShellMaterial(R){
+  const mat = new THREE.MeshStandardMaterial({
+    map:makeCloudTexture(), transparent:true, opacity:.92,
+    depthWrite:false, roughness:1});
+  const pU = {
+    uNoise:{value:detailNoiseTex()}, uGradK:{value:_detailGradK},
+    /* ⚠️ Der Warp muss deutlich KLEINER bleiben als ein Texel der Wolkenkarte
+       (1024×512 = 3,7 km): Verzieht man weiter, wird die Wolkendecke nicht
+       feiner, sondern zerschreddert – im Test sah das aus wie Kratzer im Bild. */
+    uL1:{value:48000}, uL2:{value:14000}, uR:{value:R},
+    uWarp:{value:new THREE.Vector2(1100, 340)},   // Meter
+    /* ⚠️ Wolken-Bump sparsam: Eine Wolkendecke ist von oben WEISS. Jedes Grad
+       Normalen-Neigung frisst bei tiefer Sonne sichtbar Helligkeit – mit 3,4 km
+       »Blumenkohl« sah die Decke aus 120 km Höhe schmutzig-grau aus. */
+    uBump:{value:new THREE.Vector2(1400, 340)},   // »Blumenkohl«-Höhe in Metern
+    uCam:{value:new THREE.Vector3(0, 0, R*4)}, uPx:{value:0.002},
+    // ⚠️ Die Deckung nur SCHWACH modulieren: Das Rauschen kachelt alle 13 km,
+    // und eine kräftige Modulation macht daraus ein sichtbares Webmuster über
+    // dem halben Planeten. Die Struktur soll aus dem WARP kommen (der verzieht
+    // vorhandene Wolken), nicht aus aufgestempeltem Rauschen.
+    uWisp:{value:0.18}
+  };
+  mat.userData.pU = pU;
+  const fine = Settings.q.dpr <= 1 ? "0" : "1";
+  mat.customProgramCacheKey = ()=> "lmgCloud|" + fine;
+  mat.onBeforeCompile = sh=>{
+    Object.assign(sh.uniforms, pU);
+    sh.vertexShader = sh.vertexShader
+      .replace("void main() {", "varying vec3 vObj;\nvoid main() {")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\n  vObj = position;");
+    sh.fragmentShader = sh.fragmentShader
+      .replace("void main() {",
+        "#define PFINE " + fine + "\nuniform vec2 uWarp, uBump;\n" +
+        "uniform float uWisp, uPx;\nuniform vec3 uCam;\n" +
+        "uniform mat3 normalMatrix;\n" + PLANET_GLSL + "\nvoid main() {")
+      .replace("#include <map_fragment>", `
+  vec3 cN = normalize(vObj);
+  vec3 cW = pWeights(cN);
+  float cFp = distance(vObj, uCam)*uPx;
+  vec4 cD1 = pDetail(vObj, uL1, cW, cFp);
+  #if PFINE
+    vec4 cD2 = pDetail(vObj, uL2, cW, cFp);
+  #else
+    vec4 cD2 = vec4(0.0);
+  #endif
+  vec3 cNo = vec3(0.0, 1.0, 0.0) - cN*cN.y;
+  float cNl = length(cNo);
+  cNo = cNl > 1e-4 ? cNo/cNl : vec3(1.0, 0.0, 0.0);
+  vec3 cEa = cross(cNo, cN);
+  vec3 cG = cD1.xyz*uWarp.x + cD2.xyz*uWarp.y;
+  cG -= cN*dot(cG, cN);
+  float cCl = max(0.18, length(cN.xz));
+  vec2 cUv = vUv + vec2(dot(cG, cEa)/(6.2831853*uR*cCl),
+                        dot(cG, cNo)/(3.1415927*uR));
+  vec4 texelColor = texture2D(map, cUv);
+  texelColor = mapTexelToLinear(texelColor);
+  /* Deckung ausfransen: dünne Ränder reißen auf, dichte Kerne bleiben stehen.
+     ⚠️ NUR mit der groben Oktave. Mit der feinen (14 km) bekam die Decke aus
+     40 km Höhe ein gleichmäßiges Griesel-Muster – »Hüttenkäse« statt Wolken.
+     Feines Detail gehört in die NORMALE (Relief), nicht in die Deckung. */
+  float cA = texelColor.a;
+  cA *= clamp(1.0 + cD1.w*uWisp*2.0*(1.0 - cA), 0.0, 1.0);
+  texelColor.a = cA;
+  diffuseColor *= texelColor;`)
+      .replace("#include <normal_fragment_begin>", `
+  #include <normal_fragment_begin>
+  {
+    vec3 cB = cD1.xyz*(uBump.x/uL1) + cD2.xyz*(uBump.y/uL2);
+    cB -= cN*dot(cB, cN);
+    normal = normalize(normalMatrix*normalize(cN - cB*diffuseColor.a));
+  }`);
+  };
+  return mat;
+}
+
+/* Lufthülle am Rand (»blaue Sichel« jedes ISS-Fotos). Statt einer Kugel mit
+   fester Deckkraft wird für jeden Pixel die WEGLÄNGE des Sehstrahls durch die
+   Atmosphäre gerechnet (Kugelschnitt, am Planeten abgeschnitten) – dadurch
+   ist der Saum am Horizont dick und über der Tagseite dünn, genau wie in echt.
+   ⚠️ Nur von außen: bodennah macht das die Himmelskuppel (SKY_FRAG), deshalb
+   fährt `uI` unterhalb von ~150 km auf 0 herunter. */
+const ATMO_VERT = `
+#include <common>
+varying vec3 vObj;
+#include <logdepthbuf_pars_vertex>
+void main(){
+  vObj = position;
+  gl_Position = projectionMatrix*modelViewMatrix*vec4(position, 1.0);
+#include <logdepthbuf_vertex>
+}`;
+const ATMO_FRAG = `
+#include <common>
+uniform vec3 uCam, uSun, uCol, uSunCol;
+uniform float uRp, uRa, uI, uH;
+varying vec3 vObj;
+#include <logdepthbuf_pars_fragment>
+void main(){
+#include <logdepthbuf_fragment>
+  vec3 d = normalize(vObj - uCam);
+  float b = dot(uCam, d), r2 = dot(uCam, uCam);
+  float disc = b*b - (r2 - uRa*uRa);
+  if(disc <= 0.0) discard;
+  float sq = sqrt(disc);
+  float t0 = max(-b - sq, 0.0), t1 = -b + sq;
+  // Der Planet schneidet den Strahl ab (sonst leuchtet die Nachtseite mit)
+  float dp = b*b - (r2 - uRp*uRp);
+  if(dp > 0.0){
+    float tp = -b - sqrt(dp);
+    if(tp > 0.0) t1 = min(t1, tp);
+  }
+  float path = max(0.0, t1 - t0)/(2.0*sqrt(max(1.0, uRa*uRa - uRp*uRp)));
+  /* ⚠️ Dichte-Abfall über den STOSSPARAMETER (kleinster Bahnabstand zum
+     Mittelpunkt). Ohne ihn ist die Kugelschale hart begrenzt und die Deckkraft
+     fällt am Rand wie eine Wurzel ab – im Bild ein sichtbarer Bogen um den
+     Planeten, als säße er in einer Seifenblase. Luft wird nach oben aber
+     exponentiell dünner; mit Skalenhöhe uH franst der Saum weich aus. */
+  float bImp = sqrt(max(0.0, r2 - b*b));
+  float dens = exp(-max(0.0, bImp - uRp)/uH);
+  vec3 mid = normalize(uCam + d*mix(t0, t1, 0.5));
+  float sun = clamp(dot(mid, uSun)*2.2 + 0.22, 0.0, 1.0);
+  // Vorwärtsstreuung: der Saum GEGEN die Sonne glüht warm (Sonnenaufgang)
+  float fw = clamp(dot(d, uSun), 0.0, 1.0);
+  vec3 col = mix(uCol, uSunCol, pow(fw, 4.0)*0.8);
+  float a = (1.0 - exp(-path*3.0))*dens*sun*uI*0.95;
+  gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
+}`;
+function atmoShellMaterial(Rp, Ra){
+  const u = {
+    uCam:{value:new THREE.Vector3(0, 0, Ra*4)},
+    uSun:{value:new THREE.Vector3(1, 0, 0)},
+    uCol:{value:new THREE.Color(0x4d8ede)},
+    uSunCol:{value:new THREE.Color(0xffd9a8)},
+    uRp:{value:Rp}, uRa:{value:Ra}, uI:{value:1},
+    uH:{value:(Ra-Rp)*0.30}          // Skalenhöhe der Lufthülle
+  };
+  const mat = new THREE.ShaderMaterial({
+    uniforms:u, vertexShader:ATMO_VERT, fragmentShader:ATMO_FRAG,
+    transparent:true, depthWrite:false, side:THREE.BackSide});
+  mat.userData.pU = u;
+  return mat;
+}
+
 /* NASA-Style Fallschirmkappe: rot-weiße Längsstreifen */
 function makeChuteTexture(){
   const c = document.createElement("canvas"); c.width=256; c.height=64;
@@ -7106,18 +7625,28 @@ const VAB = {
     if(top) this.stack.unshift(id); else this.stack.push(id);
     this.refresh();
   },
-  /* max. 2 Seitenbooster-Pakete pro STUFE (jede Stufe hat ihren eigenen Pool) */
+  /* max. EIN Seitenbooster-Paket pro STUFE (jede Stufe hat ihren eigenen Pool).
+     ⚠️ Vorher waren zwei erlaubt – das war ein Δv-Cheat: Ein Paket ist bereits
+     ein kompletter Satz (2 bzw. 4 Booster, die alle GLEICHZEITIG zünden und
+     gemeinsam abgeworfen werden). Zwei Pakete übereinander bedeuteten also
+     4 bzw. 8 Booster an derselben Stufe – doppelter Treibstoff, den man an der
+     Rakete nicht einmal sieht (gezeichnet wird nur EIN Kranz). Wer mehr Wumms
+     braucht, nimmt den 4er-Satz oder baut eine echte zweite Stufe. */
   boostCapViolated(stack){
     return this.segments(stack).some(sg=>
-      sg.filter(x=>PARTS[x].type==="sideboost").length > 2);
+      sg.filter(x=>PARTS[x].type==="sideboost").length > 1);
   },
   /* Booster-Stapel-Caps: verhindert Gratis-Δv durch endloses Stapeln.
-     Seitenbooster max. 2 pro Stufe, Feststoffbooster (srb) max. 1 pro Stufe,
-     Superheavy max. 1 pro Stufe (ein Booster IST eine ganze Stufe – zwei
+     Seitenbooster max. 1 Paket pro Stufe, Feststoffbooster (srb) max. 1 pro
+     Stufe, Superheavy max. 1 pro Stufe (ein Booster IST eine ganze Stufe – zwei
      übereinander in EINEM Segment wären 52 t Gratis-Treibstoff). */
   capError(stack){
     if(this.boostCapViolated(stack))
-      return "Maximal ZWEI Seitenbooster-Pakete pro STUFE!";
+      return "Nur EIN Seitenbooster-Paket pro STUFE! 🚀\n\n" +
+             "Ein Paket ist schon der ganze Kranz: »×2« sind zwei Booster, »×4« sind vier – " +
+             "alle zünden gemeinsam und werden gemeinsam abgeworfen.\n\n" +
+             "Mehr Schub: den 4er-Satz erforschen, einen Feststoffbooster in die Stufe setzen " +
+             "oder mit einem Stufentrenner eine echte zweite Stufe bauen.";
     if(this.segments(stack).some(sg=>sg.filter(x=>PARTS[x].type==="srb").length > 1))
       return "Nur EIN Feststoffbooster pro STUFE – »Böller« kann man nicht stapeln! 🧨\n\nMehr Wumms: den größeren »Donner« erforschen oder Seitenbooster anbauen.";
     if(this.segments(stack).some(sg=>sg.filter(x=>PARTS[x].type==="superheavy").length > 1))
@@ -7964,29 +8493,49 @@ const Flight = {
     // dezenter Basis-Glow – den spektakulären Rest macht das Lens-Flare-Overlay
     this.sunGlow.scale.set(SUN.R*9, SUN.R*9, 1);
     this.world.add(this.sunGlow);
-    // Planeten
+    // Planeten. ⚠️ Leibniz bekommt den Oberflächen-Shader (s. planetMaterial):
+    // Feinrelief, echtes Meer mit Sonnenglitzer, Wolkenschatten, Lufthülle.
+    // makeBodyTexture MUSS vor dem Zugriff auf _leibnizAux gelaufen sein.
+    makeBodyTexture(LEIBNIZ);
     this.leibnizMesh = new THREE.Mesh(
       new THREE.SphereGeometry(LEIBNIZ.R, 128, 64),
-      new THREE.MeshStandardMaterial({map:makeBodyTexture(LEIBNIZ), roughness:.9}));
+      planetMaterial(LEIBNIZ, {sea:true, aux:_leibnizAux}));
     this.world.add(this.leibnizMesh);
     this.cloudShell = new THREE.Mesh(
       new THREE.SphereGeometry(LEIBNIZ.R*1.006, 96, 48),
-      new THREE.MeshStandardMaterial({map:makeCloudTexture(), transparent:true, opacity:.85, depthWrite:false}));
+      cloudShellMaterial(LEIBNIZ.R*1.006));
     this.world.add(this.cloudShell);
+    // Wolkenschatten auf der Oberfläche: dieselbe Textur, die die Schale trägt
+    this.leibnizMesh.material.userData.pU.uCloudTex.value = this.cloudShell.material.map;
+    /* ⚠️ Die KUGEL ist 4 % größer als die Lufthülle, die der Shader rechnet:
+       Ein 64-seitiges Polyeder liegt INNERHALB seiner Kugel, an seiner
+       Silhouette hätte der Sehstrahl also noch ~66 km Luftweg vor sich – und
+       genau da schnitt die Geometrie ihn ab. Ergebnis war ein sichtbarer
+       harter Bogen um den Planeten. Jetzt läuft der Strahl an der Silhouette
+       schon an der Lufthülle vorbei (discard), der Saum endet weich. */
+    const atmoR = (LEIBNIZ.R + LEIBNIZ.atmoH)*1.008;
     this.atmoShell = new THREE.Mesh(
-      new THREE.SphereGeometry(LEIBNIZ.R+LEIBNIZ.atmoH, 64, 32),
-      new THREE.MeshBasicMaterial({color:0x4f8fdd, transparent:true, opacity:.08, side:THREE.BackSide, depthWrite:false}));
+      new THREE.SphereGeometry(atmoR*1.04, 64, 32),
+      atmoShellMaterial(LEIBNIZ.R, atmoR));
     this.world.add(this.atmoShell);
     // Monde & Planeten: Meshes + Orbitlinien (Linien nur in Kartenansicht)
     this.moonMeshes = new Map();
     this.moonRings = [];   // Paare [Körper, Ring] – Ring liegt um den Parent
+    /* Feinrelief auch für die festen Welten (s. planetMaterial): Montis Textur
+       hat 1024 Texel auf 1250 km Umfang = 1,2 km je Texel – aus einem 30-km-
+       Orbit genauso klotzig wie Leibniz. ⚠️ Gasriesen bleiben außen vor: Bei
+       ihnen gibt es kein Relief, ein Bump auf Wolkenbändern wäre schlicht
+       falsch (und das Domain Warping würde die Bänder ausfransen). */
+    this.detailMats = [];
     for(const m of MOONS){
-      const mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(m.R, 96, 48),
-        new THREE.MeshStandardMaterial({map:makeBodyTexture(m), roughness:.95}));
+      const mat = m.kind === "gas"
+        ? new THREE.MeshStandardMaterial({map:makeBodyTexture(m), roughness:.95})
+        : planetMaterial(m, {sea:false});
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(m.R, 96, 48), mat);
       if(m.ring) mesh.add(buildRingMesh(m));   // Huygens: Saturn-Ring wandert mit
       this.world.add(mesh);
       this.moonMeshes.set(m, mesh);
+      if(mat.userData.pU) this.detailMats.push([mesh, mat.userData.pU]);
     }
     for(const b of ORBIT_BODIES){
       const ringPts = [];
@@ -12316,6 +12865,35 @@ const Flight = {
     if(!this._padQInv) return;
     cam.updateMatrixWorld();
     const qi = this._padQInv;
+    /* Planetenkugel & Lufthülle: Kameraposition im OBJEKTRAUM von Leibniz.
+       world.position = −Schiffsposition, das Mesh sitzt bei lp – die Differenz
+       ist der Schiffsvektor relativ zum Planeten (~1e6 m) und damit für float32
+       problemlos, obwohl beide Summanden ~1e10 groß sind. */
+    if(this.leibnizMesh){
+      const co = cam.position.clone()
+        .sub(this.world.position).sub(this.leibnizMesh.position);
+      const P = this.leibnizMesh.material.userData.pU;
+      P.uCam.value.copy(co);
+      // Meter je Bildschirmpixel je Meter Abstand – Basis fürs Kanten-AA
+      P.uPx.value = 2*Math.tan(cam.fov*Math.PI/360)/Math.max(1, h);
+      // Wolkenschale: gleicher Ursprung, aber sie DREHT sich – die Kamera muss
+      // also in ihren gedrehten Objektraum, sonst wandert das Detail-LOD.
+      const C = this.cloudShell.material.userData.pU;
+      C.uCam.value.copy(co).applyAxisAngle(V3(0,1,0), -this.cloudShell.rotation.y);
+      C.uPx.value = P.uPx.value;
+      // Monde/Felsplaneten: gleiche Rechnung, jeder um sein eigenes Zentrum
+      for(const [mesh, U] of (this.detailMats || [])){
+        U.uCam.value.copy(cam.position).sub(this.world.position).sub(mesh.position);
+        U.uPx.value = P.uPx.value;
+      }
+      const A = this.atmoShell.material.userData.pU;
+      A.uCam.value.copy(co);
+      // Von innen macht die Lufthülle die Himmelskuppel (SKY_FRAG) – erst ab
+      // ~80 km blendet die Außenansicht auf, sonst liegen zwei Atmosphären
+      // übereinander und der Himmel wird milchig.
+      A.uI.value = THREE.MathUtils.smoothstep(
+        co.length() - LEIBNIZ.R, LEIBNIZ.atmoH*1.2, LEIBNIZ.atmoH*2.6);
+    }
     if(this.groundGroup.visible){
       // Winkelgröße eines Pixels – Basis des Wellen-LOD
       this.oceanU.uPixel.value = 2*Math.tan(cam.fov*Math.PI/360)/Math.max(1, h);
@@ -12513,6 +13091,18 @@ const Flight = {
     this.fillLight.position.copy(this.groundSunDir).negate()
       .addScaledVector(this.gUp || V3(0,1,0), 0.9).normalize().multiplyScalar(1e7);
     this.fillLight.intensity = 0.42*gb*this.dayLight;
+    /* Planetenkugel: Sonnenrichtung (Meerglanz, Lufthülle, Wolkenschatten) und
+       der Drehwinkel der Wolkendecke – nur damit fallen die Schatten wirklich
+       unter die Wolken, die man auch sieht. ⚠️ Der Sonnenvektor ist derselbe,
+       der auch sunLight ausrichtet (groundSunDir), sonst glitzert das Meer an
+       einer anderen Stelle, als die Kugel beleuchtet ist. */
+    if(this.leibnizMesh){
+      const P = this.leibnizMesh.material.userData.pU;
+      P.uSun.value.copy(this.groundSunDir);
+      P.uCloudRot.value = this.cloudShell.rotation.y;
+      P.uCloudI.value = 0.40;
+      this.atmoShell.material.userData.pU.uSun.value.copy(this.groundSunDir);
+    }
     // Bodennah wird das Streulicht WARM (sonst entsättigt das blaugraue
     // All-Ambient z. B. den Sandstrand zu Grau) und zugleich SCHWÄCHER:
     // seit die Sonne bodennah wirklich am Himmel steht (s. groundSunDir)
@@ -13283,6 +13873,14 @@ const Flight = {
     const o = this.orbit();
     const fmt = m=> m>=10000 ? (m/1000).toFixed(1)+" km" : m.toFixed(0)+" m";
     const fmtAp = m=> m<0 ? "– (Fluchtbahn)" : fmt(m);
+    /* Periapsis unter null = Aufschlagbahn. Angezeigt wird der ECHTE negative
+       Wert (rot, mit 💥) und nicht nur das Wort »Aufschlag!«: Die Zahl sagt,
+       WIE tief die Bahn in den Körper hineinläuft, man sieht also beim Brennen,
+       wie schnell man sich der Oberfläche nähert – und dass −5 km fast geschafft
+       ist, −180 km aber noch lange nicht. Genau dafür ist die Anzeige da. */
+    const fmtPe = m=> m < 0
+      ? '<b style="color:var(--red)">−'+fmt(-m)+' 💥</b>'
+      : fmt(m);
     const s = this.activeSeg();
     // Tank-Anzeige = NUR Flüssigtreibstoff (drosselbar); Feststoffbooster haben
     // eine eigene Zeile/Gauge – sonst sieht es aus, als würde der Tank bei
@@ -13316,9 +13914,7 @@ const Flight = {
       <div class="row"><span>Geschwindigkeit</span><span>${o.speed.toFixed(0)} m/s</span></div>
       <div class="row"><span>Apoapsis</span><span>${fmtAp(o.ap)}</span></div>
       <div class="row"><span>Periapsis</span><span>${
-        o.pe < -o.body.R*0.99 ? "–"
-        : o.pe < 0 ? '<b style="color:var(--red)">Aufschlag!</b>'
-        : fmt(o.pe)}</span></div>
+        o.pe < -o.body.R*0.99 ? "–" : fmtPe(o.pe)}</span></div>
       ${!this.landed ? `<div class="row"><span>Inklination</span><span>${this.orbitInc().toFixed(0)}°</span></div>` : ""}
       <div class="row"><span>Stufen übrig</span><span>${this.v.segs.length}</span></div>
       <div class="row"><span>Treibstoff (Stufe)</span><span>${(s&&s.fuel)?fuelPct.toFixed(0)+" %":"–"}</span></div>

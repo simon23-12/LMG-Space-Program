@@ -153,12 +153,16 @@ Zündung, danach endlos das Volllast-Stück, solange gebrannt wird.
      keit auf Montis Abstand sind nur 767 m/s – die Schwelle reißt damit JEDER normale
      Mondanflug. Die Meldung »Du verlässt Leibniz Richtung Sonnenorbit« kam deshalb mitten im
      Einfanganflug (Bug-Report Simon, Monti-Tutorial).
-   - **Periapsis < 0 heißt Aufschlagbahn** und wird im HUD auch so benannt (rot), nicht als
-     negative Zahl. Das ist der eigentliche Grund, warum ein Einfangbrennen ABSEITS der
+   - **Periapsis < 0 heißt Aufschlagbahn** – das HUD zeigt dafür den ECHTEN negativen Wert
+     in Rot plus 💥 (`fmtPe`), NICHT bloß das Wort »Aufschlag!«. Genau darum hatte Simon
+     gebeten: Die Zahl sagt, WIE tief die Bahn in den Körper läuft, man sieht also während
+     des Bremsens, wie sie nach oben kriecht – und dass −5 km fast geschafft sind, −180 km
+     aber noch lange nicht. Das ist zugleich der Grund, warum ein Einfangbrennen ABSEITS der
      Periapsis »nicht zirkularisiert«: Nachgerechnet im Monti-Anflug – an der Periapsis
      373 m/s → Ap 1988 / Pe 329 km (echter Orbit), dieselbe Bremsung 1500 km zu früh
-     603 m/s → Ap 2000 / **Pe −183 km**, also eine Bahn mitten durch den Mond. Die Physik ist
-     korrekt, nur sah man es dem HUD vorher nicht an.
+     603 m/s → Ap 2000 / **Pe −183 km**, also eine Bahn mitten durch den Mond.
+     ⚠️ Unterhalb von −0,99·R bleibt es beim »–«: Dort liegt der rechnerische Periapsis-
+     Punkt hinter dem Mittelpunkt, die Zahl wäre keine Höhe mehr, sondern Zahlensalat.
 5. **SOI-Hierarchie:** `Flight.bodyAt(p,t)` prüft innerste zuerst: MONTI→LEIBNIZ→MINZI→KEPLER→HUYGENS→NEWTON→SUN.
 
 ## Prozedurales Terrain von Leibniz (EINE Quelle für alles)
@@ -205,6 +209,80 @@ SUN · KEPLER (Glutplanet innen, 5.3e9 m) · LEIBNIZ (R 600 km, Atmo 70 km) + Mo
 - **`kind`** ist die didaktische Zusatzdimension (Universum-Bildschirm, `KIND_LABEL`): `fest` · `eis` · `gas` · `stern`. Bei `gas` ist das **Spielregel, nicht Kosmetik**: `checkContact` lässt bei Kontakt mit der »Oberfläche« IMMER explodieren (kein Boden, nur immer dichteres Gas) – deshalb sind bei Huygens die MONDE die Ziele, genau wie bei Saturn. ⚠️ Newton ist bewusst **fest** geblieben: bei R 900 km ist er kein Riese, und `newtonLand` existiert seit jeher.
 - **Huygens-Monde** (`HUYGENS_MOONS`, alle nach Astronom*innen): CASSINI (R 260 km, 1,41 m/s², 3,6e6 m, 8,2 h – der große Felsmond mit Dünen) · HERSCHEL (R 150 km, 0,35 m/s², 6,2e6 m, 18,6 h – **Eismond** mit Ozean unter der Kruste und Tigerstreifen wie Enceladus) · ADA (R 90 km, 0,14 m/s², 1,05e7 m, 41 h – kleiner, dunkler, gesättigt gekraterter Brocken). ⚠️ Nachgerechnet und verifiziert: alle drei liegen **außerhalb des Rings** (endet bei 2,9 R = 1,39e6 m) und weit **innerhalb der Huygens-Sphäre** (2,06e8 m); ihre SOIs überlappen sich nicht (2,56–4,64 / 5,54–6,86 / 9,99–11,01 e6 m) und sind 4–5,7 × so groß wie der jeweilige Körper, also gut umkreisbar. ⚠️ In `bodyAt` **VOR** Huygens prüfen, sonst gewinnt immer der Gasriese (dieselbe Falle wie Monti vor Leibniz). Missionen: huygensMoon → cassiniLand → herschelLand.
 - ⚠️ Kosten der drei neuen Körper: `GRAV_BODIES` wächst von 7 auf 10 (+43 % Gravitationsschleife). Gemessen: **7,6 µs je `step`**, 2,54 ms je `predict` (nur bei offener Karte), 0,36 ms je `frame` – unkritisch, aber die Grenze ist damit ungefähr erreicht.
+
+### Feinrelief im Shader (`detailNoiseTex` / `PLANET_GLSL` / `planetMaterial`)
+Die Kugeltextur von Leibniz hat 2048×1024 Texel = **1,8 km je Texel**. Aus 200 km Höhe ist
+EIN Texel rund 6 Bildschirmpixel groß – genau das war der »sieht aus wie auf dem N64«-Bug-
+Report (Simon, Juli 2026): treppige Küsten, matschige Farbflächen, ein Ozean wie blaues
+Tonpapier. Global feiner backen hilft kaum (4096² = 32 MB und ~1,6 s Ladezeit und HALBIERT
+die Klötzchen nur), also kommt das fehlende Detail aus dem Fragment-Shader – angehängt an
+`MeshStandardMaterial` per `onBeforeCompile`, Uniforms liegen in `mat.userData.pU`.
+1. **DOMAIN WARPING**: `vUv` wird vor dem Textur-Zugriff um einen tangentialen Rauschversatz
+   verschoben. ⚠️ Die Amplitude gehört in die Größenordnung eines TEXELS (aktuell **1100 m**
+   grob + 320 m fein): Mit 600 m passierte sichtbar nichts (2 Pixel brechen keine
+   Treppenstufe), über ~1,8 km fingen die Kontinente an zu wandern.
+2. **ECHTES MEER**: Farbe, Rauheit und Sonnenglanz rechnet der Shader stufenlos aus einem
+   **Küsten-Abstandsfeld** (`uAux`, s. u.) – ein Abstandsfeld ist zwischen zwei Texeln
+   praktisch linear, die Wasserkante bleibt also bei JEDEM Zoom scharf, während eine gemalte
+   Farbkante auf 1,8 km verwäscht. Der Ozean ist ~65 % der Oberfläche, das ist der halbe
+   Gewinn. Kantenbreite = `max(240 m, Pixel-Fußabdruck·1,6)` → analytisches Antialiasing.
+3. **BUMP**: derselbe Rauschgradient verbiegt die Normale (Reliefhöhe 2600/700 m, an Land mit
+   der Hangneigung aus `uAux.b` gewichtet, auf See nur 13 % = Wellenglitzer).
+4. **LUFTHÜLLE**: blauer Dunst zum Rand hin, nur auf der Tagseite, und erst ab ~36 km
+   Kamerahöhe (darunter macht das die Himmelskuppel).
+- ⚠️⚠️ **`pDetail` tastet DREIFACH PLANAR ab** (Projektion auf yz/xz/xy, Gewichte |n|⁴). Nur so
+  gibt es weder eine Naht an der Datumsgrenze noch Gequetsche an den Polen. Kosten: 3 Textur-
+  zugriffe je Oktave, 2 Oktaven → 6. Auf »Niedrig« schaltet `#define PFINE 0` die feine ab.
+- ⚠️⚠️ **Oktaven-LOD ist Pflicht** (`smoothstep(4, 11, 0.25·L/fp)`, fp = Meter je Bildschirm-
+  pixel): Eine Kachel WIEDERHOLT sich alle L Meter, und aus der Ferne liest das Auge daraus
+  ein regelmäßiges Gitter – im Test ein deutliches Rautenmuster über der ganzen Wolkendecke
+  aus 1900 km Höhe. **Mipmapping hilft dagegen NICHT**, es glättet nur INNERHALB der Kachel.
+- ⚠️ Der gespeicherte Gradient ist auf **Effektivwert 1** normiert (nicht auf sein Maximum),
+  sonst hinge die Stärke aller Effekte an einem einzigen Ausreißer-Texel und die Amplituden
+  im Shader wären Rätselraten. Erster Wurf teilte den Gradienten zusätzlich durch die
+  Kachelgröße – damit schrumpfte der Warp auf **0,4 m** und man sah exakt nichts.
+- ⚠️⚠️ **`customProgramCacheKey` setzen!** three cacht Shader-Programme mit
+  `onBeforeCompile.toString()` als Schlüssel – der QUELLTEXT ist bei `sea:true` und
+  `sea:false` identisch, nur die Closure-Variable unterscheidet sich. Ohne eigenen Schlüssel
+  bekommt der Mond das Ozean-Programm des Planeten. Fehler tritt erst beim ZWEITEN Körper auf.
+- ⚠️ `uCam` (Kamera im Objektraum) und `uPx` müssen vor JEDEM render() gesetzt werden – wie
+  bei Meer und Wolken, wegen der Booster-PiP: `Flight.setViewUniforms`. In der **Admin-Cam**
+  drehen sich die Meshes (Schaukasten!), dort werden Kamera und Sonne mit `-rotation.y`
+  zurückgedreht, sonst wandert der Meeresglanz über die Kugel.
+- **Wer es noch bekommt:** alle festen Welten (`kind !== "gas"`), also auch Monti – dessen
+  1024er Textur sind 1,2 km je Texel und aus 30 km Orbit genauso klotzig. Gasriesen bewusst
+  NICHT: kein Relief, und der Warp würde die Bänder ausfransen.
+- **`uAux`** (nur Leibniz, 2048×1024, gebaut in `makeBodyTexture`): R = vorzeichenbehafteter
+  Küstenabstand ±12 km (`lh/|∇lh|`), G = Tiefe/Höhe (0,5 = Meeresspiegel), B = Hangneigung.
+  ⚠️ **Alpha bleibt überall 255** – ein Canvas speichert intern PREMULTIPLIZIERT, mit A < 255
+  kämen aus RGB gerundete, zu dunkle Werte zurück und die Daten wären Müll. Gilt genauso für
+  die Rausch-Kachel (`detailNoiseTex`, R = Höhe, G/B = Gradient).
+- **Kosten gemessen:** Leibniz-Textur 410 → **494 ms** (einmalig, gecacht), Rausch-Kachel
+  19 ms, ~11 MB VRAM extra. Rendern bei formatfüllendem Planeten (1792×1007): **0,93 ms je
+  Frame** gesamt, davon der Löwenanteil die Wolkenschale.
+
+### Wolkenschale & Lufthülle von Leibniz (`cloudShellMaterial` / `ATMO_FRAG`)
+- **Wolken**: `makeCloudTexture` bekam **Domain Warping schon auf der CPU** (das Koordinaten-
+  feld wird mit grobem Rauschen verbogen) – ohne das sind die Wolkenbänder gerade Streifen
+  statt Wirbel. Der Shader verzieht zusätzlich im Meter-Maßstab und moduliert die Deckung.
+  - ⚠️ Der Warp muss **deutlich kleiner als ein Texel der Wolkenkarte** (3,7 km) bleiben:
+    Mit 2600 m wurde die Decke nicht feiner, sondern zerschreddert – wie Kratzer im Bild.
+  - ⚠️ Die Deckungs-Modulation (`uWisp`) läuft **nur über die grobe Oktave**. Mit der feinen
+    bekam die Decke aus 40 km Höhe ein gleichmäßiges Griesel-Muster (»Hüttenkäse«).
+  - ⚠️ **Bump sparsam** (1400/340 m): Eine Wolkendecke ist von oben WEISS; jedes Grad
+    Normalen-Neigung frisst bei tiefer Sonne Helligkeit, mit 3,4 km sah sie schmutzig-grau aus.
+  - **Wolkenschatten** auf der Oberfläche macht der PLANETEN-Shader: Punkt entlang der Sonne
+    auf die Schale projizieren, um `-uCloudRot` zurückdrehen, Deckung abtasten.
+- **Lufthülle** (`ATMO_FRAG`): statt einer Kugel mit fester Deckkraft wird pro Pixel die
+  **Weglänge des Sehstrahls** durch die Atmosphäre gerechnet (Kugelschnitt, am Planeten
+  abgeschnitten) plus exponentieller Dichteabfall über den Stoßparameter (Skalenhöhe 30 %).
+  - ⚠️ Ohne den Dichteabfall fällt die Deckkraft am Rand wie eine WURZEL ab – sichtbarer
+    harter Bogen, der Planet sitzt in einer Seifenblase.
+  - ⚠️ Die **Kugel ist 4 % größer als die Lufthülle**, die der Shader rechnet: Ein 64-seitiges
+    Polyeder liegt innerhalb seiner Kugel, an seiner Silhouette hätte der Strahl noch ~66 km
+    Luftweg vor sich – genau dort schnitt die Geometrie ihn ab (zweiter harter Bogen).
+  - ⚠️ `uI` fährt unter ~150 km auf 0: von innen macht die Lufthülle die Himmelskuppel
+    (SKY_FRAG), sonst liegen zwei Atmosphären übereinander.
 
 ### Prozedurale Planetentexturen (`paintProceduralBody` / `BODY_PAINT`)
 Alles außer Leibniz war früher gemalte Ellipsen und waagerechte Farbstreifen – daher der
@@ -435,7 +513,7 @@ Das Repo raymarcht 3D-Texturen mit TAA und God Rays – für Schulrechner zu teu
 - ⚠️ **`uSunI` NICHT an `dayLight` koppeln!** Wolken hängen 1,3–9 km hoch und stehen noch in voller Sonne, wenn es am Boden längst dämmert – GENAU deshalb glühen Wolken beim Sonnenuntergang orange. Mit `dayLight` (bei 0° Sonnenhöhe nur noch 0,12) waren sie stattdessen matschig braun. Also allein `smoothstep(sz, −0.16, 0.02)`. Farbe aus `sunTint` (s. Himmel-Abschnitt).
 - `makeCloudPuffTexture()` = 128er-Canvas: A = radialer Abfall × Billow-Turbulenz (|2n−1|, 4 Oktaven Wertrauschen), RG = Dichte-Gradient.
 - Sichtbar < 34 km, `uFade` blendet ab 22 km aus. Tiefe Haufenwolken 1,3–2,8 km (75 %), hohe 5,5–9,3 km.
-- `makeCloudTexture()` (Wolkendecke des Planeten aus dem Orbit) ist ebenfalls FBM statt gemalter Ellipsen, mit Zonen-Maske über den Breitengrad; Schwelle 0.455/0.17 lässt bewusst Kontinente durchschauen.
+- `makeCloudTexture()` (Wolkendecke des Planeten aus dem Orbit) ist ebenfalls FBM statt gemalter Ellipsen, mit Zonen-Maske über den Breitengrad; Schwelle 0.455/0.17 lässt bewusst Kontinente durchschauen. Wie sie im Orbit gerendert und im Shader nachgeschärft wird, steht unter »Wolkenschale & Lufthülle von Leibniz«.
 
 ### Sonnenstand & Licht bodennah
 - ⚠️ `Flight.groundSunDir`: Die Rampen liegen **inertial fest** – ein echter Sonnen-"Tag" über dem Startplatz dauert deshalb ein Leibniz-JAHR (9,2e6 s), und die ECHTE Sonne stand beim Start unter dem Horizont (das Licht kam von UNTEN durch den Planeten, die ganze Bodenszene war reines Ambient-Grau, ohne Glitzern auf dem Meer und ohne Sonnenseite an den Wolken). Deshalb geht die Sonne nach der **Spieluhr** auf und unter: `φ = 2π(dayFrac−0.25)`, `clockSun = padEast·cos φ + padUp·sin φ + padNorth·0,18` → Osten auf, mittags Zenit, Westen unter.
@@ -629,7 +707,7 @@ Dazu weiter: Wirbel-Blobs an Emittern (Heck-Totwasser + Stufen, blähen sich mit
 - **Tech-Balancing Erststufe:** Tech `propI` »Flüssigtriebwerke I« (10 🧪, req start) → `engStd` **Triebwerk »Ochse«** (200 kN, Isp 265, 600 kg, Ø 10, 300 🪙, `cat:"lower"`). Davor gab es bis `heavy` (60 🧪) NUR Oberstufen-Triebwerke (`engS` 45 kN / `engVac`) oder Feststoff – man MUSSTE die erste Stufe mit Boostern bauen, was Simon zu Recht als unrealistisch gemeldet hat. Isp 265 ist bewusst die schlechteste Flüssig-Effizienz im Spiel (kurze Meereshöhen-Düse; steht so im Info-Text – Didaktik: große Vakuumdüsen taugen am Boden nicht). `advProp` (»Flüssigtriebwerke II«) hängt jetzt an `["basic","struct","propI"]`, damit die Kette I → II stimmt; `migrateGame` schenkt Bestands-Saves mit advProp den Knoten propI. Verifiziert: Stack `chute/probePod/tankS/engS/decoupler/inter/fin/3×tankS/engStd` = 8,05 t, TWR 2,5, Δv 1917+2666 ≈ 4580 m/s → Orbit (Bedarf ~3400) mit Startkapital + propI + struct + basic erreichbar.
 - Karriere: `MISSIONS` (Verträge, nur AKTIVE erfüllbar; `Game.activeMissions` = Array, max. `maxMissions()` = 1 + Tech mission2/mission3; `req`-Ketten), `TECH` (DAG; Layout: 2-Pass mit echten Kartenhöhen, `top{}`-Map für SVG-Äste – NICHT festes Raster, sonst Überlappung), `Game.labDone` (Experimente [B] je `situation()` einmalig).
 - Geld (nur Karriere): `Game.funds` (Start 3500), `PART_COSTS`→`PARTS[..].cost`, `stackCost()`, Missionsprämie **`missionCash(m)=300+20·sci`** (⚠️ verdoppelt: Von einer Orbitalrakete kommt nur die OBERSTE Stufe zurück – `settleCrewAndAssets` erstattet `stackCost(v.stack)`, und `stage()` löscht abgeworfene Teile aus `v.stack` – und am Anfang darf man nur EINE Mission annehmen. Mit `150+10·sci` war jeder Orbitalflug ein sicheres Minusgeschäft. Nachgerechnet: Hüpfer 730 🪙 / volle Bergung / +400 Prämie · Orbitrakete 1445 🪙, Bergung 730, Prämie 800 → ±0 · Sat-Träger 2495/1380/900 → −215 · Docking 2865/1750/1400 → +285. Bergung und Wiederverwendung bleiben damit der Hebel für echten Gewinn). **Nebenverdienste** `SIDE_JOBS` (4 einmalige Geld-Aktionen: 2×1000 bei basic+struct »Seminare«; 1500 »Mensa-Deal« braucht KOMPLETTE Spalte 3 (surv+advProp+padEq+mission2); 1500 »Blueprints« komplette Spalte 4 (crewed+payload+heavy+explore)) – Sektion »💰 Nebenverdienste« oben in `renderMissionControl`, `doSideJob(id)`, `Game.jobsDone` (migrateGame legt Array an). Hilft schwächeren Schüler*innen, die sich verbaut haben.
-- **Bau-Caps:** `VAB.capError(stack)` – max. ZWEI `sideboost`-Teile, max. EIN `srb` UND max. EIN `superheavy` pro STUFE (sonst Gratis-Δv durch Stapeln; zwei Superheavys in einem Segment waren 52 t geschenkter Treibstoff), dazu `bayError` für den Starship-Frachtraum. Guards in `VAB.add`, `dropAt` (Drag&Drop neu UND move) UND `validate()` (fängt gespeicherte Hangar-Raketen). ⚠️ `VAB.add` prüft `capError` seit dem Superheavy-Cap für **JEDES** Teil (vorher nur für sideboost/srb) – der Probe-Stack muss dabei an der Stelle eingefügt werden, an der das Teil wirklich landet (Kapsel/Schirm oben, Rest unten). Getrennte Stufen bleiben erlaubt: Superheavy + Stufentrenner + Superheavy ist eine legitime zweistufige Rakete. Start zieht Kosten ab (`UI.launch`, `Flight.launchCost`), Bergung nur bei Landung auf LEIBNIZ (`settleCrewAndAssets` → `statRefund`, voller Restwert des übrigen Stacks). Crash/All = Totalverlust. Alte Saves: `migrateGame()`.
+- **Bau-Caps:** `VAB.capError(stack)` – max. EIN `sideboost`-Paket, max. EIN `srb` UND max. EIN `superheavy` pro STUFE (⚠️ Seitenbooster waren bis Juli 2026 zwei pro Stufe – ein Δv-Cheat, den Simon gemeldet hat: Ein Paket IST schon der ganze Kranz (»×2« = 2 Booster, »×4« = 4, alle zünden und trennen gemeinsam), zwei Pakete waren also 4 bzw. 8 Booster mit doppeltem Treibstoff – und `buildRocketGroup` malt trotzdem nur EINEN Kranz, man sah den Cheat der Rakete nicht einmal an. Gewollt sind 2 bzw. 4 Booster insgesamt je Stufe) (sonst Gratis-Δv durch Stapeln; zwei Superheavys in einem Segment waren 52 t geschenkter Treibstoff), dazu `bayError` für den Starship-Frachtraum. Guards in `VAB.add`, `dropAt` (Drag&Drop neu UND move) UND `validate()` (fängt gespeicherte Hangar-Raketen). ⚠️ `VAB.add` prüft `capError` seit dem Superheavy-Cap für **JEDES** Teil (vorher nur für sideboost/srb) – der Probe-Stack muss dabei an der Stelle eingefügt werden, an der das Teil wirklich landet (Kapsel/Schirm oben, Rest unten). Getrennte Stufen bleiben erlaubt: Superheavy + Stufentrenner + Superheavy ist eine legitime zweistufige Rakete. Start zieht Kosten ab (`UI.launch`, `Flight.launchCost`), Bergung nur bei Landung auf LEIBNIZ (`settleCrewAndAssets` → `statRefund`, voller Restwert des übrigen Stacks). Crash/All = Totalverlust. Alte Saves: `migrateGame()`.
 - **Wiedereintritts-Hitze (tödlich!):** in `step()`: sinkend + `v>1600` + `heat=rho·v³>1.5e7` → ohne Schutz wächst `heatDmg` um `(0.12 + heat/5e8)/s` → bei 1 verglüht (explode, Crew-Schleudersitz-Meldung). Schutz = `shield`-Teil ODER Starship **in Bauchlage**: die Kacheln sitzen nur am Bauch (+Z körperfest) und schützen nur bei `dot(+Z, airVel) > 0.5` – Nase voran = Tod (eigene Warn-/Crash-Meldungen »Kacheln zeigen nicht in den Wind«, Tutorial "starship" warnt entsprechend). Getestet: Starship nase-voran verglüht bei ~38 km, mit [C] Bauchlage Landung bei heatDmg 0.35. Der Grundschaden 0.12 macht auch flache Aerobraking-Tricks tödlich: **aus dem Orbit ohne Hitzeschild = immer Tod** (getestet: verglüht bei ~37 km; mit Schild + leerem Tank + Schirm sichere Landung bei max. 1537 °C). Suborbitale Hüpfer (<1600 m/s) bleiben safe. Reset `heatDmg` in start(). **Plasma-Glühen (rein visuell, in frame()):** `Flight.plasmaGroup` (lazy, an `scene`): Stoßfront-Sprite windwärts + Halo + Plasmaschweif = **Kette aus 10 Glow-Sprites** (`grp.userData.trail`, nach hinten größer/röter/dünner, Wabern+Flackern via sin – ⚠️ KEIN Kegel-Mesh: harte Silhouettenkanten sehen aus wie ein Plastik-Trichter), Intensität `(shipTemp−600)/900` (= ab roter HUD-Temp), aus bei map/landed/crashed/airVel<600; dazu Funken-Partikel nach hinten (nur warp≤2).
 - **Kontext-Buttons:** `Flight.updateButtons()` (in drawHUD, pro Frame): blendet Booster[R/J]/Schirm/Fairing/Satellit/Panele/EVA/Bellyflop/Docken/Modul/Bucht/Experiment aus, wenn das Vehikel die Ausrüstung nicht hat (IDs btnBoostR/btnBoostJ/btnChute/btnFairing/btnSat/btnPanels/btnEva/btnBelly/btnDock/btnModul/btnBay/btnExp). Modul zusätzlich nur Karriere.
 - **SRB-Anzeige getrennt:** Tank-Gauge/`fuelPct`/HUD-Zeile »Treibstoff« = NUR Flüssigtreibstoff; Feststoffbooster (inline `srb`, nicht drosselbar – brennen auch bei Schub 0 weiter, Tank bleibt voll!) haben eigene HUD-Zeile + teilen sich die orange Booster-Gauge mit dem Seitenbooster-Pool der aktiven Stufe.
@@ -701,7 +779,7 @@ Reaktionsräder und darf nicht pusten (verifiziert: 0 Partikel, Zischen 0).
   `setRcsHiss` steigt bei unverändertem Pegel früh aus; der SFX-Regler muss `_rcsWant`
   deshalb vorher auf `null` setzen, sonst greift er erst beim nächsten Wechsel.
 - Tutorials: `Tut.start(id)` erzwingt Sandbox + ∞-Strom; Szenario: `stack`, `orbit:{body,alt,pe?}` oder `nearStation:<m hinter Station>`; Checks `check(o,F)` laufen pro Frame.
-- Admin-Cam: `AdminCam` (eigene Three-Szene, echte Ephemeriden, Fokus-Buttons, Zeitraffer) – Vollbild aus dem Universum-Screen. Start-Zeitraffer `speedI:0` = **1 min/s** (mit 1 h/s wirbelten die inneren Planeten los, bevor man überhaupt hingesehen hat). ⚠️ **Die Bahnhof-Marker hängen als KINDER am Leibniz-Mesh** und erben dessen sichtbare Drehung (`rotation.y` in `frame()`); als Szenen-Kinder auf `padDir(p)·R` blieben sie stur im Weltraum-Frame stehen und wanderten über fremde Kontinente. Für die Physik sind die Rampen weiterhin inertial fix – die Admin-Cam ist ein Schaukasten, kein Simulationsschritt. Die Station bleibt Szenen-Kind (echter Orbit, on rails).
+- Admin-Cam: `AdminCam` (eigene Three-Szene, echte Ephemeriden, Fokus-Buttons, Zeitraffer) – Vollbild aus dem Universum-Screen. Start-Zeitraffer `speedI:0` = **1 min/s** (mit 1 h/s wirbelten die inneren Planeten los, bevor man überhaupt hingesehen hat). ⚠️ **Die Bahnhof-Marker hängen als KINDER am Leibniz-Mesh** und erben dessen sichtbare Drehung (`rotation.y` in `frame()`); als Szenen-Kinder auf `padDir(p)·R` blieben sie stur im Weltraum-Frame stehen und wanderten über fremde Kontinente. Für die Physik sind die Rampen weiterhin inertial fix – die Admin-Cam ist ein Schaukasten, kein Simulationsschritt. Die Station bleibt Szenen-Kind (echter Orbit, on rails). ⚠️ **Ambient + PointLight zusammen unter 1,5 halten** (jetzt 0,30 + 1,12): Mit den alten 0,45 + 1,5 = 1,95 brannte alles mit einer Albedo über ~0,5 zu reinem Weiß aus – Leibniz' Gebirge sah aus, als hätte jemand mit Tipp-Ex Adern über die Kontinente gezogen, und auf Newtons Eiswelt war überhaupt keine Struktur mehr zu sehen.
 - localStorage: `lmgAutoSave`, `lmgMusic`, `lmgSettings` (Grafik/Lautstärke, s. Optionen-Abschnitt), `lmgLoadedOnce`, `lmgHint_*`, `tutsDone` im Save, `lmgRockets` (💾/📂-Hangar: gespeicherte Raketen `{name,stack}`; Laden in Karriere nur mit erforschten Teilen).
 - **Solarpanele nur im Vakuum** (`PANEL_SAFE_ALT` = 50 km über Leibniz): `togglePanels` verweigert
   das Ausfahren darunter, `step()` klappt sie beim Sinkflug automatisch ein. Der alte
