@@ -1917,12 +1917,28 @@ const UI = {
        leeren Hangar. Bewusst NUR in der Download-Datei, NICHT in `Game`: der
        Hangar gehört zum localStorage des Rechners, sonst schleppt jeder autoSave
        eine zweite, mit der Zeit veraltende Kopie aller Raketen mit. */
-    const data = Object.assign({}, Game, {rockets: VAB.savedRockets()});
+    const rockets = VAB.savedRockets();
+    const data = Object.assign({}, Game, {rockets});
     const blob = new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "lmg-space-program-spielstand.json";
     a.click(); URL.revokeObjectURL(a.href);
+    /* ⚠️ Rückmeldung, WAS in der Datei steckt. Vorher passierte hier sichtbar
+       GAR NICHTS, und genau daran ist eine Verwechslung nicht erkennbar: Eine
+       Rakete auf dem Bautisch ist noch KEINE Hangar-Rakete – in den Hangar
+       kommt sie erst mit 💾 in der Montagehalle. Wer nur gebaut hatte, fand in
+       der Datei ein leeres `rockets: []` und musste das für einen Fehler halten
+       (Bug-Report Simon). Der Bautisch selbst reist übrigens immer mit
+       (`Game.design`) – er ist beim Laden sofort wieder bestückt. */
+    alert("💾 Spielstand gespeichert!\n\n" + (rockets.length
+      ? "🚀 " + rockets.length + " Rakete" + (rockets.length>1?"n":"") + " aus dem Hangar " +
+        (rockets.length>1?"reisen":"reist") + " mit:\n" +
+        rockets.map(r=>"   • "+r.name).join("\n")
+      : "ℹ️ Dein Hangar ist LEER – es reist nur die Rakete mit, die gerade auf dem " +
+        "Bautisch liegt.\n\nWenn eine Rakete dauerhaft mitkommen soll: in der " +
+        "Montagehalle auf 💾 klicken und ihr einen Namen geben – dann steht sie " +
+        "im 📂 Hangar und ist ab dem nächsten Speichern in der Datei."));
   },
   loadGame(input){
     const f = input.files[0]; if(!f) return;
