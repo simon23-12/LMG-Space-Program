@@ -320,7 +320,9 @@ input[type=file]{display:none;}
     <button class="btn" id="btnFairing" onclick="Flight.jettisonFairing()">Fairing [F]</button>
     <button class="btn" id="btnSat" onclick="Flight.deploySat()">Satellit [N]</button>
     <button class="btn" id="btnPanels" onclick="Flight.togglePanels()">☀️ Panele [G]</button>
+    <button class="btn" id="btnLegs" onclick="Flight.toggleLegs()">🦵 Beine [Y]</button>
     <button class="btn" id="btnEva" onclick="Flight.toggleEVA()">🧑‍🚀 EVA [V]</button>
+    <button class="btn" id="btnFlag" onclick="Flight.plantFlag()">🚩 Flagge [F]</button>
     <button class="btn" id="btnBelly" onclick="Flight.toggleBellyflop()">🤸 Bellyflop [C]</button>
     <button class="btn" id="btnDock" onclick="Flight.toggleDock()">🔗 Docken [L]</button>
     <button class="btn" id="btnModul" onclick="Flight.installModule()">🏗 Modul [I]</button>
@@ -1023,7 +1025,7 @@ const PARTS = {
            info:"Offene Triebwerks-Verkleidung Ø 10 (»Funke«, »Terrier«, Atomantrieb): direkt UNTER den Stufentrenner bauen – verkleidet das Oberstufen-Triebwerk und bleibt nach der Trennung als Interstage auf der unteren Stufe. Sieht stabil aus UND ist es!"},
   interL: {name:"Stufenadapter L",           type:"inter", cat:"struct", mass:110, w:12, h:3,   shroudH:18, tech:"heavy",
            info:"Offene Triebwerks-Verkleidung Ø 12 (»Hauptstufe«, Raptoren): direkt UNTER den Stufentrenner bauen – der Falcon-9-Look für schwere Raketen."},
-  legs:   {name:"Landebeine",                type:"legs",   cat:"struct", mass:120,  w:14,h:6, tech:"explore", info:"Erlauben Landungen bis 12 m/s (sonst 8 m/s)."},
+  legs:   {name:"Landebeine",                type:"legs",   cat:"struct", mass:120,  w:14,h:6, tech:"explore", info:"Erlauben Landungen bis 12 m/s (sonst 8 m/s). Mit [Y] aus- und einfahrbar – eingefahren passt der Lander unter eine Nutzlastverkleidung. Nur AUSGEFAHREN zählt der Bonus!"},
   rcs:    {name:"RCS-Steuerdüsen",           type:"rcs",    cat:"struct", mass:70,   w:11,h:2.5, tech:"advProp",
            info:"Düsenring fürs schnelle Wenden im All – ohne RCS dreht das Schiff SEHR träge!"},
   srb:    {name:"Feststoffbooster »Böller«", type:"srb",    cat:"lower", mass:450,  fuel:1700, thrust:230000, isp:220, w:10,h:24, tech:"basic", info:"Viel Schub, nicht drosselbar!"},
@@ -1123,6 +1125,20 @@ const PART_COSTS = {
 };
 for(const [id,c] of Object.entries(PART_COSTS)) if(PARTS[id]) PARTS[id].cost = c;
 function stackCost(stack){ return stack.reduce((a,id)=>a+(PARTS[id].cost||0),0); }
+/* Startgebühr für die Droneship-Landung: Die Barge muss ausfahren, positioniert
+   werden und den Booster zurück in den Hafen schleppen – das kostet, anders als
+   die Landing Zone direkt an der Rampe. Bewusst KEINE Bergungs-Minderung
+   (die steckt schon im 90-%-Faktor), sondern eine Gebühr VOR dem Start: So
+   sieht man den Preis im Hangar und wählt bewusst. Wird bei einem abgebrochenen
+   Start zusammen mit den Bauteilkosten wieder gutgeschrieben (s. launchCost). */
+const DRONESHIP_FEE = 50;
+function launchFee(stack){
+  if(Game.sandbox) return 0;
+  if(!stack.some(id=>PARTS[id].type==="gridfin")) return 0;   // ohne Gitterflossen landet nichts
+  if((Game.boosterSite||"rtls")!=="ship") return 0;
+  if(!Game.unlocked.includes("droneship")) return 0;
+  return DRONESHIP_FEE;
+}
 
 /* ---------- Orbit-Inventar (»🛰️ Objekte im All« im Hangar) ----------
    Was im All zurückbleibt, verschwindet nicht mehr: Game.assets speichert die
@@ -1350,6 +1366,10 @@ const ANOMALIES = [
    dir:[0.10, -0.35, 0.93], hint:"Newton – Südhalbkugel"}
 ];
 const BODY_BY_NAME = ()=>({LEIBNIZ, MONTI, MINZI, KEPLER, HUYGENS, NEWTON, CASSINI, HERSCHEL, ADA});
+/* Umkehrung: der SCHLÜSSEL ("MONTI") zu einem Körper. Alles, was im Spielstand
+   landet (Anomalien, Flaggen …), speichert diesen Schlüssel und NICHT b.name –
+   sonst findet BODY_BY_NAME()[...] den Körper beim Laden nicht wieder. */
+function bodyKey(b){ const m = BODY_BY_NAME(); for(const k in m) if(m[k]===b) return k; return b.name; }
 function anomalyFound(id){ return (Game.anomaliesFound||[]).includes(id); }
 
 /* ---------- Kleinkörper: Asteroiden & Meteoroid (Vorbeiflug-Scan) ----------
@@ -1677,6 +1697,8 @@ const MISSIONS = [
    req:["montiOrb","sat1"], check:s=>s.satM},
   {id:"montiLand",name:"Monti-Landung",      desc:"Lande sicher auf Monti!", sci:60,
    req:["montiOrb"], check:s=>s.landed && s.body===MONTI},
+  {id:"flagMonti",name:"Flagge auf Monti",   desc:"Erobere Monti für das LMG! Lande dort mit Crew, steig per [V] aus und stell mit [F] die LMG-Flagge auf. Sie bleibt für immer stehen.", sci:55,
+   req:["montiLand"], check:s=>s.flags.includes("MONTI")},
   {id:"montiReturn",name:"Heimkehr von Monti", desc:"Besuche Monti und lande danach sicher auf Leibniz.", sci:70,
    req:["montiLand"], check:s=>s.landed && s.body===LEIBNIZ && s.visitedMonti},
   {id:"minziSoi",name:"Hallo Minzi!",        desc:"Erreiche den Nachbarplaneten Minzi – eine INTERPLANETARE Reise!", sci:55,
@@ -1765,6 +1787,7 @@ function migrateGame(){
   for(const a of (Game.assets||[]))
     if(a && a.kind==="tanker" && !a.stack) a.stack = ["starshipTank"];
   if(!Game.boosterSite) Game.boosterSite = "rtls";   // RTLS/Droneship-Wahl im VAB
+  if(!Game.flags) Game.flags = [];                   // aufgestellte LMG-Flaggen
   // Bestands-Saves: Wer schon an der Station gedockt hat, startete de facto vom
   // Äquator – der neue Raumhafen wird gratis freigeschaltet, sonst wären die
   // laufenden Stations-Missionen plötzlich unfair schwer.
@@ -1870,7 +1893,7 @@ const UI = {
     // Karriere: die Rakete muss bezahlt werden – Bergung nach Landung erstattet sie
     let cost = 0;
     if(!Game.sandbox){
-      cost = stackCost(VAB.stack);
+      cost = stackCost(VAB.stack) + launchFee(VAB.stack);
       if(cost > Game.funds){
         VAB.oops();
         alert("💸 Zu teuer! Diese Rakete kostet 🪙 "+cost+", in der Kasse sind nur 🪙 "+Game.funds+".\n\n"+
@@ -2477,6 +2500,20 @@ function renderMissionControl(list){
       if(scope) return `<div style="margin:3px 0;opacity:.75;">🔭 ${a.icon} <b>???</b> <small style="color:var(--muted)">${a.hint} – lande in der Nähe des Leuchtfeuers!</small></div>`;
       return `<div style="margin:3px 0;opacity:.5;">⬜ ❓ <b>???</b> <small style="color:var(--muted)">unentdeckt</small></div>`;
     }).join(""));
+  // --- Aufgestellte Flaggen ---
+  sec("🚩 LMG-Flaggen");
+  const flags = Game.flags||[];
+  const byFlagBody = {};
+  for(const f of flags) byFlagBody[f.body] = (byFlagBody[f.body]||0)+1;
+  card(flags.length
+    ? `<p style="margin-bottom:8px;">Erobert: <b>${Object.keys(byFlagBody).length}</b> Welt(en)
+        mit insgesamt <b>${flags.length}</b> Flagge(n).</p>`+
+      Object.entries(byFlagBody).map(([key,k])=>{
+        const b = BODY_BY_NAME()[key];
+        return `<div style="margin:3px 0;">🚩 <b>${b?b.name:key}</b> <small style="color:var(--muted)">– ${k} Flagge${k>1?"n":""}</small></div>`;
+      }).join("")
+    : `<p style="color:var(--muted)">Noch keine Flagge im Boden. Lande mit Crew auf einer Welt,
+        steig mit <b>[V]</b> aus und stell mit <b>[F]</b> die LMG-Flagge auf – sie bleibt für immer stehen.</p>`);
   // --- Orbit-Inventar ---
   const assets = Game.assets||[];
   if(assets.length){
@@ -3142,6 +3179,30 @@ const MAT = {
 function cylinder(rTop,rBottom,h,mat,seg=20){
   return new THREE.Mesh(new THREE.CylinderGeometry(rTop,rBottom,h,seg), mat);
 }
+/* Landebeine: Gelenkwinkel eingefahren / ausgefahren (s. case "legs" und
+   Flight.toggleLegs).
+   ⚠️ LEG_OUT ist so gewählt, dass die Fußteller AUSGEFAHREN exakt auf der
+   Unterkante des Bauteils liegen (Gelenk auf der Oberkante, Beinlänge
+   h/cos(LEG_OUT)). Vorher endeten die Beine 8,8 Einheiten TIEFER: Das Schiff
+   setzt bei |pos| = R auf, die Unterkante liegt also genau auf der Oberfläche –
+   die Beine steckten damit im Boden. Aufgefallen ist das erst, als die
+   Nahfeld-Kachel (s. SURF_PATCH_ALT) den 100-m-Spalt auf Monti geschlossen hat;
+   vorher schwebte ohnehin alles. Spreizwinkel 0,9 rad = 51,6° gibt bei
+   Gelenkhöhe h trotzdem einen breiten Stand (Fußkreis r·0,564 + h·tan 0,9,
+   beim Standard-Bein also Ø 23 gegen Ø 14 Hülle).
+   LEG_IN legt das Bein an die Hülle: Fußradius 7,3 bei Hüllenradius 7 – es
+   schleift also nicht im Tank und bleibt trotzdem unter einer Fairing. */
+const LEG_OUT = 0.9, LEG_IN = 2.79;
+/* Bis zu dieser Höhe bekommt eine luftlose Welt ihre fein aufgelöste
+   Nahfeld-Kachel (s. Flight.updateSurfPatch). 8 km ist reichlich: Der
+   Durchhang des groben Vielflachs (~107 m bei Monti) ist von dort aus
+   schon kleiner als ein Bildschirmpixel. */
+const SURF_PATCH_ALT = 8000;
+/* Außeneinsatz zu Fuß: Augenhöhe des Modells über der Kugel (die Füße von
+   buildAstronaut() liegen bei y = −0,65) und Laufgeschwindigkeit. 3,5 m/s ist
+   ein zügiger Trab – langsamer wird das Erkunden im Raumanzug zäh, schneller
+   sieht es aus wie ein Fehler in der Physik. */
+const EVA_FOOT = 0.65, EVA_WALK = 3.5, EVA_JUMP = 2.2;
 /* Ein Bauteil als 3D-Gruppe; Ursprung = Unterkante, +Y = oben */
 function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radialteilen
   const p = PARTS[id], g = new THREE.Group();
@@ -3468,13 +3529,29 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       }
       break;}
     case "legs":{
+      /* Ein- und ausfahrbar wie bei KSP (Taste [Y], s. Flight.toggleLegs):
+         Jedes Bein hängt an einer Gelenk-Gruppe name:"landleg" an der OBERkante
+         des Bauteils, das Rohr hängt daran nach unten. Länge = h/cos(LEG_OUT),
+         damit der Fußteller ausgefahren genau auf der Unterkante steht (s. dort).
+         Gebaut wird EINGEFAHREN, damit ein Lander unter eine Nutzlast-
+         verkleidung passt – genau dafür ist das Einfahren da. */
       add(cylinder(r*0.35,r*0.35,h,MAT.white), h/2);
+      const legL = h/Math.cos(LEG_OUT);
       for(let k=0;k<3;k++){
-        const leg = cylinder(0.35,0.35,h*2.4,MAT.gray,8);
         const a = k*2*Math.PI/3;
-        leg.position.set(Math.cos(a)*r*1.1, -h*0.45, Math.sin(a)*r*1.1);
-        leg.rotation.z = Math.cos(a)*0.55; leg.rotation.x = -Math.sin(a)*0.55;
-        g.add(leg);
+        const pivot = new THREE.Group();
+        pivot.name = "landleg";
+        pivot.position.set(Math.cos(a)*r*0.564, h, Math.sin(a)*r*0.564);
+        pivot.rotation.y = -a;              // lokales +X zeigt nach AUSSEN
+        pivot.rotation.z = LEG_IN;
+        const leg = cylinder(0.32,0.4,legL,MAT.gray,8);
+        leg.position.y = -legL/2;           // Rohr hängt am Gelenk nach unten
+        pivot.add(leg);
+        const foot = cylinder(1.1,1.1,0.45,MAT.dark,12);
+        foot.position.y = -legL;            // Teller am Fußende
+        foot.rotation.z = -LEG_OUT;         // Teller liegt ausgefahren flach auf
+        pivot.add(foot);
+        g.add(pivot);
       }
       break;}
     case "probe":
@@ -5348,6 +5425,81 @@ function buildAstronaut(){
   const pack = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.9,0.32),
     new THREE.MeshStandardMaterial({color:0x3a4254}));
   pack.position.set(0,0.75,-0.42); g.add(pack);
+  return g;
+}
+/* =================================================================
+   LMG-FLAGGE – »Monti erobern« (aufgestellt beim Außeneinsatz, [F])
+   -----------------------------------------------------------------
+   ⚠️ Das Logo wird GEMALT und nicht aus LMGTECHlogo.png geladen: Per file://
+   darf WebGL keine Datei-Bilder als Textur benutzen (derselbe Grund, aus dem
+   die Nebel in nebulae.js als Base64 liegen) – das Spiel muss aber per
+   Doppelklick laufen. Ein Canvas geht dort immer.
+   ⚠️ Die Fahne hängt an einer QUERSTREBE. Das ist kein Deko-Detail, sondern
+   genau das, was die NASA bei Apollo 11 gebaut hat: Ohne Luft fällt ein Tuch
+   schlaff am Mast herunter, man sähe von der Flagge nichts. Deshalb steht sie
+   auf dem Mond »im Wind« – eine der beliebtesten Nachfragen der AG.
+   ================================================================= */
+let _flagTex = null;
+function flagTexture(){
+  if(_flagTex) return _flagTex;
+  const W = 256, H = 160;
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const x = c.getContext("2d");
+  x.fillStyle = "#f2f4f7"; x.fillRect(0,0,W,H);
+  const BLUE = "#1b5faa", OR = "#f7941d";
+  // Sprechblasen-Paar des LMG-TECH-Logos (blau mit Leiterbahnen, orange mit Zahnrad)
+  const bubble = (cx,cy,rx,ry,col,tail)=>{
+    x.fillStyle = col;
+    x.beginPath(); x.ellipse(cx,cy,rx,ry,0,0,Math.PI*2); x.fill();
+    x.beginPath();
+    x.moveTo(cx+tail*rx*0.10, cy+ry*0.75);
+    x.lineTo(cx+tail*rx*0.62, cy+ry*0.72);
+    x.lineTo(cx+tail*rx*0.30, cy+ry*1.55);
+    x.closePath(); x.fill();
+  };
+  bubble(80, 44, 42, 33, BLUE, -1);
+  x.strokeStyle = "#f2f4f7"; x.lineWidth = 3; x.lineCap = "round";
+  for(const [x1,y1,x2,y2] of [[52,34,74,34],[74,34,88,20],[52,54,80,54],[80,54,94,42],[62,66,84,66]]){
+    x.beginPath(); x.moveTo(x1,y1); x.lineTo(x2,y2); x.stroke();
+    x.fillStyle = "#f2f4f7"; x.beginPath(); x.arc(x2,y2,3.5,0,Math.PI*2); x.fill();
+  }
+  bubble(140, 52, 40, 31, OR, 1);
+  x.fillStyle = "#f2f4f7";
+  x.beginPath(); x.arc(140,52,21,0,Math.PI*2); x.fill();          // Zahnrad-Ring
+  for(let i=0;i<8;i++){
+    const a = i*Math.PI/4;
+    x.beginPath();
+    x.arc(140+Math.cos(a)*21, 52+Math.sin(a)*21, 4.5, 0, Math.PI*2); x.fill();
+  }
+  x.fillStyle = OR;
+  x.beginPath(); x.arc(140,52,12,0,Math.PI*2); x.fill();
+  // Schriftzug: L blau · M orange · G blau (wie im Original)
+  x.font = "bold 52px Arial, Helvetica, sans-serif";
+  x.textBaseline = "alphabetic";
+  const letters = [["L",BLUE],["M",OR],["G",BLUE]];
+  let wTot = letters.reduce((a,[l])=>a+x.measureText(l).width, 0);
+  let px = (W-wTot)/2;
+  for(const [l,col] of letters){ x.fillStyle = col; x.fillText(l, px, 125); px += x.measureText(l).width; }
+  x.font = "bold 17px Arial, Helvetica, sans-serif";
+  x.fillStyle = BLUE; x.textAlign = "center";
+  x.fillText("SPACE PROGRAM", W/2, 150);
+  _flagTex = new THREE.CanvasTexture(c);
+  _flagTex.anisotropy = 4;
+  return _flagTex;
+}
+function buildFlagMesh(){
+  const g = new THREE.Group();
+  const poleMat = new THREE.MeshStandardMaterial({color:0xd6dae4, roughness:.35, metalness:.55});
+  const pole = cylinder(0.045, 0.06, 3.2, poleMat, 8);
+  pole.position.y = 1.6; g.add(pole);
+  const base = cylinder(0.24, 0.30, 0.10, MAT.dark, 12);
+  base.position.y = 0.05; g.add(base);
+  const rod = cylinder(0.03, 0.03, 1.98, poleMat, 6);   // Querstrebe (s. o.)
+  rod.rotation.z = Math.PI/2; rod.position.set(0.99, 3.14, 0); g.add(rod);
+  const cloth = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 1.19),
+    new THREE.MeshStandardMaterial({map:flagTexture(), side:THREE.DoubleSide, roughness:.85}));
+  cloth.position.set(0.97, 2.53, 0); g.add(cloth);
   return g;
 }
 /* =================================================================
@@ -7977,7 +8129,8 @@ const VAB = {
     });
     const bMass = segBoost.reduce((a,b)=>a+b.mass,0);
     total += bMass;
-    const cost = stackCost(this.stack);
+    const fee = launchFee(this.stack);
+    const cost = stackCost(this.stack) + fee;
     // Startrampen-Wahl: Klick wechselt, 🔒 = Forschung fehlt, rot = zu schwer
     const pad = currentPad();
     let padHtml = `<h3>Startrampe</h3>`;
@@ -8002,7 +8155,7 @@ const VAB = {
       padHtml += `<h3>Booster-Landeplatz</h3>`;
       for(const [id, icon, name, tech, note] of [
         ["rtls", "🎯", "Landing Zone (RTLS)", "landZone", "Boostback zur Rampe · 100 %"],
-        ["ship", "🚢", "Droneship (Ozean)",   "droneship", "später Cutoff · 90 %"]]){
+        ["ship", "🚢", "Droneship (Ozean)",   "droneship", "später Cutoff · 90 % · 🪙 "+DRONESHIP_FEE]]){
         const ok = has(tech), sel = ok && site===id;
         padHtml += `<div class="stat" onclick="VAB.setBoosterSite('${id}')" style="cursor:pointer;${
           sel?"color:var(--orange);font-weight:700;":""}${ok?"":"opacity:.45;"}">
@@ -8010,6 +8163,8 @@ const VAB = {
       }
       if(!has("landZone"))
         padHtml += `<small style="color:var(--muted)">Ohne Landeplatz wassert der Booster downrange im Ozean (50 % Bergung). Forschung: »Landing Zone«.</small>`;
+      else if(site==="ship" && has("droneship"))
+        padHtml += `<small style="color:var(--muted)">Das Droneship fährt schon vor dem Start hinaus – Gebühr 🪙 ${DRONESHIP_FEE} (in den Kosten unten enthalten). Dafür braucht der Booster kein Boostback: Er darf länger brennen, das bringt mehr Nutzlast in den Orbit.</small>`;
     }
     // Starship-Frachtraum: sichtbare Füllstandsanzeige, damit die Grenze nicht
     // erst beim Anbauen als Fehlermeldung auftaucht
@@ -8046,7 +8201,7 @@ const VAB = {
     let html = padHtml + `<h3>Rakete</h3>
       <div class="stat"><span>Gesamtmasse</span><span>${(total/1000).toFixed(2)} t</span></div>
       <div class="stat"><span>Leergewicht (Tanks leer)</span><span>${(dryTotal/1000).toFixed(2)} t</span></div>
-      ${Game.sandbox?"":`<div class="stat"><span>Kosten</span><span style="${cost>Game.funds?"color:var(--red);font-weight:700":""}">🪙 ${cost}${cost>Game.funds?" – zu teuer!":""}</span></div>`}
+      ${Game.sandbox?"":`<div class="stat"><span>Kosten${fee?" (inkl. 🚢 "+fee+")":""}</span><span style="${cost>Game.funds?"color:var(--red);font-weight:700":""}">🪙 ${cost}${cost>Game.funds?" – zu teuer!":""}</span></div>`}
       <div class="stat"><span>Teile</span><span>${this.stack.length}</span></div>
       <div class="stat"><span>Stufen</span><span>${segs.length}</span></div>
       <h3>Stufen (von unten)</h3>`;
@@ -8446,6 +8601,7 @@ const Flight = {
   v:null, pos:V3(), vel:V3(), q:new THREE.Quaternion(),
   t:0, throttle:1, warpI:0, map:false,
   landed:true, crashed:false, ended:false, flew:false,
+  flagObjs:[], legsOut:false, legsAnim:LEG_IN,   // s. plantFlag / toggleLegs
   chuteOpen:false, infinite:false, msgTimer:0,
   sats:[], debris:[], crew:[], satL:false, satM:false, visitedMonti:false,
   node:null, nodeDir:null,
@@ -8972,7 +9128,12 @@ const Flight = {
       if(e.key==="h"||e.key==="H") this.toggleControlsBar();
       if(e.key===" "){ e.preventDefault(); this.stage(); }
       if(e.key==="p"||e.key==="P") this.toggleChute();
-      if(e.key==="f"||e.key==="F") this.jettisonFairing();
+      // [F] ist doppelt belegt: beim Außeneinsatz zu Fuß die Flagge, sonst die
+      // Nutzlastverkleidung. Beides gleichzeitig gibt es nie – wer draußen
+      // herumläuft, wirft keine Fairing ab.
+      if(e.key==="f"||e.key==="F"){
+        if(this.eva && this.eva.onGround) this.plantFlag(); else this.jettisonFairing();
+      }
       if(e.key==="n"||e.key==="N") this.deploySat();
       if(e.key==="u"||e.key==="U") this.toggleInfinite();
       if(e.key==="g"||e.key==="G") this.togglePanels();
@@ -8987,6 +9148,7 @@ const Flight = {
       if(e.key===",") this.warpDown();
       if(e.key==="v"||e.key==="V") this.toggleEVA();
       if(e.key==="c"||e.key==="C") this.toggleBellyflop();
+      if(e.key==="y"||e.key==="Y") this.toggleLegs();
       if(e.key==="l"||e.key==="L") this.toggleDock();
       if(e.key==="i"||e.key==="I") this.installModule();
       if((e.key==="x"||e.key==="X") && !this.eva && !this.commDead) this.throttle=0;
@@ -9612,6 +9774,18 @@ const Flight = {
     this.stagedOnce = false;
     this.chuteTorn = false;
     if(this.eva){ this.world.remove(this.eva.mesh); this.eva = null; }
+    /* Aufgestellte Flaggen: alte Meshes weg, dann alles aus dem Spielstand neu
+       aufbauen. Sie stehen bei JEDEM Flug wieder da – das ist der ganze Witz
+       am »Erobern«. Sandbox/Tutorial haben eine eigene, leere Liste. */
+    for(const f of (this.flagObjs||[])) this.world.remove(f.mesh);
+    this.flagObjs = []; this.flagPlanted = null;
+    if(!Game.sandbox){
+      const byName = BODY_BY_NAME();
+      for(const f of (Game.flags||[])){
+        const b = byName[f.body];
+        if(b) this.addFlag(b, V3(f.dir[0], f.dir[1], f.dir[2]).normalize());
+      }
+    }
     this.sas = "off"; this._cd = 0; this.expCount = 0; this._wasSpace = undefined;
     this.heatDmg = 0; this._heatMsgT = undefined;
     this.paused = false;
@@ -9619,6 +9793,8 @@ const Flight = {
     this.maxCharge = vessel.stack.reduce((a,id)=>a+(PARTS[id].charge||0), 0);
     this.charge = this.maxCharge;
     this.panelsOut = false; this.panelsBroken = false; this.powerDead = false;
+    this.legsOut = false; this.legsAnim = LEG_IN; this._legMsg = false;
+    this._patchKey = null;   // Nahfeld-Kachel neu bestimmen (s. updateSurfPatch)
     this.bayOpen = false; this.bayAnim = 0;
     this._escWarned = false; this.nodeBurned = 0; this.gLoad = 0;
     // Statistik für den Flugbericht
@@ -10124,7 +10300,10 @@ const Flight = {
     if(this.crashed||this.ended) return;
     if(this.eva){
       const d = this.eva.pos.distanceTo(this.pos);
-      if(d < 60){
+      /* ⚠️ Gemessen wird zur Schiffs-MITTE. Bei einem 200-m-Träger steht man
+         schon direkt an der Luke 100 m von der Mitte entfernt – mit den festen
+         60 m käme man nie wieder an Bord. Deshalb halbe Raketenlänge + 40 m. */
+      if(d < Math.max(60, this.height()*0.5 + 40)){
         this.world.remove(this.eva.mesh);
         this.eva = null;
         this.camDist = Math.max(35, this.height()*2.2);
@@ -10135,15 +10314,162 @@ const Flight = {
       return;
     }
     if(!this.crew.length){ this.showMsg("EVA geht nur mit Crew an Bord! 🧑‍🚀",2); return; }
-    if(this.landed || leibnizAlt(this.pos,this.t) < LEIBNIZ.atmoH){
-      this.showMsg("EVA nur im Weltraum (über 70 km)!",2); return;
+    /* Zwei Spielarten: schwerelos im All ODER zu Fuß auf einer Oberfläche.
+       Gelandet ist IMMER erlaubt – auch auf Leibniz: Genau darum hat Simon
+       gebeten (»einfach EVA drücken und dann läuft das Männchen rum«). Verboten
+       bleibt nur der Ausstieg im Flug innerhalb der Atmosphäre. */
+    const grounded = this.landed && !this.crashed;
+    if(!grounded && leibnizAlt(this.pos,this.t) < LEIBNIZ.atmoH){
+      this.showMsg("EVA nur im Weltraum (über 70 km) oder nach der Landung!",3); return;
     }
-    const fr = this.frameAt(this.pos);
     const mesh = buildAstronaut();
+    const legs = [], arms = [];
+    mesh.traverse(o=>{ if(o.name==="leg") legs.push(o); else if(o.name==="arm") arms.push(o); });
     this.world.add(mesh);
-    this.eva = {pos:this.pos.clone().addScaledVector(fr.up, 12), vel:this.vel.clone(), mesh};
-    this.camDist = 14;
-    this.showMsg("🧑‍🚀 "+this.crew[0].replace(/^[^ ]+ /,"")+" schwebt im All! Jetpack: W/A/S/D + ↑/↓ · [V] = einsteigen",5);
+    const name = this.crew[0].replace(/^[^ ]+ /,"");
+    if(grounded){
+      const b = this.landedBody || this.body();
+      const c = this.bodyCenter(b);
+      const up = this.pos.clone().sub(c).normalize();
+      // seitlich neben der Rakete absetzen, damit niemand in den Landebeinen steht
+      const side = V3(1,0,0).applyQuaternion(this.q);
+      // seitlicher Abstand aus der BREITESTEN Stelle der Rakete – nicht aus der
+      // Höhe: sonst setzt ein 200-m-Träger die Crew 70 m entfernt ab
+      const wMax = Math.max(...this.v.stack.map(id=>PARTS[id].w));
+      const start = c.clone().addScaledVector(up, b.R + EVA_FOOT)
+                     .addScaledVector(side, wMax/2 + 9);
+      this.eva = {pos:start, vel:bodyVel(b,this.t).clone(), mesh, legs, arms,
+                  body:b, onGround:true, phase:0, face:side.clone(), sp:0};
+      this.camDist = 22;
+      this.showMsg("🧑‍🚀 "+name+" steht auf "+b.name+"! Laufen: W/A/S/D · ↑ hüpfen · "+
+        "🚩 [F] Flagge aufstellen · [V] = wieder einsteigen", 7);
+    } else {
+      const fr = this.frameAt(this.pos);
+      this.eva = {pos:this.pos.clone().addScaledVector(fr.up, 12), vel:this.vel.clone(), mesh,
+                  legs, arms, body:null, onGround:false, phase:0, face:fr.up.clone(), sp:0};
+      this.camDist = 14;
+      this.showMsg("🧑‍🚀 "+name+" schwebt im All! Jetpack: W/A/S/D + ↑/↓ · [V] = einsteigen",5);
+    }
+  },
+  /* EVA-Astronaut*in fortbewegen: im All Jetpack, auf einer Oberfläche zu Fuß.
+     ⚠️ Der Bodenmodus regelt die Geschwindigkeit DIREKT (kein Antrieb, keine
+     Reibung): Ein Kraftmodell bräuchte Haftreibung, sonst schlittert man auf
+     Monti bei 1,6 m/s² wie auf Eis über den halben Mond. Die Schwerkraft
+     bleibt trotzdem echt – deshalb hüpft man hier auch wirklich weit.
+     ⚠️⚠️ Eigene Methode, weil step() bei GELANDETEM Schiff vorzeitig
+     zurückkehrt (der landed-Zweig setzt pos/vel on rails). Genau dann läuft
+     aber die Astronaut*in draußen herum – ohne den zweiten Aufruf blieb sie
+     im Inertialraum stehen, während der Mond unter ihr wegflog: gemessen
+     312 km Abstand zum eigenen Schiff nach 2 Sekunden. */
+  stepEVA(dt, warp){
+    if(!this.eva) return;
+    const ea = this.accel(this.eva.pos, this.t);
+    const eb = this.eva.body;
+    const k3 = this.keys, live = warp <= 2;
+    const cq = this.camera.quaternion;
+    if(eb && this.eva.onGround){
+      const c = this.bodyCenter(eb);
+      const up = this.eva.pos.clone().sub(c).normalize();
+      const bv = bodyVel(eb, this.t);
+      // Kamera-Richtungen auf die Tangentialebene projizieren
+      const flat = v => v.addScaledVector(up, -v.dot(up));
+      const fwd = flat(V3(0,0,-1).applyQuaternion(cq));
+      const right = flat(V3(1,0,0).applyQuaternion(cq));
+      if(fwd.lengthSq() < 1e-6) fwd.copy(flat(V3(0,1,0).applyQuaternion(cq)));
+      fwd.normalize(); right.normalize();
+      const want = V3(0,0,0);
+      if(live){
+        if(k3["w"]) want.add(fwd);
+        if(k3["s"]) want.sub(fwd);
+        if(k3["d"]) want.add(right);
+        if(k3["a"]) want.sub(right);
+      }
+      if(want.lengthSq() > 0) want.normalize().multiplyScalar(EVA_WALK);
+      this.eva.sp = want.length();
+      // Radialanteil (Fallen/Springen) behalten, Tangentialanteil setzen
+      const vr = this.eva.vel.clone().sub(bv);
+      const rad = vr.dot(up);
+      this.eva.vel.copy(bv).addScaledVector(up, rad).add(want);
+      if(live && k3["arrowup"]){ this.eva.vel.addScaledVector(up, EVA_JUMP); this.eva.onGround = false; }
+    } else if(live){
+      const jp = 3;
+      const fwd = V3(0,0,-1).applyQuaternion(cq);
+      const right = V3(1,0,0).applyQuaternion(cq);
+      const up3 = V3(0,1,0).applyQuaternion(cq);
+      if(k3["w"]) ea.addScaledVector(fwd, jp);
+      if(k3["s"]) ea.addScaledVector(fwd, -jp);
+      if(k3["a"]) ea.addScaledVector(right, -jp);
+      if(k3["d"]) ea.addScaledVector(right, jp);
+      if(k3["arrowup"]) ea.addScaledVector(up3, jp);
+      if(k3["arrowdown"]) ea.addScaledVector(up3, -jp);
+    }
+    this.eva.vel.addScaledVector(ea, dt);
+    this.eva.pos.addScaledVector(this.eva.vel, dt);
+    // Bodenkontakt: auf die Oberfläche setzen und den Aufprall schlucken
+    if(eb){
+      const c = this.bodyCenter(eb);
+      const rel = this.eva.pos.clone().sub(c);
+      const surf = eb.R + EVA_FOOT;
+      if(rel.length() <= surf){
+        const up = rel.clone().normalize();
+        this.eva.pos.copy(c).addScaledVector(up, surf);
+        const rad = this.eva.vel.clone().sub(bodyVel(eb,this.t)).dot(up);
+        if(rad < 0) this.eva.vel.addScaledVector(up, -rad);
+        this.eva.onGround = true;
+      } else if(rel.length() > surf + 0.3) this.eva.onGround = false;
+    }
+  },
+  /* 🚩 Flagge aufstellen – nur zu Fuß auf einer Oberfläche.
+     Die Flagge bleibt danach für immer stehen (Game.flags im Spielstand) und
+     wird bei jedem Flug wieder aufgebaut: Genau das ist das »Erobern«. */
+  plantFlag(){
+    if(this.crashed||this.ended) return;
+    if(!this.eva || !this.eva.onGround){
+      this.showMsg("🚩 Flaggen setzt man zu Fuß auf einer Oberfläche – erst mit [V] aussteigen!",3);
+      return;
+    }
+    const b = this.eva.body;
+    // ein gutes Stück VOR die Astronaut*in setzen, sonst steht sie im Mast
+    const dir = this.eva.pos.clone().addScaledVector(this.eva.face, 2.2)
+                  .sub(this.bodyCenter(b)).normalize();
+    // Nicht zweimal an dieselbe Stelle (500 m Abstand = deutlich mehr als ein Sprint)
+    if(this.flagObjs.some(f=>f.b===b && f.dir.angleTo(dir) < 500/b.R)){
+      this.showMsg("🚩 Hier steht schon eine Flagge – lauf ein Stück weiter!",3); return;
+    }
+    this.addFlag(b, dir);
+    this.flagPlanted = b;
+    if(Game.sandbox){
+      this.showMsg("🚩 Flagge gehisst! "+b.name+" gehört jetzt zum LMG Space Program! "+
+        "(Im Training bleibt sie nicht stehen – in der Karriere schon.)", 6);
+    } else {
+      Game.flags = Game.flags || [];
+      Game.flags.push({body:bodyKey(b), dir:[dir.x, dir.y, dir.z]});
+      autoSave();
+      this.showMsg("🚩 Flagge gehisst! "+b.name+" gehört jetzt zum LMG Space Program – "+
+        "sie steht ab jetzt bei jedem Flug da. 🎉", 6);
+    }
+  },
+  /* Eine Flagge in die Szene stellen (frisch gesetzt ODER aus dem Spielstand) */
+  addFlag(b, dir){
+    const mesh = buildFlagMesh();
+    this.world.add(mesh);
+    applyEnv(mesh, this.envTex, 1);
+    this.flagObjs.push({b, dir:dir.clone(), mesh});
+  },
+  /* Landebeine ein-/ausfahren [Y] – wie bei KSP. Gebaut und gestartet wird
+     EINGEFAHREN: nur so passt ein Lander unter eine Nutzlastverkleidung, und
+     genau dafür hat Simon das Einfahren gewünscht. ⚠️ Der Landestoß-Bonus
+     (12 statt 8 m/s, s. checkContact) gilt deshalb auch nur AUSGEFAHREN –
+     sonst wäre das Einfahren ein Gratis-Vorteil ohne Risiko. */
+  toggleLegs(){
+    if(this.crashed||this.ended) return;
+    if(!this.v.stack.some(id=>PARTS[id].type==="legs")){
+      this.showMsg("Keine Landebeine an Bord! 🦵",2); return;
+    }
+    this.legsOut = !this.legsOut;
+    this.showMsg(this.legsOut
+      ? "🦵 Landebeine ausgefahren – jetzt hält die Landung bis 12 m/s."
+      : "🦵 Landebeine eingefahren (Landung nur noch bis 8 m/s!).", 2.5);
   },
   togglePanels(){
     if(this.crashed||this.ended) return;
@@ -10334,19 +10660,106 @@ const Flight = {
     if(east.lengthSq()<1e-9) east = V3(1,0,0); else east.normalize();
     // Landing Burn: weiter rausgezoomt + flacherer Blickwinkel – man sieht die
     // Flamme, den Boden UND das Landeziel (stylischer Cinematic-Shot)
-    const want = (b.state==="burn" || b.state==="landed" || b.state==="caught")
+    let want = (b.state==="burn" || b.state==="landed" || b.state==="caught")
       ? Math.min(420, 130 + vrel*0.9)
       : Math.min(180, 45 + vrel*0.35);
+    /* ⚠️ Beim Landing Burn gehört das ZIEL mit ins Bild – das Droneship, die
+       Landing Zone, die Mechazilla-Arme. Vorher blickte die Kamera stur auf die
+       Booster-Mitte: Bei 204 m Höhe über dem Deck lag die Barge damit knapp
+       UNTER dem Bildrand, man sah eine Rakete über leerem Wasser schweben und
+       im nächsten Moment stand sie – der eigentliche Moment fiel aus dem Bild.
+       Jetzt wird auf einen Punkt zwischen Booster und Ziel geschaut (etwas
+       näher am Ziel, damit die Barge sicher drin ist) und der Kameraabstand so
+       weit aufgezogen, dass beide in die 50°-Bildhöhe passen (d ≈ Spanne/0,93,
+       mit Rand also ×1,25). */
+    let look = bRel.clone().addScaledVector(up, b.height*0.5);
+    if((b.state==="burn" || b.state==="landed" || b.state==="caught") && b.tgt){
+      const tgtRel = b.tgt.clone().add(lp).sub(this.pos);
+      want = Math.max(want, Math.min(600, bRel.distanceTo(tgtRel)*1.25 + 50));
+      look.lerp(tgtRel, 0.55);
+    }
     b.camDist = b.camDist===undefined ? want : b.camDist + (want-b.camDist)*0.06;
     const dist = b.camDist;
     const upFac = (b.state==="burn" || b.state==="landed" || b.state==="caught") ? 0.07 : 0.18;
-    this.pipCam.position.copy(bRel)
+    this.pipCam.position.copy(look)
       .addScaledVector(east, dist)
-      .addScaledVector(up, b.height*0.5 + dist*upFac);
+      .addScaledVector(up, dist*upFac);
     this.pipCam.up.copy(up);
-    this.pipCam.lookAt(bRel.clone().addScaledVector(up, b.height*0.5));
+    this.pipCam.lookAt(look);
     this.setViewUniforms(this.pipCam, 230);   // Meer & Wolken auf die PiP-Kamera
     this.pipRenderer.render(this.scene, this.pipCam);
+  },
+  /* ================================================================
+     Nahfeld-Oberfläche für luftlose Welten (Monti, Minzi, Kepler, Newton,
+     Huygens-Monde) – der »Spalt zwischen Schiff und Boden«
+     ----------------------------------------------------------------
+     ⚠️⚠️ Das war KEIN Physik-Fehler: Die Kugel eines Körpers ist eine
+     SphereGeometry(R, 96, 48), also ein Vielflach, dessen ECKEN auf dem
+     Radius R liegen – die Flächen dazwischen hängen durch. Der Durchhang
+     ist die Pfeilhöhe R·(1−cos(halber Schritt)): bei Monti (R = 200 km,
+     Schritt 3,75°) sind das **107 m**. Das Schiff setzt bei |pos| = R auf
+     (checkContact), steht also physikalisch korrekt – nur die gemalte
+     Oberfläche liegt bis zu 107 m TIEFER. Bei einem 60 m hohen Lander
+     sieht das aus wie ein schwebendes Schiff (Bug-Report Simon, Monti-
+     Tutorial). Leibniz hat das Problem nie gehabt, weil dort die
+     Bodenszene (terrainGeometry/shapeTerrain) über der Kugel liegt.
+     Die Lösung ist dieselbe wie dort, nur ohne Relief: ein fein
+     aufgelöstes Stück Kugel unter dem Schiff.
+     · Gebaut wird ein LÄNGEN-/BREITEN-Ausschnitt derselben SphereGeometry
+       (phiStart/thetaStart) und als KIND des Körper-Meshes gehängt. Damit
+       stimmen UVs, Material, Objektraum und Position von selbst – kein
+       zweites Material, kein zweiter Satz Shader-Uniforms.
+     · Der Ausschnitt liegt IMMER außerhalb des groben Vielflachs (dessen
+       Flächen hängen ja durch), es gibt also keinen Tiefenstreit.
+     · 96×96 Felder auf ~0,04 rad Öffnung = 0,016 m Durchhang statt 107 m.
+     Sichtbar nur unterhalb SURF_PATCH_ALT – weiter oben ist der Durchhang
+     kleiner als ein Pixel und die Kachel wäre reine Rechenzeit. */
+  updateSurfPatch(){
+    const hide = ()=>{ if(this.surfPatch) this.surfPatch.visible = false; };
+    if(this.map){ hide(); return; }
+    let best = null, bestAlt = Infinity;
+    for(const b of MOONS){
+      if(b.kind === "gas") continue;             // Gasriese hat keine Oberfläche
+      const a = this.pos.distanceTo(this.bodyCenter(b)) - b.R;
+      if(a < bestAlt){ bestAlt = a; best = b; }
+    }
+    if(!best || bestAlt > SURF_PATCH_ALT){ hide(); return; }
+    // Blickrichtung auf den Boden unter dem Schiff – in der UV-Konvention von
+    // THREE.SphereGeometry (x = −cos φ·sin θ, y = cos θ, z = sin φ·sin θ)
+    const rel = this.pos.clone().sub(this.bodyCenter(best)).normalize();
+    const theta = Math.acos(THREE.MathUtils.clamp(rel.y, -1, 1));
+    const phi = Math.atan2(rel.z, -rel.x);
+    // Öffnungswinkel: gut das Doppelte des Horizonts, damit die Kachel beim
+    // Drehen der Kamera nicht sichtbar am Rand aufhört
+    const hh = Math.max(5, bestAlt);
+    const ang = THREE.MathUtils.clamp(2.2*Math.sqrt(2*hh/best.R), 0.004, 0.30);
+    const k = this._patchKey;
+    // Neu bauen nur bei echtem Bedarf (Körperwechsel, weggewandert, Zoomstufe)
+    const stale = !k || k.b !== best ||
+      Math.abs(Math.log(ang/k.ang)) > 0.35 ||
+      Math.acos(THREE.MathUtils.clamp(rel.dot(k.dir), -1, 1)) > ang*0.3;
+    if(stale){
+      const phiLen = Math.min(2*Math.PI, 2*ang/Math.max(0.05, Math.sin(theta)));
+      const thetaS = Math.max(0, theta - ang);
+      const thetaL = Math.min(Math.PI - thetaS, 2*ang);
+      const geo = new THREE.SphereGeometry(best.R, 96, 96,
+        phi - phiLen/2, phiLen, thetaS, thetaL);
+      if(!this.surfPatch){
+        this.surfPatch = new THREE.Mesh(geo, this.moonMeshes.get(best).material);
+        this.surfPatch.frustumCulled = false;
+      } else {
+        this.surfPatch.geometry.dispose();      // sonst leckt jeder Neubau eine Geometrie
+        this.surfPatch.geometry = geo;
+      }
+      const host = this.moonMeshes.get(best);
+      if(this.surfPatch.parent !== host){
+        if(this.surfPatch.parent) this.surfPatch.parent.remove(this.surfPatch);
+        host.add(this.surfPatch);
+      }
+      this.surfPatch.material = host.material;
+      this._patchKey = {b:best, ang, dir:rel.clone()};
+    }
+    this.surfPatch.visible = true;
   },
   /* Effektiver Booster-Landeplatz: "rtls" (Landing Zone), "ship" (Droneship)
      oder null (keine Forschung → ballistisch downrange = Wasserung) */
@@ -10434,27 +10847,65 @@ const Flight = {
         }
       } else if(b.state==="coast"){
         b.finDeploy = Math.min(1, b.finDeploy + dtb/1.8);   // Flossen ausklappen
-        // Droneship: fährt autonom zum vorhergesagten Aufschlagpunkt (auf See!)
-        if(b.site==="ship" && !b.tgt){
+        /* Droneship: fährt autonom zum vorhergesagten Aufschlagpunkt (auf See!)
+           ⚠️⚠️ Die Position wird bis 25 km Höhe IMMER WIEDER nachgeführt und
+           erst dann festgezurrt. Vorher wurde sie EINMAL beim Eintritt in den
+           Sinkflug gesetzt – also am Scheitelpunkt, wo `predictImpactRel` (grobe
+           ballistische Rechnung) am ungenauesten ist. Gemessen bei einem
+           Testflug mit Trennung in 34 km: Vorhersage aus 290 km Scheitelhöhe
+           lag **40 km** neben dem echten Aufschlagpunkt – und dagegen kommen
+           weder der Gitterflossen-»Lift« (erst ab 55 km, ~4 m/s²) noch die
+           Endanflug-Regelung (erst ab 8 km, max. 45 m/s quer) an: Der Booster
+           fiel neben dem Droneship ins Wasser, ohne den Landing Burn auch nur
+           zu zünden. Ein Schiff DARF sich bewegen – das ist genau sein Vorteil
+           gegenüber der ortsfesten Landing Zone. Unter 25 km steht es dann
+           fest, sonst würde das Deck dem Booster im Endanflug davonfahren. */
+        if(b.site==="ship" && (!b.tgt || (alt > 25000 && tt - (b._dsT||0) > 2))){
+          b._dsT = tt;
           const imp = this.predictImpactRel(b, tt);
           if(imp && this.padLocal){
-            const d = imp.clone().sub(this.padLocal);
-            const n = d.dot(this.padNorthV);
-            // ⚠️ Seit die Küste prozedural ist, liegt "6 km Ost" nicht mehr
-            // überall im Wasser (Buchten!). Deshalb ostwärts schieben, bis
-            // das Deck WIRKLICH auf See liegt – sonst ankert das Droneship
-            // auf der Wiese.
-            let e = Math.max(d.dot(this.padEastV), 6000);
-            const wet = ee=>{
-              const p = this.padLocal.clone().addScaledVector(this.padEastV, ee)
-                .addScaledVector(this.padNorthV, n).normalize();
-              return landH(p.x, p.y, p.z, TERRAIN_OCT_LOCAL) < -0.002;
-            };
-            for(let k=0; k<40 && !wet(e); k++) e += 800;
-            b.tgt = this.padLocal.clone()
-              .addScaledVector(this.padEastV, e)
-              .addScaledVector(this.padNorthV, n)
-              .normalize().multiplyScalar(LEIBNIZ.R);
+            /* ⚠️⚠️ Das Ziel ist der vorhergesagte Aufschlagpunkt SELBST, nur auf
+               die Kugel projiziert. Vorher wurde er in Ost/Nord-Koordinaten der
+               RAMPE zerlegt und aus padLocal wieder zusammengesetzt – das ist
+               eine Tangentialebenen-Näherung und bei großer Entfernung schlicht
+               falsch: Der Ost-Anteil einer 290-km-Sehne ergibt über
+               atan(e/R) nur noch 268 km Bogen, also **22 km zu kurz**. Zusammen
+               mit der Wasser-Suche unten war das Deck systematisch ~43 km neben
+               dem Booster (gemessen, konstant über den ganzen Sinkflug – daran
+               ist NICHT die Vorhersage schuld). Bei kurzen Strecken liefern
+               beide Wege dasselbe. */
+            const dEast = imp.clone().sub(this.padLocal).dot(this.padEastV);
+            let p = dEast < 6000
+              // zu dicht an der Rampe: mindestens 6 km ostwärts hinausfahren
+              ? this.padLocal.clone().addScaledVector(this.padEastV, 6000)
+                  .addScaledVector(this.padNorthV,
+                    imp.clone().sub(this.padLocal).dot(this.padNorthV)).normalize()
+              : imp.clone().normalize();
+            /* ⚠️⚠️ Seit die Küste prozedural ist, ist »irgendwo östlich« nicht
+               automatisch Wasser. Östlich des Äquator-Raumhafens liegt Meer nur
+               von ~2 bis ~60 km, dann kommt der nächste KONTINENT (gemessen:
+               landH > 0 von 65 bis ~190 km). Die alte Suche schob nur OSTWÄRTS
+               und höchstens 32 km – bei einem Aufschlag 130 km downrange rannte
+               sie also 40-mal ins Leere und das Deck stand am Ende immer exakt
+               32 km neben dem Booster. Jetzt wird von der Vorhersage aus nach
+               BEIDEN Seiten der Bahnspur gesucht und der nächstgelegene
+               Wasserpunkt genommen: Ob der Booster ein Stück kürzer oder weiter
+               fliegt, ist für Gitterflossen und Landing Burn dasselbe Problem.
+               Findet sich in ±40 km kein Wasser, bleibt es beim Aufschlagpunkt –
+               dann wassert er wie ohne Forschung (50 % Bergung). */
+            let eastT = V3(0,1,0).cross(p);
+            eastT = eastT.lengthSq() < 1e-9 ? this.padEastV.clone() : eastT.normalize();
+            const wet = q => landH(q.x, q.y, q.z, TERRAIN_OCT_LOCAL) < -0.002;
+            const p0 = p.clone();
+            const shift = s => p0.clone().addScaledVector(eastT, s/LEIBNIZ.R).normalize();
+            if(!wet(p)) for(let k=1; k<=40; k++){
+              const a = shift(k*1000), c2 = shift(-k*1000);
+              // nach Westen nur, solange das Deck östlich der Rampe bleibt
+              if(wet(a)){ p = a; break; }
+              if(c2.clone().multiplyScalar(LEIBNIZ.R).sub(this.padLocal).dot(this.padEastV) > 6000
+                 && wet(c2)){ p = c2; break; }
+            }
+            b.tgt = p.multiplyScalar(LEIBNIZ.R);
             this.dsLocal = b.tgt.clone();
           }
         }
@@ -12180,6 +12631,8 @@ const Flight = {
         // den Flug beendete (z. B. auf Monti gelandet), ging leer aus – obwohl
         // Forschung am Boden genauso zählt wie im Orbit.
         this.checkMissions();
+        // ⚠️ Auch am Boden läuft die EVA weiter – s. stepEVA()
+        this.stepEVA(dt, warp);
         return;
       }
     }
@@ -12200,24 +12653,7 @@ const Flight = {
         return ok;
       });
     }
-    // EVA-Astronaut*in: Schwerkraft + Jetpack (Kamera-relativ)
-    if(this.eva){
-      const ea = this.accel(this.eva.pos, this.t);
-      if(warp<=2){
-        const k3 = this.keys, jp = 3;
-        const fwd = V3(0,0,-1).applyQuaternion(this.camera.quaternion);
-        const right = V3(1,0,0).applyQuaternion(this.camera.quaternion);
-        const up3 = V3(0,1,0).applyQuaternion(this.camera.quaternion);
-        if(k3["w"]) ea.addScaledVector(fwd, jp);
-        if(k3["s"]) ea.addScaledVector(fwd, -jp);
-        if(k3["a"]) ea.addScaledVector(right, -jp);
-        if(k3["d"]) ea.addScaledVector(right, jp);
-        if(k3["arrowup"]) ea.addScaledVector(up3, jp);
-        if(k3["arrowdown"]) ea.addScaledVector(up3, -jp);
-      }
-      this.eva.vel.addScaledVector(ea, dt);
-      this.eva.pos.addScaledVector(this.eva.vel, dt);
-    }
+    this.stepEVA(dt, warp);
     // Trümmer abgeworfener Stufen weiterfliegen lassen
     for(const d of this.debris){
       const da = this.accel(d.pos, this.t);
@@ -12238,6 +12674,20 @@ const Flight = {
       });
     }
     this.updateBooster(dt);
+    /* Erinnerung an die Landebeine. Sie starten eingefahren (Fairing!), und
+       ohne Hinweis merkt man das erst am Krater: Der Unterschied 8 → 12 m/s
+       entscheidet die halbe Mondlandung. Deshalb einmal pro Anflug melden und
+       erst über 5 km wieder scharf schalten. */
+    if(!this.landed && !this.crashed && !this.legsOut &&
+       this.v.stack.some(id=>PARTS[id].type==="legs")){
+      const bN = this.body(), aN = this.pos.distanceTo(this.bodyCenter(bN)) - bN.R;
+      const sinking = this.vel.clone().sub(bodyVel(bN,this.t))
+                        .dot(this.pos.clone().sub(this.bodyCenter(bN))) < 0;
+      if(aN < 3000 && sinking && !this._legMsg){
+        this._legMsg = true;
+        this.showMsg("🦵 LANDEBEINE noch eingefahren! [Y] drücken – sonst hält die Landung nur 8 m/s.",5);
+      } else if(aN > 5000) this._legMsg = false;
+    }
     this.checkContact();
     this.checkMissions();
     this.checkRescue();
@@ -12280,7 +12730,8 @@ const Flight = {
         const bv = bodyVel(b, this.t);
         const vrel = this.vel.clone().sub(bv).length();
         const seg = this.v.segs[this.v.segs.length-1];
-        const limit = (seg&&seg.hasLegs)?12:8;
+        // ⚠️ Eingefahrene Beine helfen nicht – der Bonus hängt an legsOut, [Y]
+        const limit = (seg&&seg.hasLegs&&this.legsOut)?12:8;
         this.pos.copy(c).addScaledVector(rel.normalize(), surf);
         this.vel.copy(bv);
         this.warpI = 0;
@@ -12385,6 +12836,7 @@ const Flight = {
       cometScanned:(Game.asteroidsScanned||[]).includes("comWhipple"),
       relays:commRelays(), mods:Game.stationMods||[],
       anomalies:(Game.anomaliesFound||[]).length,
+      flags:(Game.flags||[]).map(f=>f.body),
       rescueLanded:!!this.rescueLanded,
       boosterLanded:!!this.statBoosterLanded,
       lzLanded:!!this.statLZLanded, shipLanded:!!this.statShipLanded,
@@ -12966,6 +13418,7 @@ const Flight = {
     // Szene aktualisieren – alles folgt seinen Bahnen um die Sonne
     const lp = bodyPos(LEIBNIZ, this.t);
     for(const m of MOONS) this.moonMeshes.get(m).position.copy(bodyPos(m, this.t));
+    this.updateSurfPatch();
     this.leibnizMesh.position.copy(lp);
     this.cloudShell.position.copy(lp);
     this.atmoShell.position.copy(lp);
@@ -13226,6 +13679,12 @@ const Flight = {
       this.rocketGroup.traverse(o=>{
         if(o.name==="wing") o.scale.x += (wingTarget-o.scale.x)*0.08;
       });
+      /* Landebeine aus-/einfahren. Der Winkel wird in JEDEM Frame gesetzt und
+         nicht nur beim Umschalten – rebuildRocket() (Stufentrennung, Fairing,
+         Aussetzen) baut die Gruppe neu, und die frischen Beine kämen sonst in
+         der Bau-Pose (eingefahren) zurück, obwohl sie ausgefahren sind. */
+      this.legsAnim += ((this.legsOut ? LEG_OUT : LEG_IN) - this.legsAnim)*0.09;
+      this.rocketGroup.traverse(o=>{ if(o.name==="landleg") o.rotation.z = this.legsAnim; });
       // Starship-Flaps: im Bellyflop ausgestellt + langsames "Wedeln" (Bug- und
       // Heck-Paar gegenphasig = Balance-Steuerbewegungen wie in Boca Chica),
       // beim Flip/Landing Burn nach hinten angelegt, sonst neutral ausgefahren.
@@ -13480,10 +13939,41 @@ const Flight = {
     // Missions-Zielorbits (blau/grün) aktualisieren
     this.updateGoalRings(this.orbit());
     if(this.eva){
-      this.eva.mesh.position.copy(this.eva.pos);
-      const eUp = this.frameAt(this.eva.pos).up;
-      this.eva.mesh.quaternion.setFromUnitVectors(V3(0,1,0), eUp);
-      this.eva.mesh.visible = !this.map;
+      const e = this.eva;
+      e.mesh.position.copy(e.pos);
+      const eUp = this.frameAt(e.pos).up;
+      if(e.body){
+        /* Zu Fuß: volle Lage aus Aufrecht-Richtung UND Blickrichtung.
+           ⚠️ setFromUnitVectors allein legt nur die Kopf-Achse fest und lässt
+           den Drehwinkel um sie offen – die Figur würde beim Laufen seitwärts
+           oder rückwärts über den Mond schlurfen. Das Modell schaut nach +Z
+           (Gesicht bei z = +0,17), also ist +Z die Laufrichtung.
+           makeBasis(x, y, z) braucht ein RECHTSHÄNDIGES Tripel: x = up × z. */
+        const vRel = e.vel.clone().sub(bodyVel(e.body, this.t));
+        const tang = vRel.addScaledVector(eUp, -vRel.dot(eUp));
+        if(tang.lengthSq() > 0.09) e.face.copy(tang.normalize());
+        e.face.addScaledVector(eUp, -e.face.dot(eUp));
+        if(e.face.lengthSq() < 1e-6) e.face.copy(V3(1,0,0).cross(eUp));
+        e.face.normalize();
+        const xAx = eUp.clone().cross(e.face).normalize();
+        e.mesh.quaternion.setFromRotationMatrix(
+          new THREE.Matrix4().makeBasis(xAx, eUp, e.face));
+        // Gang: Beine und Arme gegenläufig, Ausschlag nach Tempo
+        const amp = Math.min(1, (e.sp||0)/EVA_WALK);
+        e.phase += (e.sp||0)*(1/60)*1.9;
+        const sw = Math.sin(e.phase)*amp;
+        e.legs.forEach(l=> l.rotation.x = sw*0.55*l.userData.side);
+        e.arms.forEach(a=> a.rotation.x = -sw*0.45*a.userData.side);
+      } else {
+        e.mesh.quaternion.setFromUnitVectors(V3(0,1,0), eUp);
+      }
+      e.mesh.visible = !this.map;
+    }
+    // Aufgestellte LMG-Flaggen auf ihrer Oberfläche halten
+    for(const f of this.flagObjs){
+      f.mesh.position.copy(bodyPos(f.b, this.t)).addScaledVector(f.dir, f.b.R);
+      f.mesh.quaternion.setFromUnitVectors(V3(0,1,0), f.dir);
+      f.mesh.visible = !this.map;
     }
     for(const d of this.debris){
       d.mesh.visible = !this.map;
@@ -13852,9 +14342,12 @@ const Flight = {
     show("btnBoostR", anyBoost);
     show("btnBoostJ", anyBoost);
     show("btnChute", has("chute"));
-    show("btnFairing", !!(this.v && this.v.fairingIntact));
+    const evaGround = !!(this.eva && this.eva.onGround);
+    show("btnFairing", !!(this.v && this.v.fairingIntact) && !evaGround);
+    show("btnFlag", evaGround);
     show("btnSat", has("sat") || st.includes("probe"));
     show("btnPanels", has("solar"));
+    show("btnLegs", has("legs"));
     show("btnEva", this.crew.length > 0);
     show("btnBelly", st.some(id=>PARTS[id].type==="starship" && PARTS[id].flaps));
     show("btnDock", has("dock"));

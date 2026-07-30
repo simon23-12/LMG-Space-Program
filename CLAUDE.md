@@ -210,6 +210,27 @@ SUN · KEPLER (Glutplanet innen, 5.3e9 m) · LEIBNIZ (R 600 km, Atmo 70 km) + Mo
 - **Huygens-Monde** (`HUYGENS_MOONS`, alle nach Astronom*innen): CASSINI (R 260 km, 1,41 m/s², 3,6e6 m, 8,2 h – der große Felsmond mit Dünen) · HERSCHEL (R 150 km, 0,35 m/s², 6,2e6 m, 18,6 h – **Eismond** mit Ozean unter der Kruste und Tigerstreifen wie Enceladus) · ADA (R 90 km, 0,14 m/s², 1,05e7 m, 41 h – kleiner, dunkler, gesättigt gekraterter Brocken). ⚠️ Nachgerechnet und verifiziert: alle drei liegen **außerhalb des Rings** (endet bei 2,9 R = 1,39e6 m) und weit **innerhalb der Huygens-Sphäre** (2,06e8 m); ihre SOIs überlappen sich nicht (2,56–4,64 / 5,54–6,86 / 9,99–11,01 e6 m) und sind 4–5,7 × so groß wie der jeweilige Körper, also gut umkreisbar. ⚠️ In `bodyAt` **VOR** Huygens prüfen, sonst gewinnt immer der Gasriese (dieselbe Falle wie Monti vor Leibniz). Missionen: huygensMoon → cassiniLand → herschelLand.
 - ⚠️ Kosten der drei neuen Körper: `GRAV_BODIES` wächst von 7 auf 10 (+43 % Gravitationsschleife). Gemessen: **7,6 µs je `step`**, 2,54 ms je `predict` (nur bei offener Karte), 0,36 ms je `frame` – unkritisch, aber die Grenze ist damit ungefähr erreicht.
 
+### ⚠️⚠️ Nahfeld-Kachel luftloser Welten (`Flight.updateSurfPatch` / `SURF_PATCH_ALT`)
+»Zwischen Schiff und Boden ist ein Spalt« (Bug-Report Simon, Monti-Tutorial) war **kein
+Physik-Fehler**: Die Körperkugel ist eine `SphereGeometry(R, 96, 48)`, also ein Vielflach,
+dessen ECKEN auf R liegen – die Flächen dazwischen hängen um die Pfeilhöhe
+`R·(1−cos(halber Schritt))` durch, bei Monti (R 200 km, Schritt 3,75°) also **107 m**.
+Das Schiff setzt bei `|pos| = R` auf (checkContact) und steht damit korrekt; nur die gemalte
+Oberfläche liegt bis zu 107 m tiefer. Gemessen am Testpunkt: **118,6 m Spalt** unter einem
+59,5 m hohen Lander – das Schiff schwebte zwei Raketenlängen hoch.
+- Gegenmittel ist dasselbe wie bei Leibniz (dort deckt die Bodenszene die Kugel ab), nur ohne
+  Relief: ein fein aufgelöster **Längen-/Breiten-Ausschnitt derselben SphereGeometry**
+  (`phiStart/thetaStart`), gehängt als **KIND des Körper-Meshes**. Damit stimmen UVs,
+  Material, Objektraum und Position von selbst – kein zweites Material, keine zweiten
+  Shader-Uniforms (`planetMaterial`-Uniforms werden ja pro Frame gesetzt).
+- Kein Tiefenstreit: Der Ausschnitt liegt IMMER außerhalb des groben Vielflachs.
+- 96×96 Felder auf ~0,04 rad Öffnung ⇒ Durchhang **0,016 m** statt 107 m. Verifiziert per
+  Raycast vom Schiffsursprung nach unten: 118,63 m → **0,003 m**.
+- Öffnungswinkel `clamp(2,2·√(2h/R), 0,004, 0,30)` (gut das Doppelte des Horizonts), Neubau
+  nur bei Körperwechsel, > 0,3·ang Wanderung oder ±35 % Zoomänderung; altes `geometry.dispose()`.
+- Sichtbar nur unter `SURF_PATCH_ALT` (8 km) – darüber ist der Durchhang kleiner als ein Pixel.
+- Leibniz ist automatisch außen vor (nicht in `MOONS`), Gasriesen per `kind`-Prüfung.
+
 ### Feinrelief im Shader (`detailNoiseTex` / `PLANET_GLSL` / `planetMaterial`)
 Die Kugeltextur von Leibniz hat 2048×1024 Texel = **1,8 km je Texel**. Aus 200 km Höhe ist
 EIN Texel rund 6 Bildschirmpixel groß – genau das war der »sieht aus wie auf dem N64«-Bug-
@@ -531,9 +552,15 @@ Das Repo raymarcht 3D-Texturen mit TAA und God Rays – für Schulrechner zu teu
 
 ## Booster-Landeplätze (RTLS / Droneship / Mechazilla-Catch)
 - **Tech-Kette:** reuse → landZone (40, Landing-Zone-Plattform »LZ-1« an JEDER Rampe, in `buildPad` bei lokal (10,0,260)) → droneship (60). `Game.boosterSite` ("rtls"/"ship", VAB-Wähler »Booster-Landeplatz« erscheint bei Gitterflossen im Stack, `VAB.setBoosterSite`), `Flight.boosterSiteEff()` = rtls/ship/null. **Bergungswert:** LZ 100 % · Droneship 90 % · Gelände 60 % · Wasserung 50 % (ohne Forschung wassert der Booster downrange – reuse1 bleibt erfüllbar!). Missionen lz1 (`s.lzLanded`) → ship1 (`s.shipLanded`), catch1 (`s.caught`, req reuse1). Orange Tankmarke rutscht bei RTLS auf 30 % (Boostback braucht Sprit). ⚠️ Tutorial "booster" hat deshalb 2× tankL in Stufe 1 + Ziel 10 km (getestet: 12 km bei 37 % – die alte 1-Tank-Version lief vor der Marke leer).
-- **Autopilot-Zustände:** flip → **boostback** (nur rtls/catch, Sprit > 22 %: brennt horizontal, bis `predictImpactRel(b,tt)` (grobe ballistische Vorhersage im Leibniz-Frame, cdA≈13) < 350/800 m am Ziel) → coast (Droneship positioniert sich beim ERSTEN Impact-Predict auf See, min. 6 km Ost; Gitterflossen-»Lift« zieht die Bahn zum Ziel; **< 8 km: direkte Quergeschwindigkeits-Regelung** `vLat = err/tGo`, cap 45 m/s / 6 m/s² – die Prediction allein streut bei Warp zu sehr!) → burn (Hoverslam relativ zu `b.catchAlt`, Ziel-Kipp + Schubvektor-Lateral-Regler < 2,5 km) → landed/caught/crashed. Getestet: LZ 14–30 m, Droneship 9 m, Catch 7,5 m (auch mit Warp 2).
+- **Startgebühr Droneship:** `DRONESHIP_FEE` = 50 🪙, addiert von `launchFee(stack)` (nur Karriere, nur mit Gitterflossen im Stack, nur bei gewähltem+erforschtem Droneship) auf `stackCost` in `UI.launch` → steckt in `Flight.launchCost`, wird also bei einem ABGEBROCHENEN Start korrekt zurückgebucht (verifiziert: netto ±0), bei erfolgreicher Bergung dagegen nicht (das ist die Dienstleistung). Sichtbar im VAB-Infopanel: Zeile »Kosten (inkl. 🚢 50)« + Notiz am Landeplatz-Wähler.
+- **Autopilot-Zustände:** flip → **boostback** (nur rtls/catch, Sprit > 22 %: brennt horizontal, bis `predictImpactRel(b,tt)` (grobe ballistische Vorhersage im Leibniz-Frame, cdA≈13) < 350/800 m am Ziel) → coast (Droneship-Position s. u.; Gitterflossen-»Lift« zieht die Bahn zum Ziel; **< 8 km: direkte Quergeschwindigkeits-Regelung** `vLat = err/tGo`, cap 45 m/s / 6 m/s² – die Prediction allein streut bei Warp zu sehr!) → burn (Hoverslam relativ zu `b.catchAlt`, Ziel-Kipp + Schubvektor-Lateral-Regler < 2,5 km) → landed/caught/crashed. Getestet: LZ 14–30 m, Droneship 10–17 m, Catch 7,5 m (auch mit Warp 2).
+- ⚠️⚠️ **Droneship-Position (`b.tgt`/`dsLocal`): drei Fallen, alle drei waren gestellt.** Ergebnis vorher: Der Booster fiel bei JEDEM getesteten Profil 29–40 km neben der Barge ins Wasser, zündete den Landing Burn gar nicht mehr und bekam 50 % statt 90 %. Jetzt 10–17 m in vier Profilen (Trennung 19–34 km / 1200–1900 m/s).
+  1. **Nicht EINMAL am Scheitelpunkt festlegen.** Die Position wird bis 25 km Höhe alle 2 s nachgeführt (`b._dsT`) und erst darunter eingefroren. Beim ersten Impact-Predict steht der Booster am Apogäum, wo die grobe ballistische Vorhersage am schlechtesten ist – ein Schiff darf sich aber bewegen, das ist ja sein Vorteil gegenüber der ortsfesten LZ. Unter 25 km muss es stehen, sonst fährt das Deck im Endanflug davon.
+  2. **Kein Tangentialebenen-Umweg.** Ziel ist der vorhergesagte Aufschlagpunkt SELBST (`imp.normalize()·R`). Vorher wurde er in Ost/Nord-Koordinaten der RAMPE zerlegt und aus `padLocal` wieder zusammengesetzt: Der Ost-Anteil einer 290-km-Sehne ergibt über `atan(e/R)` nur 268 km Bogen = **22 km zu kurz**. Bei kurzen Strecken identisch, deshalb fiel es nie auf.
+  3. **Wassersuche in BEIDE Richtungen.** Östlich des Äquator-Raumhafens liegt Meer nur von ~2 bis ~60 km, dann kommt der nächste Kontinent (gemessen `landH > 0` von 65 bis ~190 km). Die alte Suche schob nur ostwärts und höchstens 40×800 m – bei Aufschlag 130 km downrange lief sie 40-mal ins Leere und das Deck stand am Ende **exakt 32 km** daneben (konstanter Offset = verräterisch). Jetzt ±40 km entlang der Bahnspur, nächstgelegenes Wasser gewinnt, Verschiebung als WINKEL (`s/R`) am Zielpunkt; nach Westen nur, solange das Deck > 6 km östlich der Rampe bleibt.
 - **Mechazilla (eq-Pad, Tech starshipT):** Turm+Arme (`name:"mzArm"`, `userData.side`) + Flame Diverter in `buildPad("eq")`; `Flight.catchLocal` = padLocal + Nord·(−20). Superheavy-Stufe (braucht Decoupler drüber!) → `site:"catch"`, `catchAlt = 72 − H + 6` (Arme greifen oben, Unterkante schwebt). Catch-Check VOR dem Boden-Check: alt ≤ catchAlt+2, horizontal < 45 m, < 9 m/s → `state:"caught"` (sackt 2,5 m nach, `b.sink`), 100 % Erstattung, `statCaught`. Arme schließen via `Flight.mzArmFold` in frame(). **Superheavy startet NUR von eq** (Guard in `UI.launch`). Diverter-Extra-Rauch: 4 Partikel/Frame seitlich (Ost/West) bei alt < 100 + superheavy im Stack; Partikel-Pool dafür 170.
 - **Booster-Cam:** 380×230, Landing Burn/caught zoomt auf `min(420, 130+0.9·vrel)` raus (geglättet via `b.camDist`, flacher Winkel 0.07) – Cinematic-Shot. Neue States boostback/caught im Label.
+  - ⚠️ **Beim Landing Burn gehört das ZIEL mit ins Bild.** Die Kamera blickt dann nicht mehr auf die Booster-Mitte, sondern auf `lerp(booster, b.tgt, 0.55)`, und der Abstand wächst auf mindestens `Abstand·1,25 + 50` (50° Bildhöhe ⇒ Spanne/0,93, plus Rand), gedeckelt bei 600. Vorher lag die Barge bei 204 m Resthöhe knapp UNTER dem Bildrand: Man sah eine Rakete über leerem Wasser schweben, und im nächsten Moment stand sie – genau der Moment, für den das Fenster da ist, fiel heraus. Gilt genauso für LZ und Mechazilla-Arme.
 - **Droneship-Mesh** `buildDroneship()` (Barge »Lies die Anleitung«), `Flight.droneMesh` + `dsLocal` (folgt dem Planeten pro Frame, erst sichtbar wenn positioniert). Landung auf Deck: `b.local.setLength(R+5.7)`.
 - ⚠️ Booster-Tests: Wenn das MUTTERSCHIFF crasht, friert `step()` ein und der Booster hängt – Testflüge müssen die Oberstufe am Fliegen halten (∞-Tank + Schub).
 
@@ -545,6 +572,7 @@ Das Repo raymarcht 3D-Texturen mit TAA und God Rays – für Schulrechner zu teu
 - **Crew-Kader:** `Game.roster` (6 feste Astronaut*innen, `ROLES` pilot/ing/sci, `XP_LEVELS`). Auswahl in `Flight.start` (bereit + wenigste Flüge), Boni via `Flight.crewLvl(role)`: Pilot +8 %/Lvl Agilität, Ing −4 %/Lvl Sprit (`fuelEff`), Sci +10 %/Lvl Experimente. XP in `settleCrewAndAssets()` (endFlight). Im All zurückgelassen → `status:"gestrandet"` + Wrack-Asset.
 - **Funknetz:** `commCheck(stack,pos,t)` – bemannt immer ok; Sonde: Leibniz-SOI ok, sonst Antenne nötig + `commRelays()` (1 = inneres System <2.6e10 m Sonnenabstand, 3 = Newton). Ohne Signal: `commDead` blockt Rotation/Schub/Z/X. Relais = Sat mit Antenne+Solar via [N] (`Game.relays`).
 - **Anomalien:** `ANOMALIES` (8 Stück, `dir` = Einheitsvektor körperfest). Leuchtfeuer-Meshes (`anomalyMeshes`) pro Frame auf Oberfläche. Entdeckung in `onLanded(b)`: Winkel < 0,25 rad. `Game.anomaliesFound`.
+- **LMG-Flaggen (»erobern«):** `Game.flags` = `[{body:<SCHLÜSSEL>, dir:[x,y,z]}]`. ⚠️ Gespeichert wird der Schlüssel aus `BODY_BY_NAME()` ("MONTI"), NICHT `b.name` – sonst findet `start()` den Körper beim Laden nicht wieder; dafür gibt es `bodyKey(b)`. `Flight.start()` baut alle Meshes neu (`flagObjs`, positioniert pro Frame wie die Anomalien), Sandbox/Tutorial bekommen eine leere Liste. Mission `flagMonti` (req montiLand), Sektion »🚩 LMG-Flaggen« in der Missionszentrale.
 - **Orbit-Inventar:** `Game.assets` ({kind:"ship"|"sat"|"tanker"|"wreck", body, alt, phase, name, crew?, **stack, fuel[], srb[], charge**}) – on rails via `assetPos/assetVel`, gespawnt in `spawnAssets()`. Sats persistieren bei [N] (Cap 12), **Schiffe** (Cap 8) / Tanker / Wracks bei endFlight im All. Rettung `checkRescue()`: Kapsel < 40 m & < 4 m/s → Crew umsteigen; Landung auf Leibniz → `rescueLanded` + Status bereit (in `onLanded`).
 
 ### »🛰️ Objekte im All« – zurückgelassenes wieder fliegen
@@ -620,6 +648,27 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
 
 ## Bauteile & Stack
 `PARTS` (Reihenfolge im Stack: Index 0 = SPITZE). **Radialteile** (`isRadial`: fin, sb2/sb4) belegen KEINE Stack-Höhe (`stackHeight()` statt Summe!) und werden in `buildRocketGroup` an den benachbarten Tank montiert (`radialHost`: erst darunter, dann darüber; `buildPartMesh(id, {r,h})`). **Sidebooster = Pool PRO STUFE** (`seg.boost` in buildVessel, kein globales v.boost mehr!): zünden mit IHRER Stufe (Zündung/Stufentrennung setzt `n.boost.ignited`) oder [R] (aktive Stufe), [J] wirft NUR die Booster der aktiven Stufe ab (nächstes [J] nach der Trennung = nächste Stufe); abgeworfene Stufen nehmen ihren Pool automatisch mit (hängt am Segment). Physik/HUD/Gauge/Flammen lesen `activeSeg().boost`; Flammen von Oberstufen-Boostern via `bflame.userData.upper` aus (gesetzt in buildRocketGroup, wenn Decoupler darunter). Trümmer-Mesh = `buildStrapOnMesh(strapOnHeight(stack,i))` – NICHT das srb-Mesh (Formwechsel-Bug). Servicebuchten (`bayCoverage()`): `bay` = »M« verkleidet 2 Teile darüber, `bayS` 1 (`PARTS[..].covers`) – aber NUR Typen aus `BAY_FITS` (battery/solar/probe/antenna/lab), sonst "verschluckt" die Bucht z. B. Oberstufen-Triebwerke; geschlossene Bucht schützt Solarpanele vor Fahrtwind, [G] öffnet sie automatisch mit. Oberstufen-Triebwerke (Decoupler darunter) kriegen `flame.userData.idle` – `setFlames` lässt sie aus, bis sie unterste Stufe sind. VAB-Info: Seitenbooster zählen zu Gesamtmasse + TWR IHRER Stufe (nicht Δv, `segBoost[]`); jede Stufe zeigt Leergewicht, Rakete gesamt »Leergewicht (Tanks leer)«. Solarflügel (`name:"wing"`) starten eingefahren (scale.x 0.1) – für Orbit-Sats `deployWings()`. Fairing verkleidet alles darüber.
+
+### Ausfahrbare Landebeine ([Y] / `LEG_OUT`/`LEG_IN` / `Flight.toggleLegs`)
+Wie bei KSP: Jedes der 3 Beine hängt an einer Gelenk-Gruppe `name:"landleg"` an der
+OBERkante des Bauteils, Rohr + Fußteller darunter. **Gebaut und gestartet wird EINGEFAHREN** –
+nur so passt ein Lander unter eine Nutzlastverkleidung, und genau dafür war der Wunsch da.
+- ⚠️ Der Landestoß-Bonus (12 statt 8 m/s in `checkContact`) hängt an `legsOut`, nicht mehr
+  allein an `seg.hasLegs` – sonst wäre Einfahren ein Gratis-Vorteil ohne Risiko.
+  Dazu eine Warnung beim Sinkflug unter 3 km (`_legMsg`, scharf ab 5 km wieder).
+- ⚠️⚠️ **Beinlänge = `h/cos(LEG_OUT)`, Gelenk auf `y = h`** ⇒ der Fußteller steht ausgefahren
+  exakt auf der UNTERKANTE des Bauteils. Vorher endeten die Beine 8,8 Einheiten TIEFER: Das
+  Schiff setzt bei `|pos| = R` auf, die Unterkante liegt also auf der Oberfläche – die Beine
+  steckten im Boden. Aufgefallen ist das erst, als die Nahfeld-Kachel (s. `SURF_PATCH_ALT`)
+  den 100-m-Spalt auf Monti geschlossen hat; vorher schwebte ohnehin alles.
+  `LEG_OUT` = 0,9 rad (51,6°) hält den Stand trotzdem breit: Fußkreis `r·0,564 + h·tan 0,9`,
+  beim Standard-Bein Ø 23 gegen Ø 14 Hülle. `foot.rotation.z = −LEG_OUT` ⇒ Teller liegt
+  ausgefahren flach auf.
+- ⚠️ Der Winkel wird in **JEDEM Frame** gesetzt (`legsAnim`, Einschwingen 0,09/Frame), nicht
+  nur beim Umschalten: `rebuildRocket()` (Stufentrennung, Fairing, Aussetzen) baut die Gruppe
+  neu und die frischen Beine kämen sonst in der Bau-Pose (eingefahren) zurück.
+- Tutorial "land" nennt [Y] jetzt im ersten Schritt – sonst landet die AG mit 8-m/s-Limit,
+  ohne zu wissen warum.
 
 ## Montagehalle (VAB-3D-Szene)
 ### ⚠️ Hallenmaße hängen an der Kamera (`HW`/`HH` ↔ `camDist`-Deckel)
@@ -804,8 +853,39 @@ Reaktionsräder und darf nicht pusten (verifiziert: 0 Partikel, Zischen 0).
   unterwegs« (`lab1`) schnappte erst beim nächsten Abheben zu – wer danach den Flug beendete
   (z. B. auf Monti gelandet), ging leer aus.
 
+## Außeneinsatz zu Fuß & Flagge (`toggleEVA` / `stepEVA` / `plantFlag`)
+EVA gibt es jetzt in zwei Spielarten: schwerelos im All (wie bisher) **oder zu Fuß auf einer
+Oberfläche** – auf Monti genauso wie auf Leibniz. Verboten bleibt nur der Ausstieg im Flug
+innerhalb der Atmosphäre. Auf dem Boden: W/A/S/D laufen (kamerarelativ, 3,5 m/s), [↑] hüpfen,
+[F] Flagge, [V] einsteigen.
+- ⚠️⚠️ **`stepEVA` ist eine eigene Methode und wird ZWEIMAL aufgerufen** – einmal regulär und
+  einmal im `landed`-Zweig von `step()`, der vorzeitig `return`t (dort laufen pos/vel des
+  Schiffs on rails). Ohne den zweiten Aufruf steht die Astronaut*in im Inertialraum still,
+  während der Mond unter ihr wegfliegt: gemessen **312 km** Abstand zum eigenen Schiff nach
+  2 Sekunden.
+- ⚠️ Der Bodenmodus setzt die **Geschwindigkeit direkt** (Radialanteil behalten,
+  Tangentialanteil aus den Tasten). Ein Kraftmodell bräuchte Haftreibung, sonst schlittert man
+  bei Montis 1,6 m/s² wie auf Eis davon. Die Schwerkraft bleibt echt – Hüpfen trägt weit.
+  Bodenkontakt klemmt auf `R + EVA_FOOT` (0,65 = Fußhöhe von `buildAstronaut`) und schluckt
+  die einwärts gerichtete Geschwindigkeit.
+- ⚠️ **Lage über `makeBasis(x, up, face)`**, nicht `setFromUnitVectors`: Letzteres legt nur die
+  Kopfachse fest und lässt den Drehwinkel um sie offen – die Figur schlurft dann seitwärts
+  über den Mond. Modell schaut nach **+Z** (Gesicht bei z = +0,17), rechtshändig ⇒ `x = up × face`.
+  Gang: `legs`/`arms`-Gruppen gegenläufig, Ausschlag nach Tempo.
+- ⚠️ Absetzpunkt aus der **breitesten Stelle** der Rakete (`max(PARTS.w)/2 + 9`), nicht aus der
+  Höhe – sonst steht die Crew bei einem 200-m-Träger 70 m entfernt. Einstiegs-Schwelle
+  entsprechend `max(60, H/2 + 40)`: gemessen wird zur Schiffs-MITTE, mit den alten festen
+  60 m käme man von einem großen Träger nie wieder an Bord.
+- **Flagge** `buildFlagMesh()` + `flagTexture()`: ⚠️ Das Logo wird auf ein Canvas GEMALT und
+  nicht aus `LMGTECHlogo.png` geladen – per file:// darf WebGL keine Datei-Bilder als Textur
+  benutzen (derselbe Grund wie bei `nebulae.js`). ⚠️ Die Fahne hängt an einer **Querstrebe**,
+  genau wie bei Apollo 11: ohne Luft fällt ein Tuch am Mast schlaff herunter. Beliebte
+  AG-Nachfrage – deshalb bewusst so gebaut.
+- [F] ist doppelt belegt: bei EVA am Boden Flagge, sonst Fairing (beides gleichzeitig gibt es
+  nie). `updateButtons` blendet `btnFlag`/`btnFairing` gegenseitig aus.
+
 ## Tastenkürzel
-Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · F Fairing · N Satellit · G Panele · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · V EVA · K Knoten · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp · WASD/QE drehen · ↑↓ Schub · **Z auf Rampe = Orbit-Ziel wählen (nur Äquator-Rampe)**, im Flug Vollgas · X Schub aus
+Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · K Knoten · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp · WASD/QE drehen · ↑↓ Schub · **Z auf Rampe = Orbit-Ziel wählen (nur Äquator-Rampe)**, im Flug Vollgas · X Schub aus
 
 ## Test-Workflow (immer so!)
 1. Preview: `preview_start` mit `lmg-space-program` (Port 8642).

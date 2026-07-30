@@ -114,8 +114,10 @@ const TUTORIALS = [
   {id:"land", icon:"🛬", title:"Mondlandung auf Monti", sub:"Du startest im tiefen Monti-Orbit – setz den Lander auf.",
    scenario:{stack:["pod","rcs","fin","tankM","engVac","legs"], orbit:{body:"MONTI", alt:15000}},
    steps:[
-    {text:`Du umkreist Monti in 15 km Höhe. Dein Lander hat Landebeine (verzeihen bis 12 m/s)
-      – aber Monti hat <b>keine Atmosphäre</b>: kein Fallschirm, nur Triebwerksbremsen!<br><br>
+    {text:`Du umkreist Monti in 15 km Höhe. Dein Lander hat Landebeine – aber die sind
+      für den Start <b>eingefahren</b>! Drücke <b>[Y]</b>, dann klappen sie aus und verzeihen
+      dir bis 12 m/s statt nur 8.<br><br>
+      Monti hat außerdem <b>keine Atmosphäre</b>: kein Fallschirm, nur Triebwerksbremsen.
       Schalte SAS mit <b>[T]</b> auf <b>RETROGRADE</b> und brenne mit <b>[Z]</b>,
       bis die Periapsis <b>unter 0</b> fällt (Bahn zeigt in den Boden).`,
      check:o=>o.pe<0},
@@ -128,7 +130,10 @@ const TUTORIALS = [
       Mit <b>[↑/↓]</b> fein dosieren. Du schaffst das!`,
      check:(o,F)=>F.landed},
    ],
-   done:`DER ADLER IST GELANDET! 🦅 Mondlandung gemeistert – die Königsdisziplin.
+   done:`DER ADLER IST GELANDET! 🦅 Mondlandung gemeistert – die Königsdisziplin.<br><br>
+     Jetzt der schönste Teil: Steig mit <b>[V]</b> aus und lauf mit <b>W/A/S/D</b> über Monti
+     (mit <b>[↑]</b> hüpfen – bei 1,6 m/s² fliegst du weit!). Mit <b>[F]</b> stellst du die
+     <b>LMG-Flagge</b> auf. In der Karriere bleibt sie für immer stehen.
      (Crash gehabt? <b>↩ Neustart</b> setzt das Szenario zurück.)`},
 
   {id:"reentry", icon:"🔥", title:"Wiedereintritt überleben", sub:"Stufe abtrennen, Schild ausrichten, Schirm ziehen.",
