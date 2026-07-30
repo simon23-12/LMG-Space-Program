@@ -1786,6 +1786,11 @@ function migrateGame(){
   if(!Array.isArray(Game.activeMissions))
     Game.activeMissions = Game.activeMission ? [Game.activeMission] : [];
   delete Game.activeMission;
+  /* ⚠️ Sandbox ist ein SITZUNGS-Zustand und gehört nicht in den Spielstand:
+     Das Spiel startet immer im Hauptmenü, dort ist »Sandbox« nie richtig.
+     Ältere Saves (und der Autosave einer Sandbox-Sitzung) tragen `sandbox:true`
+     und hätten den ???-Nebel im Universum-Bildschirm sonst dauerhaft offen. */
+  Game.sandbox = false;
   // Wer schon Missionen erledigt hat, kennt die Karriere bereits
   if(Game.introSeen===undefined) Game.introSeen = Game.done.length>0;
   if(!Game.pad) Game.pad = "lmg";
@@ -1860,7 +1865,15 @@ const UI = {
     if(id==="universe"){ renderUniverse(); showHint("universe"); }
     if(id==="tutorial") renderTutorials();
     if(id==="options") renderOptions();
-    if(id==="menu") this.inGame = false;
+    /* ⚠️⚠️ Im Hauptmenü endet die SITZUNG – und damit auch der Sandbox-Modus.
+       `Game.sandbox` ist ein Sitzungs-Zustand, kein Fortschritt: Es blieb aber
+       nach »🛠️ Sandbox« stehen, und weil `telescopeUp()`/`surveyUp()` in der
+       Sandbox alles aufdecken, war im Universum-Bildschirm anschließend jede
+       ???-Welt sichtbar – einmal Sandbox angetippt und der halbe Karriere-Reiz
+       war weg (Bug-Report Simon). Schlimmer noch: `autoSave()` schrieb
+       `sandbox:true` in den Spielstand, der Nebel kam also auch nach einem
+       Browser-Neustart nicht zurück (s. auch migrateGame). */
+    if(id==="menu"){ this.inGame = false; Game.sandbox = false; }
     updateMusic();
     // Beim Verlassen der Flugansicht verstummt das Triebwerk sofort – der
     // Raptor hat keine laufende Frame-Schleife mehr, die ihn ausblenden könnte.

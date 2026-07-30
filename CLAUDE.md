@@ -413,6 +413,14 @@ zwei Missionen – **Planeten und Kleinkörper werden bewusst NICHT gemeinsam au
   Surveyor). Am einfachsten von der Polarstation »Skihütte« (Tech `padPolar`, 86° N).
   ⚠️ Der Ost-Start allein reicht nicht – die Bahn muss AUCH hoch genug sein; die
   Fehlermeldung beim Aussetzen unterscheidet »zu tief« und »zu wenig geneigt«.
+- ⚠️⚠️ **`Game.sandbox` ist ein SITZUNGS-Zustand, kein Fortschritt.** Es wird beim Wechsel ins
+  Hauptmenü (`UI.show("menu")`) und beim Laden (`migrateGame`) auf `false` gesetzt. Sonst
+  blieb es nach einem Klick auf »🛠️ Sandbox« stehen, und weil `telescopeUp()`/`surveyUp()`
+  in der Sandbox alles aufdecken, war im Universum-Bildschirm anschließend jede ???-Welt
+  sichtbar – einmal Sandbox angetippt und der halbe Karriere-Reiz war weg (Bug-Report Simon).
+  Zusätzlich schrieb `autoSave()` `sandbox:true` in den Spielstand: Der Nebel kam damit auch
+  nach einem Browser-Neustart nicht zurück, deshalb heilt `migrateGame` Alt-Saves mit.
+  Gemessen: frische Karriere 50 ???-Einträge → Sandbox 0 → zurück im Menü wieder 50.
 - Sandbox/Tutorial sind immer offen. `Flight.scopeUp`/`Flight.surveyUp` sind die Flugflags
   (Reset in `start()`), `state.scopeUp`/`state.surveyUp` die Missions-Checks.
 - ⚠️ `migrateGame` schenkt Bestands-Saves die Entdeckung, wenn sie schon bei Minzi waren
