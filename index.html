@@ -11993,12 +11993,8 @@ const Flight = {
     if(this.landed){ this.showMsg("Erst starten – dann Satelliten aussetzen!",2); return; }
     if(this.v.fairingIntact){ this.showMsg("Erst das Fairing absprengen! [F]",2); return; }
     // Komplett-Satelliten (Wetter/Strahlung/Späh) haben Vorrang vor dem Bausatz
-    for(const sg of this.v.segs){
-      const satId = sg.parts.find(id=>PARTS[id].type==="sat");
-      if(!satId) continue;
-      this.deploySpecialSat(satId, sg);
-      return;
-    }
+    const pick = this.nextSatToDeploy();
+    if(pick){ this.deploySpecialSat(pick.satId, pick.seg); return; }
     const seg = this.v.segs.find(s=>s.parts.includes("probe"));
     if(!seg){ this.showMsg("Kein Satellit oder Sondenkern an Bord! 📡",3); return; }
     this._satHadAntenna = seg.parts.includes("antenna");
@@ -12054,6 +12050,32 @@ const Flight = {
     }
     this.showMsg(msg,4);
   },
+  /* ⚠️⚠️ Welcher Satellit fliegt bei [N] als NÄCHSTES raus? Der OBERSTE im Stack –
+     also genau der, der in der Montagehalle ganz oben in der Liste steht.
+     Vorher lief die Suche über `this.v.segs`, und `VAB.segments()` baut die
+     Segmente von UNTEN nach oben auf: `sg.parts.find(...)` lieferte damit den
+     UNTERSTEN Satelliten. Wer »Wolkengucker« über »Werbefunk« baute, bekam auf
+     [N] den Werbefunk – die Wetter-Mission blieb offen und sah aus, als würde
+     sie nicht auslösen (Bug-Report Simon). Die Reihenfolge muss die sein, die
+     man beim Bauen sieht, sonst ist sie geraten. */
+  nextSatToDeploy(){
+    if(!this.v) return null;
+    const st = this.v.stack;
+    // Stack-Position → Segment-Nummer, exakt wie VAB.segments() zählt (von unten,
+    // neues Segment NACH jedem Stufentrenner).
+    const segOf = new Array(st.length);
+    let s = 0;
+    for(let i=st.length-1;i>=0;i--){
+      segOf[i] = s;
+      if(PARTS[st[i]] && PARTS[st[i]].type==="decoupler") s++;
+    }
+    for(let i=0;i<st.length;i++){                    // 0 = Spitze
+      if(!PARTS[st[i]] || PARTS[st[i]].type!=="sat") continue;
+      const seg = this.v.segs[segOf[i]];
+      if(seg && seg.parts.includes(st[i])) return {satId:st[i], seg};
+    }
+    return null;
+  },
   /* Komplett-Satellit (Wetter/Strahlung/Späh) aussetzen: prüft die Orbit-
      Anforderungen des jeweiligen Typs und setzt die Missions-Flags */
   deploySpecialSat(satId, seg){
@@ -12079,8 +12101,7 @@ const Flight = {
     (this.satDeploys = this.satDeploys||[]).push(
       {body:o.body.name, pe:o.pe, ap:o.ap, inc:this.orbitInc(), pad:this.pad?this.pad.id:"lmg"});
     const left = this.v.stack.filter(id=>PARTS[id].type==="sat").length;
-    let msg = (pez ? "📤 PEZ-Dispenser: " : "📡 ") + PARTS[satId].name + " ausgesetzt!" +
-      (pez && left ? " (noch "+left+" im Frachtraum – wieder [N])" : "");
+    let msg = (pez ? "📤 PEZ-Dispenser: " : "📡 ") + PARTS[satId].name + " ausgesetzt!";
     if(stable && this.orbitInc()>75){ this.satPolar = true; msg += " 🧭 Polarorbit!"; }
     if(o.body===LEIBNIZ && isGeoOrbit(o.pe, o.ap)) msg += " 🕗 Synchronbahn!";
     if(satId==="satW"){
@@ -12167,6 +12188,13 @@ const Flight = {
         stack:[satId]});   // für »🛰️ Objekte im All«
       autoSave();
     }
+    /* ⚠️ Der »noch an Bord«-Hinweis gehört ganz ans ENDE: Die Zweige oben
+       (Teleskop, Durchmusterung, erfüllter Kommerz-Auftrag) ERSETZEN `msg`
+       komplett und hätten ihn sonst verschluckt – genau so verschwand er im
+       Bug-Report: Der Werbefunk meldete triumphierend seine Prämie, und dass
+       der Wettersatellit noch an Bord war, stand nirgends. */
+    if(left) msg += pez ? " (noch "+left+" im Frachtraum – wieder [N])"
+                        : " 📦 Noch "+left+" Satellit"+(left>1?"en":"")+" an Bord – nochmal [N]!";
     this.showMsg(msg,5);
   },
   toggleChute(){
@@ -12582,18 +12610,48 @@ const Flight = {
       const relPos = this.pos.clone().sub(bodyPos(LEIBNIZ,this.t));
       const descending = airVel.dot(relPos) < 0;
       const heat = rho*v*v*v;
-      if(!this.landed && descending && v>1600 && heat>1.5e7){
+      /* ⚠️⚠️ KEINE harte Schwelle mehr auf die Heizrate – die war ausrechenbar
+         und damit ein Schlupfloch: Die Bremsfläche `cdA` ist FEST (4), also
+         entscheidet allein die MASSE, wie hoch ein Schiff abbremst. Ein leichtes
+         Schiff verliert seine Bahngeschwindigkeit so weit oben, dass `rho·v³`
+         die alten 1,5e7 NIE erreicht – gemessen an einer 0,9-t-Kapsel aus einem
+         500-km-Orbit: Spitzenwert 1,3e7 (und da war v schon unter 1600), also
+         heatDmg **0,00** und eine heile Landung ohne jeden Hitzeschild
+         (Bug-Report Simon). Schwerere Schiffe tauchen tiefer ein, reißen die
+         Schwelle und sterben – ausgerechnet die Anfänger-Sonde kam durch.
+         Jetzt wächst der Schaden STETIG mit der Heizrate (`sev`), es gibt also
+         keine Kante mehr, unter der man hindurchtauchen kann. Die didaktische
+         Grenze bleibt exakt, wo sie war: unter 1600 m/s (suborbitale Hüpfer)
+         passiert weiterhin GAR NICHTS. */
+      const sev = Math.min(1, heat/1.5e7);
+      if(!this.landed && descending && v>1600 && heat>2e5){
         let shielded = this.v.stack.some(id=>PARTS[id].type==="shield");
         const isStarship = this.v.stack.some(id=>PARTS[id].type==="starship");
         let tilesWrong = false;
         if(!shielded && isStarship){
-          // Starship: Kacheln sitzen NUR am Bauch (+Z körperfest) – sie schützen
-          // ausschließlich BAUCH VORAN in den Wind (Bellyflop [C]), wie in echt!
+          /* Starship: Kacheln sitzen NUR am Bauch (+Z körperfest) – sie schützen
+             ausschließlich BAUCH VORAN in den Wind (Bellyflop [C]), wie in echt!
+             ⚠️⚠️ Der Punkt-Test allein reicht dafür NICHT mehr, seit der Schaden
+             schon in dünner Luft (~57 km) beginnt: In der Bauchlage zeigt der
+             Bauch nach UNTEN (`updateBelly` legt die Nase waagerecht), beim
+             flachen Wiedereintritt kommt der Wind aber noch fast von VORN –
+             gemessen Bauch·Wind = 0,10 auf der ganzen Strecke von 74 bis 50 km.
+             Erst im steilen Endfall steigt der Wert über 0,5. Vorher fiel das
+             nicht auf, weil unterhalb von ~33 km ohnehin schon senkrecht
+             gefallen wurde. Ohne diesen Zweig verglüht ein KORREKT geflogenes
+             Starship in Bauchlage bei 48 km. Also zählt auch die vom Autopiloten
+             gehaltene Bauchlage – solange der Bauch überhaupt auf der Windseite
+             liegt (`> 0`), sonst wäre ein auf dem Rücken liegendes Schiff
+             ebenfalls geschützt. */
           const bellyDir = V3(0,0,1).applyQuaternion(this.q);
-          shielded = bellyDir.dot(airVel.clone().normalize()) > 0.5;
+          const wind = bellyDir.dot(airVel.clone().normalize());
+          shielded = wind > 0.5 ||
+                     (this.belly && this.belly.state==="flop" && wind > 0);
           tilesWrong = !shielded;
         }
-        if(this._heatMsgT===undefined || this.t-this._heatMsgT>4){
+        // Gemeldet wird erst, wenn es wirklich glüht (alte Schwelle) – sonst
+        // stünde die Warnung schon in hauchdünner Luft minutenlang im Bild.
+        if(heat>1.5e7 && (this._heatMsgT===undefined || this.t-this._heatMsgT>4)){
           this._heatMsgT = this.t;
           this.showMsg(shielded
             ? "🔥 Wiedereintritt – der Hitzeschild glüht!"
@@ -12602,8 +12660,9 @@ const Flight = {
               : "⚠️🔥 KEIN HITZESCHILD – die Struktur verglüht!", 3);
         }
         if(!shielded){
-          // Grundschaden + Heizraten-Anteil: selbst dünnste Luft grillt auf Dauer
-          this.heatDmg = (this.heatDmg||0) + (0.12 + heat/5e8)*dt;
+          // Grundschaden + Heizraten-Anteil: selbst dünnste Luft grillt auf Dauer.
+          // `sev` (0…1) macht daraus einen weichen Übergang statt einer Kante.
+          this.heatDmg = (this.heatDmg||0) + (0.12*sev + heat/5e8)*dt;
           if(this.heatDmg>=1 && !this.crashed){
             this.crashed = true;
             this.warpI = 0;
