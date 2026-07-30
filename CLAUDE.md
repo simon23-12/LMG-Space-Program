@@ -441,6 +441,26 @@ alle Meshes standen in der Szene. Jetzt:
 `STATION` + `stationPos(t)`/`stationVel(t)`: exakter 100-km-Kreisorbit um Leibniz (on rails), immer da (Karriere/Sandbox/Tutorial). Docking: Part `dock`, Taste **[L]**: < 30 m & < 3 m/s = sofort; **30–200 m (rel < 25 m/s) = Docking-Autopilot** `autoDock`/`updateAutoDock` (RCS-Magie: Sollgeschw. min(3, d/25) auf die Station zu, dockt < 26 m via `dockNow()`; [L] bricht ab; übersteuert Handsteuerung, Warp≤2, Abbruch > 500 m). Angedockt = `Flight.docked`: Schiff folgt Station on rails (`dockOffset`). SAS-Modus `"tgt"` (ZIEL-BREMSE, < 50 km) bremst relativ zum **gewählten Ziel** (sonst Station). Türkiser ◆-Navball-Marker < 50 km (folgt `Flight.target`), HUD-Zielzeile < 400 km, Kartenmarker »Große Pause«. **Rosa ✛ = Anflug-Assistent** (drawNavball, 40 m–50 km): optimale Brennrichtung `norm(dirZiel·vWant − relVel)` mit `vWant=clamp(d/60, 2, 45)` – Nase draufhalten + Schub = automatisch lenkendes UND bremsendes Rendezvous ohne Vorbeischießen (getestet: 3 km→190 m in ~3,5 min, Ankunft 3,5 m/s). Rendezvous-Tutorial nutzt NUR noch das ✛ (keine ZIEL-BREMSE-Choreografie mehr).
 - **Orbit-Ziele & Startfenster:** Auf der Rampe wählt **[Z]** Ziele durch (NUR auf der Äquator-Rampe "eq" – sonst Guard in `cycleTarget` + HUD-Hinweis; `Flight.target` via `targetList()` = Station + geparkte LEIBNIZ-Tanker; im Flug bleibt Z=Vollgas!). `nextLaunchWindow(tg)`: Rampe ist inertial fix, Fenster = Ziel bei **2π−0.52 + `padStationAngle(pad)`** (≈30° hinter der Rampe; seit der prozeduralen Küstensuche liegt die Rampe nicht mehr bei Länge 0! Verifiziert: Ziel steht beim Start auf 330,2°). `clockStr(t)` = Spieluhr ab 08:00 (HUD "Uhrzeit"). `launchWindowMiss` wird in **`stage()`** gesetzt (NICHT im step-landed-Zweig – stage() setzt landed/flew selbst!). HUD rechts: Pad = Countdown/"FENSTER OFFEN", Flug = Phasenwinkel-Tipps (voraus→niedriger fliegen, hinten→höher). `canWarp`: auf der Rampe (landed) voller Warp. Tutorial id "launchwindow" (Start→Fenster→Orbit→Phase→Autopilot-Docking).
 
+## Sandbox-Direktstart im Orbit (`Game.startMode` / `Flight.spawnInOrbit`)
+Wähler »Startart« ganz oben im VAB-Info-Panel, **nur im Sandbox-Modus** sichtbar
+(`VAB.setStartMode`): »🏗️ Von der Rampe« oder »🛰️ Direkt im Orbit«. Letzteres setzt die
+gebaute Rakete mit vollen Tanks auf eine Kreisbahn um **Leibniz** (`SANDBOX_ORBIT_ALT`
+= 200 km, Ap = Pe). Zum Üben von Rendezvous, Aussetzen, Landebeinen und Wiedereintritt spart
+das jedes Mal denselben Aufstieg.
+- ⚠️ **Bewusst nur LEIBNIZ.** Wer bei Monti oder Huygens anfangen will, soll hinfliegen – der
+  Weg dorthin IST die Aufgabe.
+- ⚠️ **Nur Sandbox** (`Game.sandbox && Game.startMode==="orbit"`). In der Karriere wäre das ein
+  Freifahrtschein: Missionen, Startkosten und der ganze Aufstieg geschenkt. `Game.startMode`
+  liegt zwar im Save, ist in der Karriere aber wirkungslos (verifiziert).
+- Beim Orbitstart entfallen **Rampen-Massenlimit und Superheavy-Turm-Guard** in `UI.launch` –
+  das Schiff berührt die Rampe nie. Verifiziert: 28-t-Rakete am 25-t-LMG-Startplatz wird von
+  der Rampe abgelehnt, im Orbit durchgelassen.
+- ⚠️ `Flight.spawnInOrbit(b, alt, {pe, inc})` ist die EINE Quelle für »Schiff auf eine Bahn
+  setzen« – die Tutorial-Szenarien (`scenario.orbit`) benutzen sie ebenfalls. Muss NACH
+  `Flight.start()` laufen, das setzt das Schiff erst auf die Rampe. Gegenprobe nach dem
+  Refactor: alle 10 Orbit-Tutorials treffen ihre Sollbahn exakt (inkl. Ellipsen ap 75/pe 22
+  und inc 20°).
+
 ## Startrampen
 `PADS`: lmg (LMG-Startplatz, 55° N, **max 25 t**) · eq (Raumhafen »Schulhof Süd«, Äquator, ∞, Tech padEq) · polar (Polarstation »Skihütte«, 86° N, ∞, Tech padPolar). Der **Breitengrad ist Didaktik und steht fest**, den **Längengrad sucht `_padLonAt(lat)` beim Laden** – dort, wo das prozedurale Terrain wirklich eine Küste hat (Land im Westen, offenes Meer im Osten, Ufer ~1,5 km östlich der Rampe). Kriterien gestaffelt gelockert, weil am 86°-Breitenkreis der ganze Umfang nur ~260 km lang ist; zusätzlich muss die Küste über ±10 km Nord in einem Band bleiben, sonst steht die Rampe auf einer Landzunge und die Bodenszene sieht chaotisch aus. ⚠️ Die Suche MUSS `TERRAIN_OCT_LOCAL` benutzen (wie die Bodenszene) – mit den groben Textur-Oktaven verschiebt sich die Küste um hunderte Meter und die Rampe landet im Wasser. `padStationAngle(p) = −lon` ist der Rampenwinkel in der Stationsebene (steigende Länge läuft nach WESTEN!) und geht in `nextLaunchWindow` ein. **Breitengrad = echte Physik:** Ost-Start → Inklination = Breitengrad (verifiziert: 55,0°), `Flight.orbitInc()` (0–90° via |h.y|/|h|, HUD-Zeile "Inklination"). `Flight.start(vessel, padId?)`: Default `currentPad()`, Tutorials übergeben `t.scenario.pad || "eq"`, `revert()` behält die Rampe; baut `buildPad(kind)`-Mesh + Pad-Anker aus `padDir(pad)` jedes Mal neu (up/east/north generisch aus Kreuzprodukten), Boden polar = weiß. Startfenster/[Z] nur bei lat 0. Massenlimit prüft `UI.launch` via `VAB.totalMass()`; Rampen-Wähler oben im VAB-Info-Panel (`VAB.setPad`, `Game.pad` im Save). Tech-Ast: padEq (35, basic+struct) → padPolar (70, +heavy). Missionen: padEq1 (`s.pad==="eq"` + Orbit) & polar1 (`s.satPolar` – Sat aussetzen bei inc > 75°, gesetzt in deploySat/deploySpecialSat). `migrateGame`: `Game.pad` Default "lmg"; Saves mit erledigtem dock1 kriegen padEq GRATIS (die starteten de facto vom Äquator – sonst wird die Stations-Kette rückwirkend unfair).
 ### Optik der Rampen (`padTextures()` + Instanz-Sammler in `buildPad`)
@@ -649,27 +669,52 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
 - **Kartenmarker:** `mkMarker(txt,color)` legt den farbigen Punkt EXAKT ins Sprite-Zentrum (= Objektposition), Label rechts daneben; Breite dynamisch (`userData.aspect`), skalieren NUR über `Flight.scaleMarker(m,ms)`. Stationsmarker heißt »Große Pause« (nicht mehr "ISS").
 
 ## Bauteile & Stack
-`PARTS` (Reihenfolge im Stack: Index 0 = SPITZE). **Radialteile** (`isRadial`: fin, sb2/sb4) belegen KEINE Stack-Höhe (`stackHeight()` statt Summe!) und werden in `buildRocketGroup` an den benachbarten Tank montiert (`radialHost`: erst darunter, dann darüber; `buildPartMesh(id, {r,h})`). **Sidebooster = Pool PRO STUFE** (`seg.boost` in buildVessel, kein globales v.boost mehr!): zünden mit IHRER Stufe (Zündung/Stufentrennung setzt `n.boost.ignited`) oder [R] (aktive Stufe), [J] wirft NUR die Booster der aktiven Stufe ab (nächstes [J] nach der Trennung = nächste Stufe); abgeworfene Stufen nehmen ihren Pool automatisch mit (hängt am Segment). Physik/HUD/Gauge/Flammen lesen `activeSeg().boost`; Flammen von Oberstufen-Boostern via `bflame.userData.upper` aus (gesetzt in buildRocketGroup, wenn Decoupler darunter). Trümmer-Mesh = `buildStrapOnMesh(strapOnHeight(stack,i))` – NICHT das srb-Mesh (Formwechsel-Bug). Servicebuchten (`bayCoverage()`): `bay` = »M« verkleidet 2 Teile darüber, `bayS` 1 (`PARTS[..].covers`) – aber NUR Typen aus `BAY_FITS` (battery/solar/probe/antenna/lab), sonst "verschluckt" die Bucht z. B. Oberstufen-Triebwerke; geschlossene Bucht schützt Solarpanele vor Fahrtwind, [G] öffnet sie automatisch mit. Oberstufen-Triebwerke (Decoupler darunter) kriegen `flame.userData.idle` – `setFlames` lässt sie aus, bis sie unterste Stufe sind. VAB-Info: Seitenbooster zählen zu Gesamtmasse + TWR IHRER Stufe (nicht Δv, `segBoost[]`); jede Stufe zeigt Leergewicht, Rakete gesamt »Leergewicht (Tanks leer)«. Solarflügel (`name:"wing"`) starten eingefahren (scale.x 0.1) – für Orbit-Sats `deployWings()`. Fairing verkleidet alles darüber.
+`PARTS` (Reihenfolge im Stack: Index 0 = SPITZE). **Radialteile** (`isRadial`: fin, sb2/sb4, gridfin, **legs**) belegen KEINE Stack-Höhe (`stackHeight()` statt Summe!) und werden in `buildRocketGroup` an den benachbarten Tank montiert (`radialHost`: erst darunter, dann darüber; `buildPartMesh(id, {r,h})`). **Sidebooster = Pool PRO STUFE** (`seg.boost` in buildVessel, kein globales v.boost mehr!): zünden mit IHRER Stufe (Zündung/Stufentrennung setzt `n.boost.ignited`) oder [R] (aktive Stufe), [J] wirft NUR die Booster der aktiven Stufe ab (nächstes [J] nach der Trennung = nächste Stufe); abgeworfene Stufen nehmen ihren Pool automatisch mit (hängt am Segment). Physik/HUD/Gauge/Flammen lesen `activeSeg().boost`; Flammen von Oberstufen-Boostern via `bflame.userData.upper` aus (gesetzt in buildRocketGroup, wenn Decoupler darunter). Trümmer-Mesh = `buildStrapOnMesh(strapOnHeight(stack,i))` – NICHT das srb-Mesh (Formwechsel-Bug). Servicebuchten (`bayCoverage()`): `bay` = »M« verkleidet 2 Teile darüber, `bayS` 1 (`PARTS[..].covers`) – aber NUR Typen aus `BAY_FITS` (battery/solar/probe/antenna/lab), sonst "verschluckt" die Bucht z. B. Oberstufen-Triebwerke; geschlossene Bucht schützt Solarpanele vor Fahrtwind, [G] öffnet sie automatisch mit. Oberstufen-Triebwerke (Decoupler darunter) kriegen `flame.userData.idle` – `setFlames` lässt sie aus, bis sie unterste Stufe sind. VAB-Info: Seitenbooster zählen zu Gesamtmasse + TWR IHRER Stufe (nicht Δv, `segBoost[]`); jede Stufe zeigt Leergewicht, Rakete gesamt »Leergewicht (Tanks leer)«. Solarflügel (`name:"wing"`) starten eingefahren (scale.x 0.1) – für Orbit-Sats `deployWings()`. Fairing verkleidet alles darüber.
 
-### Ausfahrbare Landebeine ([Y] / `LEG_OUT`/`LEG_IN` / `Flight.toggleLegs`)
-Wie bei KSP: Jedes der 3 Beine hängt an einer Gelenk-Gruppe `name:"landleg"` an der
-OBERkante des Bauteils, Rohr + Fußteller darunter. **Gebaut und gestartet wird EINGEFAHREN** –
-nur so passt ein Lander unter eine Nutzlastverkleidung, und genau dafür war der Wunsch da.
-- ⚠️ Der Landestoß-Bonus (12 statt 8 m/s in `checkContact`) hängt an `legsOut`, nicht mehr
-  allein an `seg.hasLegs` – sonst wäre Einfahren ein Gratis-Vorteil ohne Risiko.
-  Dazu eine Warnung beim Sinkflug unter 3 km (`_legMsg`, scharf ab 5 km wieder).
-- ⚠️⚠️ **Beinlänge = `h/cos(LEG_OUT)`, Gelenk auf `y = h`** ⇒ der Fußteller steht ausgefahren
-  exakt auf der UNTERKANTE des Bauteils. Vorher endeten die Beine 8,8 Einheiten TIEFER: Das
-  Schiff setzt bei `|pos| = R` auf, die Unterkante liegt also auf der Oberfläche – die Beine
-  steckten im Boden. Aufgefallen ist das erst, als die Nahfeld-Kachel (s. `SURF_PATCH_ALT`)
-  den 100-m-Spalt auf Monti geschlossen hat; vorher schwebte ohnehin alles.
-  `LEG_OUT` = 0,9 rad (51,6°) hält den Stand trotzdem breit: Fußkreis `r·0,564 + h·tan 0,9`,
-  beim Standard-Bein Ø 23 gegen Ø 14 Hülle. `foot.rotation.z = −LEG_OUT` ⇒ Teller liegt
-  ausgefahren flach auf.
+### Ausfahrbare Landebeine – RADIALTEIL ([Y] / `legDrop`/`legClearance`)
+⚠️⚠️ **Beine sind seit Juli 2026 ein RADIALTEIL** (`isRadial` kennt jetzt auch `"legs"`),
+hängen also seitlich am Nachbartank und belegen KEINE Stack-Höhe – wie Flossen und
+Seitenbooster. Vorher waren sie eine eigene Scheibe MITTEN im Stack: Die Beine endeten auf der
+Unterkante ihres BAUTEILS, also mitten am Rumpf und weit ÜBER der Triebwerksglocke, und das
+Schiff stand trotzdem auf der Glocke. »Die Landebeine machen den Build unsinnig« (Bug-Report
+Simon) – zu Recht.
+- **Die Beinlänge ist NICHT fest**, sondern wächst mit dem, was unter dem Wirtstank noch
+  kommt (`legDrop`): Die Füße stehen immer `LEG_CLEAR` (4 Einheiten ≈ 1,5 m) UNTER der
+  Unterkante. Verifiziert für alle Triebwerke: Funke/Terrier/Ochse/Hauptstufe → Fuß-Y −4,
+  Fußkreis Ø 23–29 gegen Ø 10–12 Hülle (Falcon-9-Proportion).
+- ⚠️⚠️ **Maßgeblich ist die Unterkante der eigenen STUFE** (`segBottomY`), nicht die des
+  ganzen Stacks: Ein Lander sitzt beim Bauen auf einem Booster, gelandet wird aber erst NACH
+  der Trennung. Ohne das maßen die Beine gegen die 54 Einheiten Booster darunter, rissen
+  `LEG_DROP_MAX` und fielen auf die Normallänge zurück – ausgerechnet der klassische
+  Lander-auf-Oberstufe bekam Beine, die nicht bis zum Boden reichen. Gegenprobe: Bodenfreiheit
+  4 vor UND nach der Stufentrennung (kein Sprung, `rebuildRocket` baut gleich lang).
+- ⚠️ Über `LEG_DROP_MAX` (22) hinaus wird NICHT gestreckt, sondern auf `LEG_DROP_DEF` (12)
+  zurückgefallen. Mit bloßer Kappung bekamen Beine an der Raketenspitze 52 Einheiten Länge,
+  eingefahren 120 hoch und Fußkreis Ø 56 – das sah nach Fehler aus, nicht nach Fehlbedienung.
+- ⚠️ **`checkContact` setzt bei ausgefahrenen Beinen `surf += legClearance()`** – das Schiff
+  steht auf den Fußtellern, die Unterkante bleibt 4 Einheiten über dem Boden. Sonst steckten
+  die Beine im Boden. `toggleLegs` setzt ein bereits stehendes Schiff entsprechend nach.
+- ⚠️ Der 12-m/s-Bonus hängt jetzt an `legsOut && clear > 0`, nicht mehr an `seg.hasLegs`:
+  Letzteres prüfte `segs[segs.length-1]`, und `segments()` zählt von UNTEN – bei einem noch
+  zweistufigen Lander also das falsche Ende der Rakete. Beine, die nicht bis zum Boden
+  reichen, tragen nichts (8 m/s) und [Y] sagt das auch.
+- ⚠️ `LEG_OUT` ist mit 0,45 rad (25,8°) bewusst FLACH: Der Spreizwinkel geht über
+  `legL = Spannweite/cos` in die Beinlänge ein; mit den alten 0,9 rad wäre ein Bein, das am
+  Triebwerk vorbeireicht, doppelt so lang und der Stand dreimal so breit wie die Rakete.
+  `LEG_IN` liegt nahe an π, damit das eingefahrene Bein FLACH am Tank liegt (Radius 5,9 bei
+  Hülle 5) und weiter unter eine Nutzlastverkleidung passt.
+- `stackYBot(stack)` ist die EINE Quelle für die Unterkanten-Höhen (buildRocketGroup und die
+  Bein-Geometrie).
+
+#### Bein-Mechanik im Betrieb
+**Gebaut und gestartet wird EINGEFAHREN** – nur so passt ein Lander unter eine
+Nutzlastverkleidung, und genau dafür war der Wunsch da. Die 3 Beine hängen an Gelenk-Gruppen
+`name:"landleg"`; `foot.rotation.z = −LEG_OUT` ⇒ der Teller liegt ausgefahren flach auf.
 - ⚠️ Der Winkel wird in **JEDEM Frame** gesetzt (`legsAnim`, Einschwingen 0,09/Frame), nicht
   nur beim Umschalten: `rebuildRocket()` (Stufentrennung, Fairing, Aussetzen) baut die Gruppe
   neu und die frischen Beine kämen sonst in der Bau-Pose (eingefahren) zurück.
-- Tutorial "land" nennt [Y] jetzt im ersten Schritt – sonst landet die AG mit 8-m/s-Limit,
+- Warnung beim Sinkflug unter 3 km (`_legMsg`, scharf ab 5 km wieder).
+- Tutorial "land" nennt [Y] im ersten Schritt – sonst landet die AG mit 8-m/s-Limit,
   ohne zu wissen warum.
 
 ## Montagehalle (VAB-3D-Szene)

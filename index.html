@@ -1025,7 +1025,7 @@ const PARTS = {
            info:"Offene Triebwerks-Verkleidung Ø 10 (»Funke«, »Terrier«, Atomantrieb): direkt UNTER den Stufentrenner bauen – verkleidet das Oberstufen-Triebwerk und bleibt nach der Trennung als Interstage auf der unteren Stufe. Sieht stabil aus UND ist es!"},
   interL: {name:"Stufenadapter L",           type:"inter", cat:"struct", mass:110, w:12, h:3,   shroudH:18, tech:"heavy",
            info:"Offene Triebwerks-Verkleidung Ø 12 (»Hauptstufe«, Raptoren): direkt UNTER den Stufentrenner bauen – der Falcon-9-Look für schwere Raketen."},
-  legs:   {name:"Landebeine",                type:"legs",   cat:"struct", mass:120,  w:14,h:6, tech:"explore", info:"Erlauben Landungen bis 12 m/s (sonst 8 m/s). Mit [Y] aus- und einfahrbar – eingefahren passt der Lander unter eine Nutzlastverkleidung. Nur AUSGEFAHREN zählt der Bonus!"},
+  legs:   {name:"Landebeine",                type:"legs",   cat:"struct", mass:120,  w:14,h:6, tech:"explore", info:"Werden SEITLICH an einen Tank gebaut (wie Flossen) und belegen keine Höhe. An den untersten Tank – direkt über dem Triebwerk – setzen: dann reichen sie am Triebwerk vorbei bis auf den Boden. Erlauben Landungen bis 12 m/s (sonst 8 m/s). Mit [Y] aus- und einfahrbar; eingefahren liegen sie am Tank an und passen unter eine Nutzlastverkleidung. Nur AUSGEFAHREN zählt der Bonus!"},
   rcs:    {name:"RCS-Steuerdüsen",           type:"rcs",    cat:"struct", mass:70,   w:11,h:2.5, tech:"advProp",
            info:"Düsenring fürs schnelle Wenden im All – ohne RCS dreht das Schiff SEHR träge!"},
   srb:    {name:"Feststoffbooster »Böller«", type:"srb",    cat:"lower", mass:450,  fuel:1700, thrust:230000, isp:220, w:10,h:24, tech:"basic", info:"Viel Schub, nicht drosselbar!"},
@@ -1077,7 +1077,19 @@ const PARTS = {
 };
 /* Radialteile (Flossen, Seitenbooster): hängen seitlich am Nachbartank
    und belegen KEINE eigene Höhe im Stack – wie in echt. */
-function isRadial(id){ const t = PARTS[id] && PARTS[id].type; return t==="fin" || t==="sideboost" || t==="gridfin"; }
+function isRadial(id){ const t = PARTS[id] && PARTS[id].type; return t==="fin" || t==="sideboost" || t==="gridfin" || t==="legs"; }
+/* Unterkante JEDES Stack-Teils über der Stack-Unterkante (Index wie im Stack,
+   0 = Spitze). EINE Quelle für buildRocketGroup, die Landebein-Geometrie und
+   alles andere, was wissen muss, wie hoch ein Teil sitzt. */
+function stackYBot(stack){
+  const yBot = new Array(stack.length);
+  let yy = 0;
+  for(let i=stack.length-1;i>=0;i--){
+    yBot[i] = yy;
+    if(!isRadial(stack[i]) && !satInStarship(stack, stack[i])) yy += PARTS[stack[i]].h;
+  }
+  return yBot;
+}
 /* Brennt in dieser Stufe ein echtes RAPTOR? `raptor.mp3` ist ein Original-
    mitschnitt eines Raptor-Prüfstandslaufs und darf deshalb nur zu hören sein,
    wenn auch wirklich eines läuft (Raptor SL/Vac, Superheavy, Starship – der
@@ -1875,17 +1887,22 @@ const UI = {
     // (VAB.oops) – der Hangar reagiert also sichtbar auf Fehler.
     const v = VAB.validate();
     if(v){ VAB.oops(); alert(v); return; }
+    /* Sandbox-Direktstart im Orbit: Dann werden Rampe, Massenlimit und der
+       Superheavy-Turm gar nicht gebraucht – das Schiff berührt die Rampe nie.
+       Ein 40-t-Lander am LMG-Startplatz abzulehnen, obwohl er dort nie steht,
+       wäre nur im Weg. */
+    const orbitStart = Game.sandbox && Game.startMode === "orbit";
     // Startrampe: Massenlimit prüfen (der alte LMG-Startplatz trägt max. 25 t)
     const pad = currentPad();
     const totalM = VAB.totalMass();
-    if(totalM > pad.maxMass){
+    if(!orbitStart && totalM > pad.maxMass){
       VAB.oops();
       alert("🏗️ Zu schwer für den "+pad.name+"!\n\nDiese Rakete wiegt "+(totalM/1000).toFixed(1)+
         " t, die Rampe trägt nur "+(pad.maxMass/1000)+" t.\n\nSchwere Raketen starten vom Raumhafen »Schulhof Süd« am Äquator (Forschung »Raumhafen am Äquator«).");
       return;
     }
     // Superheavy braucht den Mechazilla-Turm (Startaufhängung + Flame Diverter)
-    if(VAB.stack.some(id=>PARTS[id].type==="superheavy") && pad.id!=="eq"){
+    if(!orbitStart && VAB.stack.some(id=>PARTS[id].type==="superheavy") && pad.id!=="eq"){
       VAB.oops();
       alert("🦾 Der SUPERHEAVY startet nur vom Raumhafen »Schulhof Süd«!\n\nNur dort stehen der Mechazilla-Startturm und der Flame Diverter – und nur dort kann der Booster nach dem Start wieder GECATCHT werden.");
       return;
@@ -1906,6 +1923,11 @@ const UI = {
     autoSave();
     Flight.start(VAB.buildVessel());
     Flight.launchCost = cost;
+    if(orbitStart){
+      Flight.spawnInOrbit(LEIBNIZ, SANDBOX_ORBIT_ALT);
+      Flight.showMsg("🛰️ Direktstart: "+(SANDBOX_ORBIT_ALT/1000)+
+        " km Kreisbahn um Leibniz. Tanks voll, Triebwerk bereit – los geht's!", 5);
+    }
     this.show("flight");
     showHint("flight3d");
   },
@@ -2179,22 +2201,8 @@ const Tut = {
       // Spieler direkt in einen Orbit setzen (Kreis – oder Ellipse, wenn pe angegeben)
       const b = t.scenario.orbit.body==="MONTI" ? MONTI :
                 t.scenario.orbit.body==="MINZI" ? MINZI : LEIBNIZ;
-      const c = bodyPos(b,0), bv = bodyVel(b,0);
-      const r = b.R + t.scenario.orbit.alt;
-      let vc;
-      if(t.scenario.orbit.pe !== undefined){
-        const rp = b.R + t.scenario.orbit.pe, a0 = (r+rp)/2;
-        vc = Math.sqrt(b.mu*(2/r - 1/a0));   // an der Apoapsis der Wiedereintritts-Ellipse
-      } else vc = Math.sqrt(b.mu/r);
-      // Optional geneigter Start-Orbit (inc in Grad): Startpunkt = aufsteigender Knoten
-      const iRad = (t.scenario.orbit.inc||0)*Math.PI/180;
-      const radial = V3(1,0,0), tang = V3(0, Math.sin(iRad), -Math.cos(iRad));
-      Flight.pos = c.clone().addScaledVector(radial, r);
-      Flight.vel = bv.clone().addScaledVector(tang, vc);
-      Flight.landed = false; Flight.flew = true;
-      Flight.throttle = 0;
-      const s = Flight.activeSeg(); if(s) s.ignited = true;
-      Flight.q.setFromUnitVectors(V3(0,1,0), tang);   // Nase zeigt prograde
+      Flight.spawnInOrbit(b, t.scenario.orbit.alt,
+        {pe:t.scenario.orbit.pe, inc:t.scenario.orbit.inc});
     }
     if(t.scenario.nearStation){
       // Schiff im Stationsorbit, ein Stück HINTER der »Großen Pause«
@@ -3208,25 +3216,88 @@ const MAT = {
 function cylinder(rTop,rBottom,h,mat,seg=20){
   return new THREE.Mesh(new THREE.CylinderGeometry(rTop,rBottom,h,seg), mat);
 }
-/* Landebeine: Gelenkwinkel eingefahren / ausgefahren (s. case "legs" und
-   Flight.toggleLegs).
-   ⚠️ LEG_OUT ist so gewählt, dass die Fußteller AUSGEFAHREN exakt auf der
-   Unterkante des Bauteils liegen (Gelenk auf der Oberkante, Beinlänge
-   h/cos(LEG_OUT)). Vorher endeten die Beine 8,8 Einheiten TIEFER: Das Schiff
-   setzt bei |pos| = R auf, die Unterkante liegt also genau auf der Oberfläche –
-   die Beine steckten damit im Boden. Aufgefallen ist das erst, als die
-   Nahfeld-Kachel (s. SURF_PATCH_ALT) den 100-m-Spalt auf Monti geschlossen hat;
-   vorher schwebte ohnehin alles. Spreizwinkel 0,9 rad = 51,6° gibt bei
-   Gelenkhöhe h trotzdem einen breiten Stand (Fußkreis r·0,564 + h·tan 0,9,
-   beim Standard-Bein also Ø 23 gegen Ø 14 Hülle).
-   LEG_IN legt das Bein an die Hülle: Fußradius 7,3 bei Hüllenradius 7 – es
-   schleift also nicht im Tank und bleibt trotzdem unter einer Fairing. */
-const LEG_OUT = 0.9, LEG_IN = 2.79;
+/* ---------- Landebeine: RADIALTEIL am Tank (wie Flossen/Seitenbooster) ----------
+   ⚠️⚠️ Beine waren früher ein Stack-Teil: eine eigene Scheibe MITTEN in der
+   Rakete, zwischen Tank und Triebwerk. Das machte jeden Lander unsinnig – die
+   Beine endeten auf der Unterkante des BAUTEILS, also mitten am Rumpf, weit
+   ÜBER der Triebwerksglocke, und das Schiff stand trotzdem auf der Glocke
+   (Bug-Report Simon). Jetzt hängen sie seitlich am Nachbartank, belegen keine
+   Stack-Höhe und reichen AM TRIEBWERK VORBEI bis unter die Unterkante.
+   - LEG_CLEAR = Bodenfreiheit, die die ausgefahrenen Füße unter der Unterkante
+     (= Triebwerksglocke) schaffen. 4 Einheiten ≈ 1,5 m.
+   - Die Beinlänge ist deshalb NICHT fest, sondern wächst mit dem, was unter dem
+     Wirtstank noch kommt (`legDrop`): Beine über einem »Funke« (h 8) sind kurz,
+     über einer »Hauptstufe« (h 12) länger. Nur so reichen sie IMMER bis auf den
+     Boden, egal welches Triebwerk darunter sitzt.
+   - ⚠️ Über LEG_DROP_MAX hinaus wird NICHT gestreckt, sondern auf die normale
+     Länge LEG_DROP_DEF zurückgefallen: Wer die Beine oben an die Spitze baut,
+     soll ein gewöhnliches Bein sehen, das sichtbar nicht bis unten reicht (und
+     keinen Landebonus gibt, s. legClearance) – nicht eine Stelze. Gemessen mit
+     bloßer Kappung bei Beinen an der Spitze: 52 Einheiten Bein, eingefahren
+     120 hoch, Fußkreis Ø 56 bei Ø 10 Hülle. Das sah nach Fehler aus, nicht
+     nach Fehlbedienung.
+   ⚠️ LEG_OUT ist mit 0,45 rad (25,8°) bewusst FLACH: Der Spreizwinkel geht in
+   die Beinlänge ein (legL = Spannweite/cos), und bei den alten 0,9 rad (51,6°)
+   wäre ein Bein, das am Triebwerk vorbeireicht, doppelt so lang und der Stand
+   dreimal so breit wie die Rakete. Jetzt: Standardlander Ø 23 Fußkreis gegen
+   Ø 10 Hülle – knapp die Falcon-9-Proportion (18 m Beine, 3,7 m Rumpf).
+   ⚠️ LEG_IN liegt nahe an π, damit das eingefahrene Bein FLACH am Tank liegt
+   (wie beim Falcon 9, dessen Beine im Flug am Rumpf anliegen). Mit den alten
+   2,79 rad stünde ein jetzt viel längeres Bein schräg 5 Einheiten ab und würde
+   unter keine Nutzlastverkleidung mehr passen. */
+const LEG_OUT = 0.45, LEG_IN = Math.PI - 0.06;
+const LEG_PIVOT = 1.5, LEG_CLEAR = 4, LEG_DROP_MAX = 22, LEG_DROP_DEF = 12;
+/* Wie weit reicht das ausgefahrene Bein unter die UNTERKANTE seines Wirtstanks?
+   Genau so weit, dass die Füße LEG_CLEAR unter der Stack-Unterkante stehen –
+   solange das in einer sinnvollen Beinlänge machbar ist (LEG_DROP_MAX deckt
+   das höchste Triebwerk »Hauptstufe« mit h 12 bequem ab). */
+/* ⚠️⚠️ Unterkante der STUFE, in der ein Teil sitzt (nicht des ganzen Stacks).
+   Genau darauf müssen sich die Beine beziehen: Ein Lander sitzt beim Bauen auf
+   einem Booster, gelandet wird aber erst NACH der Stufentrennung – dann ist die
+   Triebwerksglocke SEINER Stufe die Unterkante. Ohne das maßen die Beine gegen
+   die 54 Einheiten Booster darunter, überschritten LEG_DROP_MAX und fielen auf
+   die Normallänge zurück: ausgerechnet der klassische Lander auf der Oberstufe
+   bekam Beine, die nicht bis zum Boden reichen. */
+function segBottomY(stack, i, yBot){
+  for(let j=i+1;j<stack.length;j++)
+    if(PARTS[stack[j]] && PARTS[stack[j]].type==="decoupler") return yBot[j-1];
+  return 0;
+}
+function legDrop(stack, i, yBot){
+  const h = radialHostIdx(stack, i);
+  if(h < 0) return LEG_DROP_DEF;
+  const yb = yBot || stackYBot(stack);
+  const need = yb[h] - segBottomY(stack, i, yb) + LEG_CLEAR;
+  return (need > 0 && need <= LEG_DROP_MAX) ? need : LEG_DROP_DEF;
+}
+/* Bodenfreiheit auf ausgefahrenen Beinen: Wie hoch steht die Unterkante
+   (Triebwerksglocke) über dem Boden? 0 = die Beine reichen gar nicht hinunter,
+   das Schiff setzt wie ohne Beine auf – und bekommt dann auch keinen Bonus. */
+function legClearance(stack){
+  const yBot = stackYBot(stack);
+  let best = 0;
+  for(let i=0;i<stack.length;i++){
+    if(!PARTS[stack[i]] || PARTS[stack[i]].type!=="legs") continue;
+    const h = radialHostIdx(stack, i);
+    // Fußhöhe über der Unterkante DIESER Stufe (s. segBottomY)
+    if(h >= 0) best = Math.max(best,
+      legDrop(stack, i, yBot) - (yBot[h] - segBottomY(stack, i, yBot)));
+  }
+  return best;
+}
 /* Bis zu dieser Höhe bekommt eine luftlose Welt ihre fein aufgelöste
    Nahfeld-Kachel (s. Flight.updateSurfPatch). 8 km ist reichlich: Der
    Durchhang des groben Vielflachs (~107 m bei Monti) ist von dort aus
    schon kleiner als ein Bildschirmpixel. */
 const SURF_PATCH_ALT = 8000;
+/* Sandbox-Direktstart: Höhe der Kreisbahn, auf der die gebaute Rakete ohne
+   Aufstieg abgesetzt wird (Ap = Pe = 200 km). ⚠️ BEWUSST nur um LEIBNIZ:
+   Wer bei Monti oder Huygens anfangen will, soll hinfliegen – der Weg dorthin
+   IST die Aufgabe. Zum Üben von Rendezvous, Aussetzen, Landebeinen oder
+   Wiedereintritt spart der Direktstart dagegen jedes Mal denselben
+   Aufstieg. 200 km liegt sicher über der Atmosphäre (70 km), die Bahn ist
+   also stabil und zerfällt nicht während des Ausprobierens. */
+const SANDBOX_ORBIT_ALT = 200000;
 /* Außeneinsatz zu Fuß: Augenhöhe des Modells über der Kugel (die Füße von
    buildAstronaut() liegen bei y = −0,65) und Laufgeschwindigkeit. 3,5 m/s ist
    ein zügiger Trab – langsamer wird das Erkunden im Raumanzug zäh, schneller
@@ -3558,25 +3629,37 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       }
       break;}
     case "legs":{
-      /* Ein- und ausfahrbar wie bei KSP (Taste [Y], s. Flight.toggleLegs):
-         Jedes Bein hängt an einer Gelenk-Gruppe name:"landleg" an der OBERkante
-         des Bauteils, das Rohr hängt daran nach unten. Länge = h/cos(LEG_OUT),
-         damit der Fußteller ausgefahren genau auf der Unterkante steht (s. dort).
-         Gebaut wird EINGEFAHREN, damit ein Lander unter eine Nutzlast-
-         verkleidung passt – genau dafür ist das Einfahren da. */
-      add(cylinder(r*0.35,r*0.35,h,MAT.white), h/2);
-      const legL = h/Math.cos(LEG_OUT);
+      /* RADIALTEIL: sitzt seitlich am Wirtstank, y=0 ist dessen UNTERKANTE
+         (buildRocketGroup setzt die Gruppe auf yBot[host]). Ein- und ausfahrbar
+         mit [Y] (s. Flight.toggleLegs); gebaut wird EINGEFAHREN, damit ein
+         Lander unter eine Nutzlastverkleidung passt.
+         `o.drop` sagt, wie weit der Fuß unter die Unterkante des Wirtstanks
+         reichen muss, um LEG_CLEAR unter der Triebwerksglocke zu landen –
+         daraus folgt die Beinlänge. */
+      const hr   = (attach && attach.r)    ? attach.r    : p.w/2;   // Radius des Wirtstanks
+      const drop = (attach && attach.drop) ? attach.drop : LEG_CLEAR + 8;
+      const legL = (LEG_PIVOT + drop)/Math.cos(LEG_OUT);
       for(let k=0;k<3;k++){
         const a = k*2*Math.PI/3;
         const pivot = new THREE.Group();
         pivot.name = "landleg";
-        pivot.position.set(Math.cos(a)*r*0.564, h, Math.sin(a)*r*0.564);
+        // Gelenk knapp über der Tank-Unterkante, außen auf der Hülle
+        pivot.position.set(Math.cos(a)*hr, LEG_PIVOT, Math.sin(a)*hr);
         pivot.rotation.y = -a;              // lokales +X zeigt nach AUSSEN
         pivot.rotation.z = LEG_IN;
-        const leg = cylinder(0.32,0.4,legL,MAT.gray,8);
+        // Halterung am Rumpf, damit das Bein nicht im Nichts hängt
+        const shoe = cylinder(0.75,0.75,1.6,MAT.dark,8);
+        shoe.rotation.z = Math.PI/2;
+        pivot.add(shoe);
+        const leg = cylinder(0.34,0.46,legL,MAT.gray,8);
         leg.position.y = -legL/2;           // Rohr hängt am Gelenk nach unten
         pivot.add(leg);
-        const foot = cylinder(1.1,1.1,0.45,MAT.dark,12);
+        // Strebe: schräger Stützarm wie bei einem echten Landebein
+        const strut = cylinder(0.2,0.2,legL*0.55,MAT.white,6);
+        strut.position.set(-legL*0.12, -legL*0.3, 0);
+        strut.rotation.z = 0.22;
+        pivot.add(strut);
+        const foot = cylinder(1.5,1.5,0.5,MAT.dark,12);
         foot.position.y = -legL;            // Teller am Fußende
         foot.rotation.z = -LEG_OUT;         // Teller liegt ausgefahren flach auf
         pivot.add(foot);
@@ -3767,14 +3850,7 @@ function buildRocketGroup(stack, fairingIntact){
   const inBay = new Set();
   for(const list of bayMap.values()) list.forEach(j=>inBay.add(j));
   // Unterkanten-Y jedes Teils vorab (Radialteile belegen keine Höhe)
-  const yBot = new Array(stack.length).fill(0);
-  {
-    let yy = 0;
-    for(let i=stack.length-1; i>=0; i--){
-      yBot[i] = yy;
-      if(!isRadial(stack[i]) && !satInStarship(stack, stack[i])) yy += PARTS[stack[i]].h;
-    }
-  }
+  const yBot = stackYBot(stack);
   for(let i=stack.length-1; i>=0; i--){
     const id = stack[i], p = PARTS[id];
     const y = yBot[i];
@@ -3783,7 +3859,11 @@ function buildRocketGroup(stack, fairingIntact){
     if(isRadial(id)){
       const hIdx = radialHostIdx(stack, i);
       const hp = hIdx>=0 ? PARTS[stack[hIdx]] : null;
-      const mesh = buildPartMesh(id, hp ? {r:hp.w/2, h:hp.h} : null);
+      const opt = hp ? {r:hp.w/2, h:hp.h} : null;
+      // Landebeine müssen wissen, wie viel Rakete unter ihrem Wirtstank noch
+      // kommt – nur so reichen sie am Triebwerk vorbei bis auf den Boden.
+      if(opt && p.type==="legs") opt.drop = legDrop(stack, i, yBot);
+      const mesh = buildPartMesh(id, opt);
       mesh.position.y = hIdx>=0 ? yBot[hIdx] : y;
       // Booster einer OBEREN Stufe (Stufentrenner darunter): Flammen bleiben aus,
       // bis ihre Stufe nach der Trennung die unterste ist (analog zu "flame idle")
@@ -8124,6 +8204,11 @@ const VAB = {
     }
     Game.pad = id; autoSave(); this.renderInfo();
   },
+  /* Startart im Sandbox-Modus: von der Rampe oder direkt im Leibniz-Orbit */
+  setStartMode(mode){
+    if(!Game.sandbox) return;
+    Game.startMode = mode; autoSave(); this.renderInfo();
+  },
   /* Booster-Landeplatz (RTLS = Landing Zone an der Rampe / Droneship im Ozean) */
   setBoosterSite(id){
     const has = t => Game.sandbox || Game.unlocked.includes(t);
@@ -8170,9 +8255,32 @@ const VAB = {
     total += bMass;
     const fee = launchFee(this.stack);
     const cost = stackCost(this.stack) + fee;
-    // Startrampen-Wahl: Klick wechselt, 🔒 = Forschung fehlt, rot = zu schwer
     const pad = currentPad();
-    let padHtml = `<h3>Startrampe</h3>`;
+    let padHtml = "";
+    /* Sandbox-Direktstart: Nur im Training – in der Karriere wäre »direkt im
+       Orbit« ein Freifahrtschein (Missionen, Startkosten und der ganze
+       Aufstieg wären geschenkt). Steht ganz oben, weil es die Rampenauswahl
+       darunter wirkungslos macht. */
+    if(Game.sandbox){
+      const om = Game.startMode === "orbit";
+      padHtml += `<h3>Startart</h3>`;
+      for(const [id, icon, name, note] of [
+        ["pad",   "🏗️", "Von der Rampe",  "kompletter Aufstieg"],
+        ["orbit", "🛰️", "Direkt im Orbit", (SANDBOX_ORBIT_ALT/1000)+" km Kreisbahn"]]){
+        const sel = (id==="orbit") === om;
+        padHtml += `<div class="stat" onclick="VAB.setStartMode('${id}')" style="cursor:pointer;${
+          sel?"color:var(--orange);font-weight:700;":""}">
+          <span>${sel?"▶ ":""}${icon} ${name}</span><span>${note}</span></div>`;
+      }
+      padHtml += `<small style="color:var(--muted)">${om
+        ? "Die Rakete wird mit vollen Tanks auf eine Kreisbahn um <b>Leibniz</b> gesetzt "+
+          "(Ap = Pe = "+(SANDBOX_ORBIT_ALT/1000)+" km) – ideal zum Üben von Rendezvous, "+
+          "Aussetzen, Landung auf Monti oder Wiedereintritt. Rampe und Massenlimit "+
+          "spielen dann keine Rolle."
+        : "Normaler Start von der Rampe."}</small>`;
+    }
+    // Startrampen-Wahl: Klick wechselt, 🔒 = Forschung fehlt, rot = zu schwer
+    padHtml += `<h3>Startrampe</h3>`;
     for(const p of PADS){
       const unlocked = padUnlocked(p), sel = p.id===pad.id;
       padHtml += `<div class="stat" onclick="VAB.setPad('${p.id}')" style="cursor:pointer;${
@@ -9772,6 +9880,31 @@ const Flight = {
     const north = new THREE.Vector3().crossVectors(up, east).normalize();
     return {up, east, north};
   },
+  /* ---------- Schiff direkt auf eine Umlaufbahn setzen ----------
+     Gemeinsame Quelle für die Tutorial-Szenarien (`scenario.orbit`) UND den
+     Sandbox-Direktstart im Orbit. Muss NACH `start()` laufen – das setzt das
+     Schiff erst auf die Rampe.
+     opt.pe   = Periapsis-Höhe (dann ist `alt` die APOapsis, für Wiedereintritts-
+                Szenarien); ohne pe eine Kreisbahn.
+     opt.inc  = Bahnneigung in Grad; Startpunkt ist der aufsteigende Knoten. */
+  spawnInOrbit(b, alt, opt){
+    opt = opt || {};
+    const c = bodyPos(b, 0), bv = bodyVel(b, 0);
+    const r = b.R + alt;
+    let vc;
+    if(opt.pe !== undefined){
+      const rp = b.R + opt.pe, a0 = (r + rp)/2;
+      vc = Math.sqrt(b.mu*(2/r - 1/a0));   // an der Apoapsis der Ellipse
+    } else vc = Math.sqrt(b.mu/r);
+    const iRad = (opt.inc||0)*Math.PI/180;
+    const radial = V3(1,0,0), tang = V3(0, Math.sin(iRad), -Math.cos(iRad));
+    this.pos = c.clone().addScaledVector(radial, r);
+    this.vel = bv.clone().addScaledVector(tang, vc);
+    this.landed = false; this.flew = true;
+    this.throttle = 0;
+    const s = this.activeSeg(); if(s) s.ignited = true;
+    this.q.setFromUnitVectors(V3(0,1,0), tang);   // Nase zeigt prograde
+  },
   start(vessel, padId){
     this.v = vessel;
     this.v.fairingIntact = vessel.stack.some(id=>PARTS[id].type==="fairing");
@@ -10500,15 +10633,35 @@ const Flight = {
      genau dafür hat Simon das Einfahren gewünscht. ⚠️ Der Landestoß-Bonus
      (12 statt 8 m/s, s. checkContact) gilt deshalb auch nur AUSGEFAHREN –
      sonst wäre das Einfahren ein Gratis-Vorteil ohne Risiko. */
+  /* Bodenfreiheit der ausgefahrenen Beine des AKTUELLEN Stacks (0 = reichen
+     nicht bis zum Boden). Eigene Methode, weil checkContact, toggleLegs und
+     der Kontaktschatten denselben Wert brauchen. */
+  legClearance(){ return this.v ? legClearance(this.v.stack) : 0; },
   toggleLegs(){
     if(this.crashed||this.ended) return;
     if(!this.v.stack.some(id=>PARTS[id].type==="legs")){
       this.showMsg("Keine Landebeine an Bord! 🦵",2); return;
     }
     this.legsOut = !this.legsOut;
-    this.showMsg(this.legsOut
-      ? "🦵 Landebeine ausgefahren – jetzt hält die Landung bis 12 m/s."
-      : "🦵 Landebeine eingefahren (Landung nur noch bis 8 m/s!).", 2.5);
+    const clear = this.legClearance();
+    /* ⚠️ Steht das Schiff schon, ändert das Ausfahren seine RUHEHÖHE: Auf den
+       Füßen liegt die Unterkante `clear` höher als auf der Glocke. Ohne dieses
+       Nachsetzen würden die Beine im Boden stecken (bzw. das Schiff nach dem
+       Einfahren in der Luft schweben). */
+    if(this.landed && this.landedBody){
+      const c = this.bodyCenter(this.landedBody);
+      const rel = this.pos.clone().sub(c);
+      this.pos.copy(c).addScaledVector(rel.normalize(),
+        this.landedBody.R + this.height()/2 + (this.legsOut ? clear : 0));
+      this.landedRel = this.pos.clone().sub(c);
+    }
+    this.showMsg(!this.legsOut
+      ? "🦵 Landebeine eingefahren (Landung nur noch bis 8 m/s!)."
+      : clear > 0
+        ? "🦵 Landebeine ausgefahren – jetzt hält die Landung bis 12 m/s."
+        : "🦵 Landebeine ausgefahren – ⚠️ sie reichen aber NICHT bis unter das Triebwerk! "+
+          "Bau sie in der Halle an den UNTERSTEN Tank, direkt über das Triebwerk, "+
+          "sonst tragen sie bei der Landung nichts.", 4);
   },
   togglePanels(){
     if(this.crashed||this.ended) return;
@@ -12823,13 +12976,23 @@ const Flight = {
     for(const b of [LEIBNIZ, ...MOONS]){
       const c = this.bodyCenter(b);
       const rel = this.pos.clone().sub(c);
-      const r = rel.length(), surf = b.R + this.height()/2;
+      /* ⚠️ Auf AUSGEFAHRENEN Beinen steht das Schiff auf den Fußtellern, nicht
+         auf der Triebwerksglocke: Die Unterkante bleibt `legClearance()` über
+         dem Boden. Ohne das würden die Beine im Boden stecken – genau darum
+         ging es beim Umbau zum Radialteil. */
+      const clear = this.legsOut ? this.legClearance() : 0;
+      const r = rel.length(), surf = b.R + this.height()/2 + clear;
       if(r <= surf){
         const bv = bodyVel(b, this.t);
         const vrel = this.vel.clone().sub(bv).length();
-        const seg = this.v.segs[this.v.segs.length-1];
-        // ⚠️ Eingefahrene Beine helfen nicht – der Bonus hängt an legsOut, [Y]
-        const limit = (seg&&seg.hasLegs&&this.legsOut)?12:8;
+        /* ⚠️ Eingefahrene Beine helfen nicht – der Bonus hängt an legsOut, [Y].
+           Und Beine, die gar nicht bis zum Boden reichen (weit oben angebaut),
+           tragen auch nichts: dann ist `clear` 0 und es bleibt bei 8 m/s.
+           `clear > 0` setzt Beine im Stack bereits voraus, deshalb steht hier
+           kein `seg.hasLegs` mehr – das prüfte das OBERSTE Segment
+           (`segs[length-1]`; segments() zählt von unten) und lag damit bei einem
+           noch zweistufigen Lander am falschen Ende der Rakete. */
+        const limit = (this.legsOut && clear > 0) ? 12 : 8;
         this.pos.copy(c).addScaledVector(rel.normalize(), surf);
         this.vel.copy(bv);
         this.warpI = 0;
