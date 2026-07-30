@@ -182,8 +182,8 @@ input[type=file]{display:none;}
   <button class="btn" onclick="UI.show('tutorial')">🎓 Tutorials</button>
   <button class="btn" onclick="UI.show('universe')">🪐 Universum ansehen</button>
   <button class="btn" onclick="UI.show('options')">⚙️ Optionen</button>
-  <button class="btn" onclick="UI.saveGame()">💾 Spielstand speichern</button>
-  <button class="btn" onclick="document.getElementById('loadFile').click()">📂 Spielstand laden</button>
+  <button class="btn" onclick="UI.saveGame()" title="Lädt eine Datei mit Fortschritt UND allen gespeicherten Raketen herunter – zum Mitnehmen auf einen anderen PC">💾 Spielstand speichern</button>
+  <button class="btn" onclick="document.getElementById('loadFile').click()" title="Spielstand-Datei laden – gespeicherte Raketen wandern dabei zurück in den Hangar">📂 Spielstand laden</button>
   <button class="btn" style="font-size:12px;padding:6px 14px;opacity:.7" onclick="resetProgress()">🗑 Fortschritt zurücksetzen</button>
   <input type="file" id="loadFile" accept=".json" onchange="UI.loadGame(this)">
   <button id="musicBtn" class="btn" style="position:absolute;top:14px;right:14px;padding:8px 14px;" onclick="toggleMusic()">🔊 Musik</button>
@@ -1911,7 +1911,14 @@ const UI = {
   },
   saveGame(){
     Game.design = VAB.stack.length?[...VAB.stack]:Game.design;
-    const blob = new Blob([JSON.stringify(Game,null,2)],{type:"application/json"});
+    /* ⚠️ Der Hangar (gespeicherte Bauplaene) reist im Spielstand MIT: Die Kinder
+       wechseln die Rechner, und eine ZWEITE Datei (lmg-raketen.json) geht dabei
+       zuverlässig verloren – dann steht der Fortschritt am neuen PC vor einem
+       leeren Hangar. Bewusst NUR in der Download-Datei, NICHT in `Game`: der
+       Hangar gehört zum localStorage des Rechners, sonst schleppt jeder autoSave
+       eine zweite, mit der Zeit veraltende Kopie aller Raketen mit. */
+    const data = Object.assign({}, Game, {rockets: VAB.savedRockets()});
+    const blob = new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "lmg-space-program-spielstand.json";
@@ -1923,10 +1930,16 @@ const UI = {
       try{
         const d = JSON.parse(t);
         if(!Array.isArray(d.unlocked)) throw 0;
+        // Hangar aus der Datei übernehmen und dann aus dem Spielstand entfernen –
+        // die Bauplaene leben im localStorage, nicht in `Game` (s. saveGame).
+        const rockets = d.rockets;
+        delete d.rockets;
         Game = Object.assign(newGame(), d);
         migrateGame();
         VAB.stack = [...Game.design];
-        alert("Spielstand geladen! 🛰️ Wissenschaft: "+Game.science);
+        const {neu, akt} = VAB.mergeRockets(rockets);
+        alert("Spielstand geladen! 🛰️ Wissenschaft: "+Game.science +
+          (neu+akt ? "\n🚀 Hangar: "+neu+" Raketen neu, "+akt+" aktualisiert." : ""));
       }catch(e){ alert("Datei konnte nicht gelesen werden."); }
       input.value="";
     });
@@ -7978,23 +7991,33 @@ const VAB = {
     a.click();
     URL.revokeObjectURL(a.href);
   },
+  /* Bauplaene aus einer Datei in den Hangar mischen (per Name), Rückgabe {neu,akt}.
+     EINE Quelle für beide Wege hinein: den Raketen-Import hier UND den Spielstand
+     (UI.loadGame) – sonst driften die beiden Prüfungen auseinander. */
+  mergeRockets(inc){
+    if(!Array.isArray(inc)) return {neu:0, akt:0};
+    const all = this.savedRockets();
+    let neu = 0, akt = 0;
+    for(const r of inc){
+      if(!r || typeof r.name!=="string" || !Array.isArray(r.stack)) continue;
+      const stack = r.stack.filter(id=>typeof id==="string" && PARTS[id]);
+      if(!stack.length) continue;
+      const i = all.findIndex(x=>x.name===r.name);
+      if(i>=0){ all[i] = {name:r.name, stack}; akt++; }
+      else { all.push({name:r.name, stack}); neu++; }
+    }
+    if(neu+akt) localStorage.setItem("lmgRockets", JSON.stringify(all));
+    return {neu, akt};
+  },
   importRockets(file){
     const rd = new FileReader();
     rd.onload = ()=>{
       try{
         const inc = JSON.parse(rd.result);
-        if(!Array.isArray(inc)) throw new Error("kein Array");
-        const all = this.savedRockets();
-        let neu = 0, akt = 0;
-        for(const r of inc){
-          if(!r || typeof r.name!=="string" || !Array.isArray(r.stack)) continue;
-          const stack = r.stack.filter(id=>typeof id==="string" && PARTS[id]);
-          if(!stack.length) continue;
-          const i = all.findIndex(x=>x.name===r.name);
-          if(i>=0){ all[i] = {name:r.name, stack}; akt++; }
-          else { all.push({name:r.name, stack}); neu++; }
-        }
-        localStorage.setItem("lmgRockets", JSON.stringify(all));
+        // Auch ein Spielstand ist eine gültige Quelle – dort steckt der Hangar in .rockets.
+        const list = Array.isArray(inc) ? inc : (inc && Array.isArray(inc.rockets) ? inc.rockets : null);
+        if(!list) throw new Error("kein Array");
+        const {neu, akt} = this.mergeRockets(list);
         this.renderHangar();
         alert(neu+akt ? "📂 Import fertig: "+neu+" neu, "+akt+" aktualisiert." :
           "In der Datei steckte keine brauchbare Rakete. 🤔");
