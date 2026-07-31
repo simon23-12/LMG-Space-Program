@@ -863,7 +863,54 @@ Dazu weiter: Wirbel-Blobs an Emittern (Heck-Totwasser + Stufen, blähen sich mit
   - ⚠️ **NICHT die Schrittweite/der Zeitraffer war schuld** (naheliegende Vermutung): 1×/5×/50×/500× liefern dasselbe Ergebnis, und dieselbe Bahn mit dt 0,02 gegen dt 0,83 stimmt überein. Auch `maxDt` ist nahe am Planeten fein (bei 600 km Höhe schon 1,3 s) – die 600-s-Schritte gibt es nur weit draußen.
   - Schutz = `shield`-Teil ODER Starship **in Bauchlage**: Kacheln nur am Bauch (+Z körperfest), `dot(+Z, airVel) > 0.5` – Nase voran = Tod (eigene Warn-/Crash-Meldungen »Kacheln zeigen nicht in den Wind«, Tutorial "starship" warnt entsprechend).
   - ⚠️⚠️ **Dazu gehört zwingend der Zweig `belly.state==="flop" && wind > 0`:** `updateBelly` legt die Nase WAAGERECHT, der Bauch zeigt also nach UNTEN – beim flachen Wiedereintritt kommt der Wind aber noch fast von vorn. Gemessen: `Bauch·Wind` = **0,10** durchgehend von 74 bis 50 km, über 0,5 steigt es erst im steilen Endfall. Solange der Schaden erst ab ~33 km begann, fiel das nie auf; mit dem Start bei ~57 km verglüht ein KORREKT geflogenes Starship in Bauchlage sonst bei 48 km. Verifiziert: [C]-Bauchlage heatDmg 0,00 · Nase voran verglüht bei 48 km.
-  - **Aus dem Orbit ohne Hitzeschild = immer Tod**, jetzt auch für leichte Schiffe und für flache Aerobraking-Tricks. Mit Schild: sichere Landung (flach, steil und aus 5000 km Apogäum getestet, heatDmg 0,00). Reset `heatDmg` in start(). **Plasma-Glühen (rein visuell, in frame()):** `Flight.plasmaGroup` (lazy, an `scene`): Stoßfront-Sprite windwärts + Halo + Plasmaschweif = **Kette aus 10 Glow-Sprites** (`grp.userData.trail`, nach hinten größer/röter/dünner, Wabern+Flackern via sin – ⚠️ KEIN Kegel-Mesh: harte Silhouettenkanten sehen aus wie ein Plastik-Trichter), Intensität `(shipTemp−600)/900` (= ab roter HUD-Temp), aus bei map/landed/crashed/airVel<600; dazu Funken-Partikel nach hinten (nur warp≤2).
+  - **Aus dem Orbit ohne Hitzeschild = immer Tod**, jetzt auch für leichte Schiffe und für flache Aerobraking-Tricks. Mit Schild: sichere Landung (flach, steil und aus 5000 km Apogäum getestet, heatDmg 0,00). Reset `heatDmg` in start().
+
+#### Plasma-Optik beim Wiedereintritt (`buildPlasma` / `PLASMA_*_VERT/FRAG`)
+Rein visuell, gesteuert in `frame()`; die Hitze-PHYSIK bleibt in `step()` (heatDmg).
+`Flight.plasmaGroup` wird **einmal lazy** gebaut und hängt an `scene` (das Schiff IST der
+Szenen-Ursprung); +Y der Gruppe = windabgewandt. Intensität `gI = (shipTemp−600)/900`
+(= ab roter HUD-Temperatur), aus bei map/landed/crashed/`alt > atmoH`/airVel < 600.
+Alles danach läuft über **Uniforms** – kein Puffer wird je neu hochgeladen (3 Draw-Calls,
+5688 + 1440 Dreiecke, gemessen **0,07 ms/Frame**). Drei Bestandteile:
+1. **Stoßfront** (`PLASMA_CAP_*`): Paraboloid-**Schale**, kein gefüllter Kegel. Deckkraft
+   läuft am Rand auf 0 (nur so keine Silhouette – daran war der alte Kegel-Versuch als
+   »Plastiktrichter« gescheitert). Die Sichel entsteht durch **Limb-Brightening** `1/µ`:
+   eine dünne leuchtende Schale ist dort am hellsten, wo man flach durch sie hindurchsieht.
+2. **Nachlauf** (`PLASMA_WAKE_*`): 132 feine Streifen (tragen die Striation) + 26 sehr
+   breite, weiche Bänder (die zusammenhängende Leuchtschicht) im SELBEN Puffer, Flag
+   `aCore`. Nur die feinen = nasse Haare, nur die Schicht = Fackel, erst beide zusammen
+   = strömendes Plasma. Die Mittellinie kommt aus `curve()` IM SHADER, das Band wird im
+   Vertex-Shader zur Kamera aufgespannt (wie die Windkanal-Rauchfahnen – ein Band mit
+   fester Ebene verschwindet, sobald die Kamera in seine Ebene dreht).
+3. **Blend-Sprites** (`glare` breit + `hotSpot` an der Staukante, `depthTest:false`) als
+   Bloom-Ersatz. Postprocessing wäre auf Schulrechnern der teuerste Posten überhaupt.
+- **Farbfolge** `plasmaRamp` = echte Emissionsfolge heißer Luft: violett → magenta → rot →
+  orange → gelb → weißglühend → blauweiß. Das Violett am Schweifende ist der Grund, warum
+  echte Aufnahmen nicht wie Feuer aussehen – es ist angeregter Stickstoff, kein Feuer.
+- ⚠️⚠️ **EIN Band darf für sich NICHT hell sein.** Additiv summieren sich alle Bänder auf dem
+  Sehstrahl, und alles über 1 ist weiß; quer im Wind liegen ein Dutzend übereinander. Mit dem
+  naheliegenden Faktor 1,35 war ein einzelnes Band schon bei 1,09 – der Nachlauf eines quer
+  liegenden Starships war eine weiße Fläche, von der Farbfolge nichts zu sehen. 0,45 lässt ein
+  Band bei 0,52 und erst das Bündel weiß werden.
+- ⚠️⚠️ **Der Querschnitt geht als FLÄCHE ein** (flächengleicher Kreis `√(A/π)`), nicht als
+  Kante: Quer im Wind ist die Silhouette eines Starships ein 124×14-Rechteck – nimmt man die
+  halbe LÄNGE als Radius (62), steht um das Schiff eine Glocke von 124 Einheiten Durchmesser
+  und die Verfolgerkamera hängt mitten darin (gemessen: reiner Weißabriss). Die Fläche liefert
+  23,5. `half` (Ausdehnung LÄNGS des Windes) bleibt die lineare Interpolation.
+- ⚠️ **Die Nachlauf-LÄNGE hängt an `height()`, nicht am Stoßfront-Radius.** Die Kamera steht
+  bei 2,2·H, also ist H das einzige Maß, das zum Bildausschnitt passt. Über den Radius
+  gerechnet war die Fahne eines quer liegenden Starships 400 Einheiten lang bei 150 Einheiten
+  Kameraabstand.
+- ⚠️ **Nahausblendung** (`uNear`, Fragmente dicht vor der Linse verschwinden) – ohne sie ist
+  der Bildschirm weiß, sobald man die Kamera hinter das Schiff in den Nachlauf dreht. Die
+  Blend-Sprites werden dafür über `nearF` (aus `camDist`) gedimmt.
+- ⚠️ Der Radius-Exponent in `curve()` ist **> 1** (1,25): Die Fahnen müssen am Kopf noch am
+  Rumpf kleben und erst weiter hinten auffächern – mit 0,8 stand um den Bug ein Besen.
+- ⚠️ **Länge pro Fahne stark streuen** – gleich lange Fahnen sehen aus wie ein Kamm, erst die
+  ausgefransten Enden lesen sich als Strömung.
+- ⚠️ Der Flug-Renderer hat `logarithmicDepthBuffer` → die `logdepthbuf`-Chunks sind in beiden
+  Shadern PFLICHT. GLSL ES 1.00 (kein `inverse()`, keine dynamischen Loop-Grenzen).
+- Dazu weiterhin Funken-Partikel nach hinten (nur warp ≤ 2), ~28 % davon magenta.
 - **Kontext-Buttons:** `Flight.updateButtons()` (in drawHUD, pro Frame): blendet Booster[R/J]/Schirm/Fairing/Satellit/Panele/EVA/Bellyflop/Docken/Modul/Bucht/Experiment aus, wenn das Vehikel die Ausrüstung nicht hat (IDs btnBoostR/btnBoostJ/btnChute/btnFairing/btnSat/btnPanels/btnEva/btnBelly/btnDock/btnModul/btnBay/btnExp). Modul zusätzlich nur Karriere.
 - **SRB-Anzeige getrennt:** Tank-Gauge/`fuelPct`/HUD-Zeile »Treibstoff« = NUR Flüssigtreibstoff; Feststoffbooster (inline `srb`, nicht drosselbar – brennen auch bei Schub 0 weiter, Tank bleibt voll!) haben eigene HUD-Zeile + teilen sich die orange Booster-Gauge mit dem Seitenbooster-Pool der aktiven Stufe.
 - **Hangar-Dateien:** `VAB.exportRockets()` (Download `lmg-raketen.json`) / `VAB.importRockets(file)` (Merge per Name über `VAB.mergeRockets`, filtert unbekannte Teile-IDs) – Buttons im Hangar-Modal + verstecktes `#rocketFile`-Input. Für Schüler*innen, die den PC wechseln.

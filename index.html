@@ -5944,6 +5944,276 @@ void main(){
   col *= mix(0.74, 1.05, vShade);                      // Wolkenboden dunkler
   gl_FragColor = vec4(col, alpha);
 }`;
+
+/* ======================= WIEDEREINTRITTS-PLASMA ==========================
+   Die alte Fassung war eine Kette runder Glow-Sprites hintereinander – aus
+   jeder Perspektive ein "brennender Stock". Ein echter Wiedereintritt sieht
+   anders aus, und zwar aus drei Gründen, die hier alle drei nachgebaut sind:
+
+   1. VORNE eine STOSSFRONT: eine dünne, leuchtende SCHALE, die sich als
+      Paraboloid um die windzugewandte Seite legt. Sie ist am Staupunkt am
+      heißesten und wird zum Rand hin durchsichtig.
+   2. HINTEN keine Fahne, sondern ein NACHLAUF AUS VIELEN STREIFEN. Genau
+      diese Striation macht das Bild – ein einzelner Schweif liest sich als
+      Fackel, 72 einzeln flackernde, unterschiedlich lange Streifen als
+      strömendes Plasma.
+   3. Die FARBE läuft über die echte Emissionsfolge heißer Luft:
+      blauweiß → weißglühend → gelb → orange → rot → magenta → violett.
+      Das Violett am Schweifende ist der Grund, warum echte Aufnahmen nicht
+      wie Feuer aussehen: es ist kein Feuer, sondern angeregter Stickstoff.
+
+   ⚠️ GLSL ES 1.00 (WebGL1, alte Schultreiber): attribute/varying,
+      gl_FragColor, kein inverse(), keine dynamischen Loop-Grenzen.
+   ⚠️ Der Flug-Renderer hat logarithmicDepthBuffer – die logdepthbuf-Chunks
+      sind PFLICHT, sonst liegt das Plasma tiefenmäßig irgendwo. */
+const PLASMA_RAMP_GLSL = `
+vec3 plasmaRamp(float t){
+  t = clamp(t, 0.0, 1.0);
+  vec3 c =   vec3(0.26,0.10,0.52);                                   // Violett
+  c = mix(c, vec3(0.72,0.14,0.54), smoothstep(0.00,0.20,t));         // Magenta
+  c = mix(c, vec3(0.98,0.22,0.24), smoothstep(0.20,0.40,t));         // Rot
+  c = mix(c, vec3(1.00,0.47,0.13), smoothstep(0.40,0.58,t));         // Orange
+  c = mix(c, vec3(1.00,0.79,0.36), smoothstep(0.58,0.78,t));         // Gelb
+  c = mix(c, vec3(1.00,0.97,0.90), smoothstep(0.78,0.94,t));         // Weißglut
+  c = mix(c, vec3(0.84,0.94,1.00), smoothstep(0.94,1.00,t));         // Blauweiß
+  return c;
+}`;
+/* Nachlauf-Streifen. Die Mittellinie jeder Fahne kommt AUS DEM SHADER
+   (curve()), nicht aus der Geometrie – so bleibt EINE gebackene Geometrie für
+   alle Schiffsgrößen und alle Intensitäten, und die Fahnen können pro Frame
+   wachsen, sich aufweiten und schlängeln, ohne dass ein einziger Puffer neu
+   hochgeladen wird.
+   ⚠️ Das Band wird IM VERTEX-SHADER zur Kamera aufgespannt (wie die
+   Rauchfahnen im Windkanal). Ein Band mit fester Ebene verschwindet, sobald
+   die Kamera in seine Ebene dreht – bei einer frei orbitierenden Verfolger-
+   kamera flackert dann der halbe Nachlauf weg. */
+const PLASMA_WAKE_VERT = `
+#include <common>
+attribute float aA;      // Azimut der Fahne um die Strömungsachse
+attribute float aT;      // 0..1 entlang der Fahne
+attribute float aSide;   // −1 / +1 = die zwei Bandkanten
+attribute float aSeed;   // Phase/Streuung pro Fahne
+attribute float aLen;    // relative Länge (ausgefranste Enden!)
+attribute float aW;      // relative Breite
+attribute float aCore;   // 0 = feiner Streifen, 1 = weiche Leuchtschicht
+uniform float uT, uRs, uLen, uSpread, uSwirl, uY0, uInt;
+varying float vT, vSide, vSeed, vCore, vZ;
+#include <logdepthbuf_pars_vertex>
+vec3 curve(float t){
+  float sd  = aSeed*63.0;
+  float ang = aA + uSwirl*t*(0.55 + 0.90*aSeed)
+            + (0.05 + 0.22*t)*sin(uT*2.3 + sd + t*5.5);
+  // ⚠️ Exponent > 1: Die Fahnen müssen am Kopf noch am Rumpf KLEBEN und erst
+  // weiter hinten auffächern. Mit 0,8 stand um den Bug ein Besen ab.
+  float rad = uRs*(0.82 + uSpread*pow(max(t, 0.0), 1.25))*(0.86 + 0.28*aSeed);
+  return vec3(sin(ang)*rad, uY0 + uLen*aLen*t, cos(ang)*rad);
+}
+void main(){
+  vec4 mv = modelViewMatrix*vec4(curve(aT), 1.0);
+  vec3 tv = normalize((modelViewMatrix*vec4(curve(aT + 0.035), 1.0)).xyz - mv.xyz);
+  vec3 vd = normalize(-mv.xyz);
+  vec3 sd = cross(tv, vd);
+  float sl = length(sd);
+  sd = sl > 1e-4 ? sd/sl : vec3(1.0, 0.0, 0.0);
+  mv.xyz += sd*(aSide*uRs*(0.017 + 0.055*aT)*aW*(0.75 + 0.50*uInt));
+  vT = aT; vSide = aSide; vSeed = aSeed; vCore = aCore; vZ = -mv.z;
+  gl_Position = projectionMatrix*mv;
+#include <logdepthbuf_vertex>
+}`;
+const PLASMA_WAKE_FRAG = `
+#include <common>
+uniform float uT, uInt, uFlick, uNear;
+varying float vT, vSide, vSeed, vCore, vZ;
+#include <logdepthbuf_pars_fragment>
+${PLASMA_RAMP_GLSL}
+void main(){
+#include <logdepthbuf_fragment>
+  float q = 1.0 - vSide*vSide;
+  // Feiner Streifen = schmaler heller Kern (q²), Leuchtschicht = weiche Wolke
+  float edge = mix(q*q, q*0.55, vCore);
+  float head = smoothstep(0.0, 0.06, vT);
+  float tail = 1.0 - smoothstep(0.22, 1.0, vT);
+  // Zwei gegenläufig wandernde Wellen = helle Abschnitte, die die Fahne
+  // entlanglaufen. Ohne sie ist jeder Streifen ein gleichmäßiger Strich.
+  float sd = vSeed*61.0;
+  float n1 = 0.52 + 0.48*sin(vT*(21.0 + vSeed*30.0) - uT*(10.0 + vSeed* 9.0) + sd);
+  float n2 = 0.62 + 0.38*sin(vT*(55.0 + vSeed*46.0) - uT*(18.0 + vSeed*16.0) + sd*1.7);
+  float str = mix(n1*n2, 0.80, vCore);             // die Schicht flackert kaum
+  // ⚠️ Nahausblendung: Der Nachlauf ist bei einem quer liegenden Starship über
+  // einen Kilometer lang – dreht man die Kamera dahinter, steckt sie MITTEN
+  // drin und der Bildschirm ist schlicht weiß. Fragmente direkt vor der Linse
+  // verschwinden deshalb.
+  float a = uInt*uFlick*edge*head*tail*(0.30 + 0.85*str)*mix(1.0, 0.55, vCore)
+          * smoothstep(0.0, uNear, vZ);
+  if(a < 0.002) discard;
+  float hot = clamp((1.0 - vT*1.20)*(0.62 + 0.45*uInt) + 0.28*str*(1.0 - vT), 0.0, 1.0);
+  /* ⚠️⚠️ EIN Band darf für sich NICHT hell sein. Additiv summieren sich alle
+     Bänder, die der Sehstrahl trifft, und alles über 1 ist weiß – quer im Wind
+     liegen ein Dutzend übereinander. Mit dem naheliegenden Faktor 1,35 war ein
+     einzelnes Band schon bei 1,09, der ganze Nachlauf also eine weiße Fläche
+     und von der mühsam abgestimmten Farbfolge nichts mehr zu sehen. 0,45 lässt
+     ein Band bei 0,52 und erst das Bündel weiß werden. */
+  gl_FragColor = vec4(plasmaRamp(hot)*a*0.45, 1.0);
+}`;
+/* Stoßfront: Paraboloid-SCHALE, kein gefüllter Kegel.
+   ⚠️ Die Deckkraft läuft am Rand auf 0 (rim) – nur deshalb hat die Schale
+   keine sichtbare Silhouette. Genau daran ist der alte Kegel-Versuch
+   gescheitert (»Plastiktrichter«).
+   ⚠️ LIMB-BRIGHTENING (1/µ) ist der Trick, der die Sichel macht: eine dünne
+   leuchtende Schale ist dort am hellsten, wo man FLACH durch sie
+   hindurchsieht – am Rand also, nicht in der Mitte. */
+const PLASMA_CAP_VERT = `
+#include <common>
+attribute float aS;      // 0 = Staupunkt … 1 = Rand
+attribute float aA;      // Azimut
+uniform float uRs, uNose, uCurve;
+varying float vS, vZ;
+varying vec3 vN, vV;
+#include <logdepthbuf_pars_vertex>
+void main(){
+  float s = aS, sn = max(s, 0.04);
+  float sa = sin(aA), ca = cos(aA);
+  vec3 p  = vec3(sa*uRs*s, uNose + uCurve*s*s, ca*uRs*s);
+  vec3 dS = vec3(sa*uRs, 2.0*uCurve*sn, ca*uRs);      // ∂P/∂s
+  vec3 dA = vec3(ca*uRs*sn, 0.0, -sa*uRs*sn);         // ∂P/∂φ
+  vec4 mv = modelViewMatrix*vec4(p, 1.0);
+  vN = normalize(normalMatrix*normalize(cross(dA, dS)));
+  vV = normalize(-mv.xyz);
+  vS = s; vZ = -mv.z;
+  gl_Position = projectionMatrix*mv;
+#include <logdepthbuf_vertex>
+}`;
+const PLASMA_CAP_FRAG = `
+#include <common>
+uniform float uInt, uFlick, uNear;
+varying float vS, vZ;
+varying vec3 vN, vV;
+#include <logdepthbuf_pars_fragment>
+${PLASMA_RAMP_GLSL}
+void main(){
+#include <logdepthbuf_fragment>
+  float mu   = abs(dot(normalize(vN), normalize(vV)));
+  float limb = min(1.0/max(mu, 0.13), 5.5);
+  float rim  = 1.0 - smoothstep(0.55, 1.0, vS);       // Rand → unsichtbar
+  float nose = pow(1.0 - vS, 1.5);                    // Staupunkt am heißesten
+  float a = uInt*uFlick*(0.22 + 0.78*nose)*rim*limb*0.34*smoothstep(0.0, uNear, vZ);
+  if(a < 0.002) discard;
+  float hot = clamp(0.34 + 0.52*nose + 0.16*(limb - 1.0), 0.0, 1.0);
+  gl_FragColor = vec4(plasmaRamp(hot)*min(a, 1.3), 1.0);
+}`;
+/* Der Renderer hat kein Bloom (Postprocessing wäre auf Schulrechnern der
+   teuerste Posten überhaupt). Das Überstrahlen macht deshalb ein großes,
+   sehr weiches Sprite mit depthTest:false, das ÜBER dem Rumpf liegt – so
+   steckt das Schiff sichtbar IM Plasma, statt eine Fackel zu tragen.
+   ⚠️ Der Abfall muss exponentiell sein (viele Farbstopps), ein linearer
+   Radialverlauf hat einen sichtbaren Rand. */
+function plasmaGlowTex(){
+  const S = 128, c = document.createElement("canvas"); c.width = c.height = S;
+  const x = c.getContext("2d");
+  const g = x.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
+  for(let i=0;i<=16;i++){
+    const t = i/16, a = Math.pow(1-t, 3.2);
+    g.addColorStop(t, "rgba(255,"+Math.round(240-80*t)+","+Math.round(220-165*t)+","+a.toFixed(3)+")");
+  }
+  x.fillStyle = g; x.fillRect(0,0,S,S);
+  return new THREE.CanvasTexture(c);
+}
+/* Baut die Plasma-Gruppe EINMAL. +Y = windabgewandt (stromab).
+   Alles danach läuft über Uniforms – kein Puffer wird je neu hochgeladen. */
+function buildPlasma(){
+  const grp = new THREE.Group();
+  const F = (a,n)=>new THREE.BufferAttribute(new Float32Array(a), n);
+  // ---- Stoßfront-Schale (Paraboloid-Gitter) ----
+  const NS = 18, NA = 40;
+  const cPos = [], cS = [], cA = [], cIdx = [];
+  for(let i=0;i<=NS;i++) for(let j=0;j<=NA;j++){
+    const s = i/NS, a = j/NA*Math.PI*2;
+    cPos.push(Math.sin(a)*s, s*s, Math.cos(a)*s);   // nur für die Bounding-Box
+    cS.push(s); cA.push(a);
+  }
+  for(let i=0;i<NS;i++) for(let j=0;j<NA;j++){
+    const v0 = i*(NA+1)+j, v1 = v0+1, v2 = v0+NA+1, v3 = v2+1;
+    cIdx.push(v0,v2,v1, v1,v2,v3);
+  }
+  const cGeo = new THREE.BufferGeometry();
+  cGeo.setAttribute("position", F(cPos,3));
+  cGeo.setAttribute("aS", F(cS,1));
+  cGeo.setAttribute("aA", F(cA,1));
+  cGeo.setIndex(cIdx);
+  const cap = new THREE.Mesh(cGeo, new THREE.ShaderMaterial({
+    uniforms:{ uRs:{value:10}, uNose:{value:-10}, uCurve:{value:10},
+               uInt:{value:0}, uFlick:{value:1}, uNear:{value:10} },
+    vertexShader:PLASMA_CAP_VERT, fragmentShader:PLASMA_CAP_FRAG,
+    transparent:true, depthWrite:false, side:THREE.DoubleSide,
+    blending:THREE.AdditiveBlending }));
+  cap.frustumCulled = false; cap.renderOrder = 4;
+  grp.add(cap);
+  /* ---- Nachlauf, EINE Geometrie = 1 Draw-Call ----
+     ZWEI Lagen im selben Puffer, und das ist der Kern der ganzen Optik:
+     132 FEINE Streifen tragen die Striation, 26 sehr breite, weiche Bänder
+     legen die zusammenhängende Leuchtschicht darunter. Nur mit den feinen
+     Streifen sieht der Nachlauf aus wie nasse Haare, nur mit der Schicht wie
+     eine Fackel – erst zusammen wie strömendes Plasma. */
+  const NSEG = 18, rnd = seededRand(9271);
+  const wPos = [], wA = [], wT = [], wSide = [], wSeed = [], wLen = [], wWid = [],
+        wCore = [], wIdx = [];
+  const layers = [{n:132, core:0, w:[0.50,1.05], len:[0.30,0.70]},
+                  {n: 26, core:1, w:[3.20,3.40], len:[0.34,0.46]}];
+  let vBase = 0;
+  for(const L of layers) for(let k=0;k<L.n;k++){
+    const ang = k/L.n*Math.PI*2 + (rnd()-0.5)*0.16;
+    const seed = rnd();
+    // ⚠️ Länge STARK streuen: gleich lange Fahnen sehen aus wie ein Kamm,
+    // erst die ausgefransten Enden lesen sich als Strömung.
+    const len = L.len[0] + L.len[1]*Math.pow(rnd(), 0.75);
+    const wid = L.w[0] + L.w[1]*rnd();
+    for(let j=0;j<=NSEG;j++){
+      const t = j/NSEG;
+      for(const sd of [-1, 1]){
+        wPos.push(0,0,0);                            // Position kommt aus curve()
+        wA.push(ang); wT.push(t); wSide.push(sd);
+        wSeed.push(seed); wLen.push(len); wWid.push(wid); wCore.push(L.core);
+      }
+    }
+    for(let j=0;j<NSEG;j++){
+      const v0 = vBase+j*2, v1 = v0+1, v2 = v0+2, v3 = v0+3;
+      wIdx.push(v0,v2,v1, v1,v2,v3);
+    }
+    vBase += (NSEG+1)*2;
+  }
+  const wGeo = new THREE.BufferGeometry();
+  wGeo.setAttribute("position", F(wPos,3));
+  wGeo.setAttribute("aA", F(wA,1));       wGeo.setAttribute("aT", F(wT,1));
+  wGeo.setAttribute("aSide", F(wSide,1)); wGeo.setAttribute("aSeed", F(wSeed,1));
+  wGeo.setAttribute("aLen", F(wLen,1));   wGeo.setAttribute("aW", F(wWid,1));
+  wGeo.setAttribute("aCore", F(wCore,1));
+  wGeo.setIndex(wIdx);
+  const wake = new THREE.Mesh(wGeo, new THREE.ShaderMaterial({
+    uniforms:{ uT:{value:0}, uRs:{value:10}, uLen:{value:60}, uSpread:{value:1.2},
+               uSwirl:{value:0.55}, uY0:{value:0}, uInt:{value:0}, uFlick:{value:1},
+               uNear:{value:10} },
+    vertexShader:PLASMA_WAKE_VERT, fragmentShader:PLASMA_WAKE_FRAG,
+    transparent:true, depthWrite:false, side:THREE.DoubleSide,
+    blending:THREE.AdditiveBlending }));
+  wake.frustumCulled = false; wake.renderOrder = 3;
+  grp.add(wake);
+  /* ---- Überstrahlen über dem Rumpf (Bloom-Ersatz) ----
+     ZWEI Sprites: ein breiter, kühler Schein über der ganzen Rakete und ein
+     kleiner, weißglühender direkt an der windzugewandten Kante. Erst der
+     zweite lässt den Rumpf dort wirklich glühen, statt nur hell umrandet zu
+     sein – ein einzelnes großes Sprite müsste dafür so kräftig sein, dass es
+     das ganze Schiff verschluckt. */
+  const tex = plasmaGlowTex();
+  const spr = (col, ord)=>{
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, color:col,
+      transparent:true, depthWrite:false, depthTest:false,
+      blending:THREE.AdditiveBlending, opacity:0}));
+    s.renderOrder = ord; grp.add(s); return s;
+  };
+  const glare = spr(0xffd9a8, 6), hotSpot = spr(0xfff6e8, 7);
+  grp.userData = {cap, wake, glare, hotSpot};
+  return grp;
+}
 /* Boden-Kacheln für Gras/Sand/Meer: einmalig erzeugte 256er-Canvas-Texturen,
    danach 0 Laufzeitkosten (Mipmaps machen die Ferne automatisch ruhig).
    Bewusst fast WEISS gemalt – material.color tönt sie ein, dadurch funktioniert
@@ -14235,71 +14505,74 @@ const Flight = {
         if(this.map || this.crashed || this.landed ||
            alt > LEIBNIZ.atmoH || airV.length() < 600) gI = 0;
         if(gI > 0 && !this.plasmaGroup){
-          const c = document.createElement("canvas"); c.width = c.height = 64;
-          const x = c.getContext("2d");
-          const g = x.createRadialGradient(32,32,2,32,32,30);
-          g.addColorStop(0,"rgba(255,244,214,1)");
-          g.addColorStop(0.35,"rgba(255,170,70,0.85)");
-          g.addColorStop(1,"rgba(255,120,40,0)");
-          x.fillStyle = g; x.fillRect(0,0,64,64);
-          const tex = new THREE.CanvasTexture(c);
-          const grp = new THREE.Group();
-          const mkSpr = name=>{
-            const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:tex,
-              transparent:true, depthWrite:false, blending:THREE.AdditiveBlending}));
-            sp.name = name; grp.add(sp); return sp;
-          };
-          mkSpr("pShock"); mkSpr("pHalo");
-          // Plasmaschweif: KEIN Kegel-Mesh (harte Silhouettenkanten = Plastik-
-          // Trichter-Look), sondern eine Kette weicher Glow-Sprites, die nach
-          // hinten größer, dunkler und röter werden – überall weiche Ränder.
-          grp.userData.trail = [];
-          for(let i=0;i<10;i++){
-            const f = i/9;
-            const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:tex,
-              transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
-              color:new THREE.Color(0xfff2cc).lerp(new THREE.Color(0xff5522), f)}));
-            sp.userData.f = f;
-            grp.add(sp); grp.userData.trail.push(sp);
-          }
-          this.plasmaGroup = grp; this.scene.add(grp);
+          this.plasmaGroup = buildPlasma();
+          this.scene.add(this.plasmaGroup);
         }
         if(this.plasmaGroup){
           this.plasmaGroup.visible = gI > 0;
           if(gI > 0){
+            const {cap, wake, glare, hotSpot} = this.plasmaGroup.userData;
             const aDir = airV.normalize();
             // +Y der Gruppe = windabgewandt (dahin strömt das Plasma)
             this.plasmaGroup.quaternion.setFromUnitVectors(V3(0,1,0), aDir.clone().negate());
+            /* Maßgeblich ist, wie das Schiff IM WIND liegt: Ein Starship im
+               Bellyflop zeigt seine ganze Länge, eine Kapsel mit der Nase voran
+               nur ihren Durchmesser. */
             const H = Math.max(6, this.height());
-            const flick = 0.78 + 0.16*Math.sin(this.t*17) + 0.08*Math.sin(this.t*43+1.3);
-            const shock = this.plasmaGroup.getObjectByName("pShock");
-            const sSz = H*(1.5 + 0.8*gI);
-            shock.scale.set(sSz, sSz, 1);
-            shock.position.y = -H*0.45;          // Stoßfront windwärts vorm Schiff
-            shock.material.opacity = 0.85*gI*flick;
-            const halo = this.plasmaGroup.getObjectByName("pHalo");
-            const hSz = H*3.2;
-            halo.scale.set(hSz, hSz, 1);
-            halo.material.opacity = 0.3*gI*flick;
-            // Schweif-Sprites: nach hinten auffächern, ausdünnen, wabern + flackern
-            const len = H*(2.8 + 4.0*gI);
-            for(const sp of this.plasmaGroup.userData.trail){
-              const f = sp.userData.f;
-              const s = H*(0.9 + 2.4*f)*(0.55 + 0.45*gI);
-              sp.scale.set(s, s, 1);
-              sp.position.set(
-                H*0.12*Math.sin(this.t*7 + f*11),
-                H*0.15 + len*f,
-                H*0.12*Math.cos(this.t*6.3 + f*15));
-              sp.material.opacity = 0.5*(1 - f*0.8)*gI*
-                (0.75 + 0.25*Math.sin(this.t*(13 + f*28) + f*19));
-            }
+            const wMax = this.v.stack.length
+              ? Math.max(...this.v.stack.map(id=>PARTS[id].w)) : 6;
+            const ca = Math.abs(V3(0,1,0).applyQuaternion(this.q).dot(aDir));  // 1 = Nase voran
+            const half = 0.5*(ca*H + (1-ca)*wMax);      // halbe Ausdehnung LÄNGS des Windes
+            /* ⚠️ Der Querschnitt geht als FLÄCHE ein, nicht als Kante. Quer im
+               Wind ist die Silhouette ein 124×14-Rechteck – nimmt man davon die
+               halbe LÄNGE als Radius (62), steht um das Starship eine Glocke
+               von 124 Einheiten Durchmesser und die Verfolgerkamera hängt mitten
+               darin (gemessen: reiner Weißabriss). Der flächengleiche Kreis
+               liefert 23,5 und sieht auch von außen richtig aus. */
+            const Aq = ca*Math.PI*wMax*wMax/4 + (1-ca)*H*wMax;
+            const Rx   = Math.sqrt(Aq/Math.PI);         // Radius gleicher Fläche
+            const Rs   = Rx*(1.30 + 0.40*gI);           // Radius der Stoßfront
+            const flick = 0.80 + 0.14*Math.sin(this.t*17) + 0.08*Math.sin(this.t*43+1.3);
+            const cU = cap.material.uniforms, wU = wake.material.uniforms;
+            cU.uRs.value    = Rs*1.25;
+            cU.uNose.value  = -(half + Rs*0.20);        // Abstand der Front vorm Schiff
+            cU.uCurve.value = Rs*0.95 + half*0.55;      // wie weit sie nach hinten aufreißt
+            cU.uInt.value   = gI;  cU.uFlick.value = flick;
+            cU.uNear.value  = Rs*1.6;
+            wU.uNear.value  = Rs*2.6;
+            wU.uT.value     = this.t;
+            wU.uRs.value    = Rs;
+            wU.uY0.value    = -half*0.45;               // Fahnen setzen an der Schulter an
+            /* ⚠️ Die Länge hängt an der SCHIFFSGRÖSSE, nicht am Stoßfront-Radius.
+               Die Verfolgerkamera steht bei 2,2·H (start()/revert()), also ist H
+               das einzige Maß, das zum Bildausschnitt passt. Über den Radius
+               gerechnet war der Nachlauf eines quer liegenden Starships 400
+               Einheiten lang bei 150 Einheiten Kameraabstand – der halbe
+               Bildschirm eine weiße Fläche, das Schiff darin nicht mehr zu
+               finden. Jetzt reicht die Fahne etwa bis zum Bildrand. */
+            wU.uLen.value   = H*(0.9 + 1.3*gI) + Rs*1.6;
+            // Stumpf quer im Wind = breiter Nachlauf, schlank voran = enger Kegel
+            wU.uSpread.value= 0.55 + 0.65*(1-ca) + 0.25*gI;
+            wU.uInt.value   = gI;  wU.uFlick.value = flick;
+            // Die Blend-Sprites hängen mit depthTest:false ÜBER allem – dicht an
+            // der Kamera würden sie das Bild zukleistern. Also mit ausblenden.
+            const nearF = THREE.MathUtils.smoothstep(this.camDist,
+                            (half+Rs)*0.35, (half+Rs)*1.15);
+            const gs = (half + Rs)*2.4;
+            glare.scale.set(gs, gs, 1);
+            glare.position.y = -half*0.45;              // Schwerpunkt windwärts
+            glare.material.opacity = 0.20*gI*flick*nearF;
+            const hs = Rs*1.5 + half*0.35;
+            hotSpot.scale.set(hs, hs, 1);
+            hotSpot.position.y = -half*0.92;            // direkt an der Staukante
+            hotSpot.material.opacity = 0.34*gI*flick*nearF;
             // glühende Trümmer-/Plasmafunken, die nach hinten wegströmen
             if(gI > 0.15 && warp <= 2){
               const spread = V3((Math.random()-.5)*14,(Math.random()-.5)*14,(Math.random()-.5)*14);
               this.spawnParticle(this.pos.clone(),
                 this.vel.clone().addScaledVector(aDir, -(120+Math.random()*100)).add(spread),
-                0.4+Math.random()*0.5, 3+Math.random()*3.5, 0xff8830);
+                0.4+Math.random()*0.5, 3+Math.random()*3.5,
+                Math.random()<0.72 ? 0xffc070 : 0xff5a9a);   // ein paar magentafarbene
             }
           }
         }
