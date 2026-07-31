@@ -324,6 +324,7 @@ input[type=file]{display:none;}
     <button class="btn" id="btnEva" onclick="Flight.toggleEVA()">🧑‍🚀 EVA [V]</button>
     <button class="btn" id="btnFlag" onclick="Flight.plantFlag()">🚩 Flagge [F]</button>
     <button class="btn" id="btnBelly" onclick="Flight.toggleBellyflop()">🤸 Bellyflop [C]</button>
+    <button class="btn" id="btnTarget" onclick="Flight.cycleTarget()">🎯 Ziel [⇧Z]</button>
     <button class="btn" id="btnDock" onclick="Flight.toggleDock()">🔗 Docken [L]</button>
     <button class="btn" id="btnModul" onclick="Flight.installModule()">🏗 Modul [I]</button>
     <button class="btn" id="btnBay" onclick="Flight.toggleBays()">📦 Bucht [O]</button>
@@ -1073,7 +1074,7 @@ const PARTS = {
   starship:{name:"Starship",                 type:"starship", cat:"cmd", mass:5200, fuel:9500, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:900, flaps:true, bay:2500, raptor:true,
            info:"Das ultimative Schiff: 6 Crew ODER große Nutzlast, Hitzeschutz-Kacheln, Bellyflop-Landung mit [C] (mindestens 200 m Höhe!). Frachtraum: 2,5 t Satelliten (PEZ-Dispenser, seitlicher Auswurf mit [N])."},
   starshipTank:{name:"Tanker-Starship",      type:"starship", cat:"cmd", mass:4400, fuel:16000, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:400, tanker:true, bay:0, raptor:true,
-           info:"Starship ohne Flaps, dafür voller Tanks: Im Orbit parken (Flug dort beenden) – das nächste Schiff tankt bei ihm auf (< 60 m, < 4 m/s). Unbemannt, keine Bellyflop-Landung, KEIN Frachtraum – da sitzen die Tanks!"}
+           info:"Starship ohne Flaps, dafür voller Tanks: Im Orbit parken (Flug dort beenden) – dort heißt er dann »Tanker ⛽ #1«, »#2« … und ist mit [Z] bzw. [⇧Z] anwählbar. Jedes Schiff tankt bei ihm auf (< 60 m, < 4 m/s), und zwar genau so viel, wie er noch HAT – der Rest bleibt im Orbit stehen. Wer selbst einen Tanker fliegt, kann umgekehrt andere Tanker und geparkte Schiffe volltanken. Unbemannt, keine Bellyflop-Landung, KEIN Frachtraum – da sitzen die Tanks!"}
 };
 /* Radialteile (Flossen, Seitenbooster): hängen seitlich am Nachbartank
    und belegen KEINE eigene Höhe im Stack – wie in echt. */
@@ -1174,6 +1175,29 @@ function assetFlyReason(a){
   return "";
 }
 const ASSET_ICON = {ship:"🚀", tanker:"⛽", wreck:"🆘", sat:"📡"};
+/* ---------- Orbitale Tankstellen ----------------------------------------
+   Ein geparktes Objekt trägt seinen Treibstoff im Schnappschuss (`fuel`, JE
+   STUFE). ⚠️ Feststoff (`srb`) zählt NICHT mit: Ein Feststoffbooster lässt sich
+   weder anzapfen noch nachfüllen – wer einmal gezündet hat, brennt ihn leer. */
+const FUEL_TYPES = ["tank","superheavy","starship"];
+function tankCapacity(stack){
+  return ((stack)||[]).reduce((a,id)=>
+    a + (PARTS[id] && FUEL_TYPES.includes(PARTS[id].type) ? PARTS[id].fuel : 0), 0);
+}
+function assetFuel(a){
+  if(a && Array.isArray(a.fuel)) return a.fuel.reduce((x,y)=>x+(y||0), 0);
+  return tankCapacity(a && a.stack);   // Alt-Save ohne Schnappschuss: als voll ansehen
+}
+/* Fortlaufende Nummer für geparkte Tanker: »Tanker ⛽ #3«. Ohne Nummer heißen
+   im Orbit alle gleich, und weder der [Z]-Wähler noch das Inventar sagen dann,
+   welchen der drei man gerade anfliegt. Vergeben wird die KLEINSTE freie Zahl –
+   ein verbrauchter Tanker gibt seine Nummer also wieder her. */
+function nextTankerName(){
+  const used = new Set((Game.assets||[]).filter(a=>a.kind==="tanker")
+    .map(a=>parseInt(String(a.name||"").replace(/^\D*#?/,""),10)).filter(n=>n>0));
+  let n = 1; while(used.has(n)) n++;
+  return "Tanker ⛽ #"+n;
+}
 /* Missionsprämie. ⚠️ Bewusst großzügig: Von einer Orbitalrakete kommt nur die
    OBERSTE Stufe zurück (`settleCrewAndAssets` erstattet nur den gelandeten
    Reststack), die Unterstufe ist ohne Forschung »Wiederverwendbarkeit« weg –
@@ -1803,6 +1827,19 @@ function migrateGame(){
      Hardware, und gerettet werden sie wie gehabt mit einer eigenen Kapsel. */
   for(const a of (Game.assets||[]))
     if(a && a.kind==="tanker" && !a.stack) a.stack = ["starshipTank"];
+  /* Bestands-Saves: Tanker heißen jetzt durchnummeriert (»Tanker ⛽ #2«) und
+     führen ihren Füllstand mit – vorher hießen alle gleich (im [Z]-Wähler und
+     auf der Karte nicht auseinanderzuhalten) und betankten pauschal voll, egal
+     wie viel sie selbst noch hatten. Alte Tanker gelten als VOLL: Sie sind ja
+     unter der alten Regel auch mit vollen Tanks geparkt worden. */
+  for(const a of (Game.assets||[])){
+    if(!a || a.kind!=="tanker") continue;
+    // nextTankerName() liest Game.assets jedes Mal neu – vergeben wird also
+    // immer die kleinste noch freie Nummer, auch neben schon nummerierten.
+    if(!/#\d+/.test(String(a.name||""))) a.name = nextTankerName();
+    if(!Array.isArray(a.fuel))
+      a.fuel = VAB.vesselFrom(a.stack||[]).segs.map(s=>s.fuel);
+  }
   if(!Game.boosterSite) Game.boosterSite = "rtls";   // RTLS/Droneship-Wahl im VAB
   if(!Game.flags) Game.flags = [];                   // aufgestellte LMG-Flaggen
   // Bestands-Saves: Wer schon an der Station gedockt hat, startete de facto vom
@@ -6519,16 +6556,54 @@ const CFD = {
     if(seg.type==="ogive") return 0.06;                 // Fairing-Ogive
     if(seg.id==="probePod") return 0.30;                // Kuppel-Kapsel
     const byType = {starship:0.12, pod:0.32, shield:0.25, chute:0.5, dock:0.8,
+      bayCap:0.35,                                      // Kegeldeckel einer Servicebucht
       probe:0.9, sat:0.9, lab:0.9, battery:0.95};
     return byType[seg.type] ?? 0.95;                    // Tank & Co: flache Stirn
   },
-  /* Rumpfprofil von der SPITZE nach unten; Fairing ersetzt Verkleidetes durch Ogive */
+  /* Rumpfprofil von der SPITZE nach unten; Fairing ersetzt Verkleidetes durch Ogive.
+     ⚠️⚠️ VERKLEIDUNGEN ZÄHLEN MIT: Der Fahrtwind sieht die HÜLLE, nicht das Teil
+     darunter. Ein Stufenadapter umhüllt Stufentrenner + Oberstufen-Triebwerk
+     (Falcon-9-Interstage, `shroudH`), eine Servicebucht ihren Inhalt. Ohne das
+     meldete der Windkanal am RICHTIG gebauten Stack einen dicken
+     »Durchmessersprung«, den es in der Szene gar nicht gibt: Der Ø-10-Stufen-
+     trenner zwischen zwei Ø-12-Teilen steckt komplett im Adapter, kostete in
+     der Rechnung aber 33 % des Widerstands (Cd 0,65 statt 0,44). Das trieb die
+     AG dazu, das Fairing UNTER den Adapter zu bauen – wo es beim Stufen-
+     trennen mit abfliegt und architektonisch Unsinn ist (Bug-Report Simon). */
   profile(stack){
     const vis = [];
-    for(const id of stack){
-      const p = PARTS[id];
+    for(let i=0;i<stack.length;i++){
+      const id = stack[i], p = PARTS[id];
       if(isRadial(id) || satInStarship(stack, id)) continue;
-      vis.push({id, type:p.type, r:p.w/2, h:p.h});
+      vis.push({id, type:p.type, r:p.w/2, h:p.h, idx:i});
+    }
+    // Stufenadapter: die Röhre ragt (shroudH − eigene Höhe) nach OBEN. Alles,
+    // was mehrheitlich darin steckt, bekommt den Adapter-Radius.
+    for(let i=vis.length-1;i>=0;i--){
+      if(vis[i].type!=="inter") continue;
+      let left = (PARTS[vis[i].id].shroudH||0) - vis[i].h;
+      for(let k=i-1; k>=0 && left >= vis[k].h*0.5; k--){
+        left -= vis[k].h;
+        vis[k].r = Math.max(vis[k].r, vis[i].r);
+      }
+    }
+    // Servicebuchten verkleiden 1–2 Teile direkt darüber (PARTS[..].covers).
+    // ⚠️ Das OBERSTE verkleidete Teil bekommt zusätzlich den Typ »bayCap«: Die
+    // Bucht schließt oben mit einem KEGEL ab (buildRocketGroup: lid von r·0,35
+    // auf r/2), der Satellit darunter hätte eine flache Stirn. Nur den Radius
+    // anzuheben und die Stumpfheit des Satelliten zu behalten, machte die Bucht
+    // in der Rechnung schlechter als gar keine – obwohl ihr Teiletext (zu Recht)
+    // »senkt den Luftwiderstand« verspricht.
+    for(const [bi, list] of bayCoverage(stack)){
+      const br = PARTS[stack[bi]].w/2;
+      let top = null;
+      for(const j of list){
+        const v = vis.find(x=>x.idx===j);
+        if(!v) continue;
+        v.r = Math.max(v.r, br);
+        if(!top || v.idx < top.idx) top = v;
+      }
+      if(top) top.type = "bayCap";
     }
     const fi = vis.findIndex(v=>v.type==="fairing");
     if(fi >= 0){
@@ -8013,7 +8088,8 @@ const VAB = {
         const now = (d.fuel||[]).reduce((a,x)=>a+x,0) + (d.srb||[]).reduce((a,x)=>a+x,0);
         const segs = this.vesselFrom(st).segs;
         const max = segs.reduce((a,s)=>a+s.fuel+s.srbFuel, 0);
-        tank = max > 0 ? " · ⛽ "+Math.round(now/max*100)+" %" : " · ⛽ kein Tank";
+        tank = max > 0 ? " · ⛽ "+Math.round(now/max*100)+" % ("+(now/1000).toFixed(1)+" t)"
+                       : " · ⛽ kein Tank";
         dry = max > 0 && now <= 0;
       }
       const extra = [];
@@ -8264,6 +8340,7 @@ const VAB = {
         mass:   ids.reduce((a,id)=>a+PARTS[id].mass+PARTS[id].fuel,0),
         thrust: ids.reduce((a,id)=>a+PARTS[id].thrust,0)};
     });
+    const partsCost = stackCost(this.stack);   // ohne Startgebühren – Basis der Stufen-Prozente
     const bMass = segBoost.reduce((a,b)=>a+b.mass,0);
     total += bMass;
     const fee = launchFee(this.stack);
@@ -8363,8 +8440,21 @@ const VAB = {
       <div class="stat"><span>Leergewicht (Tanks leer)</span><span>${(dryTotal/1000).toFixed(2)} t</span></div>
       ${Game.sandbox?"":`<div class="stat"><span>Kosten${fee?" (inkl. 🚢 "+fee+")":""}</span><span style="${cost>Game.funds?"color:var(--red);font-weight:700":""}">🪙 ${cost}${cost>Game.funds?" – zu teuer!":""}</span></div>`}
       <div class="stat"><span>Teile</span><span>${this.stack.length}</span></div>
-      <div class="stat"><span>Stufen</span><span>${segs.length}</span></div>
-      <h3>Stufen (von unten)</h3>`;
+      <div class="stat"><span>Stufen</span><span>${segs.length}</span></div>`;
+    // Fairing auf einer UNTEREN Stufe: fliegt bei der Trennung mit weg. Der
+    // Windkanal bestraft die richtige Bauweise nicht mehr (CFD.profile kennt
+    // jetzt die Adapter-Verkleidung) – wer trotzdem so baut, soll es wissen.
+    {
+      const fi = this.stack.findIndex(id=>PARTS[id].type==="fairing");
+      const di = this.stack.findIndex(id=>PARTS[id].type==="decoupler");
+      if(fi >= 0 && di >= 0 && fi > di)
+        html += `<div class="stage-box" style="border-color:var(--orange)">
+          ⚠️ <b>Das Fairing sitzt unter einem Stufentrenner.</b>
+          <small style="color:var(--muted)">Bei der Stufentrennung fliegt es mit der unteren Stufe weg – die
+          Nutzlast ist dann schon frei, bevor [F] überhaupt drankommt. Baue es ÜBER den Stufentrenner,
+          direkt unter die Nutzlast.</small></div>`;
+    }
+    html += `<h3>Stufen (von unten)</h3>`;
     for(let i=0;i<segs.length;i++){
       const st = statsArr[i], sb = segBoost[i];
       let upper=0;
@@ -8375,9 +8465,16 @@ const VAB = {
       const totalThrust = st.thrust+st.srbThrust + sb.thrust;
       const dv = st.isp&&m0>m1 ? st.isp*G0*Math.log(m0/m1) : 0;
       const twr = totalThrust/((m0+sb.mass)*G0);
+      // Kosten JE STUFE: Für Wiederverwendbarkeits-Builds ist das die
+      // entscheidende Zahl – zurück kommt immer nur der gelandete Reststack
+      // bzw. der vom Autopiloten geborgene Booster (`b.value = stackCost`).
+      const segCost = stackCost(segs[i]);
       html += `<div class="stage-box"><b>Stufe ${i+1}</b> – ${(massOf(st)/1000).toFixed(2)} t
         <small style="color:var(--muted)">(leer ${(st.dry/1000).toFixed(2)} t)</small><br>
         Δv ≈ ${dv.toFixed(0)} m/s · TWR ${twr.toFixed(2)}${sb.n?" (mit Boostern)":""}
+        ${Game.sandbox?"":`<br>💰 <b>🪙 ${segCost}</b> <small style="color:var(--muted)">(${
+          partsCost?Math.round(segCost/partsCost*100):0} % der Rakete${
+          segs[i].some(id=>PARTS[id].type==="gridfin")?" · mit Gitterflossen bergbar":""})</small>`}
         ${sb.n?`<br>+ Seitenbooster: ${(sb.mass/1000).toFixed(2)} t · ${(sb.thrust/1000).toFixed(0)} kN – zünden mit Stufe ${i+1} oder [R], Abwurf [J]`:""}
         ${totalThrust&&twr<1?'<br><span style="color:var(--red)">⚠ TWR &lt; 1: hebt evtl. nicht ab!</span>':''}</div>`;
     }
@@ -9165,20 +9262,7 @@ const Flight = {
     // Ap/Pe-Marker für die Kartenansicht. WICHTIG: Der farbige PUNKT sitzt exakt
     // in der Sprite-MITTE (= Position des Objekts), das Label steht rechts daneben –
     // sonst zeigt optisch der Text statt des Punkts den Standort an.
-    const mkMarker = (txt,color)=>{
-      const c = document.createElement("canvas");
-      const mx = c.getContext("2d"); mx.font = "bold 20px sans-serif";
-      const tw = Math.ceil(mx.measureText(txt).width);
-      c.width = 2*(tw+26); c.height = 48;          // Punkt bei (W/2, 24) = Zentrum
-      const x = c.getContext("2d");
-      x.fillStyle=color; x.beginPath(); x.arc(c.width/2, 24, 8, 0, 7); x.fill();
-      x.font="bold 20px sans-serif"; x.fillStyle="#fff";
-      x.strokeStyle="rgba(4,6,14,.85)"; x.lineWidth=4;
-      x.strokeText(txt, c.width/2+14, 31); x.fillText(txt, c.width/2+14, 31);
-      const m = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c), transparent:true, depthTest:false}));
-      m.userData.aspect = c.width/c.height;
-      m.visible = false; this.world.add(m); return m;
-    };
+    const mkMarker = (txt,color)=>this.mkMarker(txt,color);
     this.apMarker = mkMarker("Ap","#2d7ad0");
     this.peMarker = mkMarker("Pe","#f7941d");
     // Schiffsmarker für die Kartenansicht (Rakete selbst ist dort zu klein)
@@ -9313,8 +9397,12 @@ const Flight = {
       if(e.key==="i"||e.key==="I") this.installModule();
       if((e.key==="x"||e.key==="X") && !this.eva && !this.commDead) this.throttle=0;
       if((e.key==="z"||e.key==="Z") && !this.eva && !this.commDead){
-        // Auf der Startrampe: [Z] wählt Orbit-Ziele (Station, Tanker …) fürs Startfenster
+        // Auf der Startrampe: [Z] wählt Orbit-Ziele (Station, Tanker …) fürs
+        // Startfenster. Im Flug bleibt [Z] Vollgas (Partner von [X]) – dort
+        // wechselt [⇧ Z] das Ziel, denn mit mehreren geparkten Tankern muss man
+        // die Peilung auch OBEN noch umstellen können.
         if(this.landed && !this.flew) this.cycleTarget();
+        else if(e.shiftKey) this.cycleTarget();
         else this.throttle=1;
       }
       if(e.key==="Escape"){
@@ -9877,6 +9965,24 @@ const Flight = {
     b.scale.set(r, 1, r);
     b.material.opacity = 0.8 * (1 - h/140) * Math.min(1, this.dayLight*1.6);
   },
+  /* Kartenmarker: Der farbige PUNKT sitzt exakt in der Sprite-MITTE (= Position
+     des Objekts), das Label steht rechts daneben – sonst zeigt optisch der Text
+     statt des Punkts den Standort an. Methode (nicht mehr nur Closure in init),
+     weil auch spawnAssets() für jedes geparkte Objekt einen Marker braucht. */
+  mkMarker(txt, color){
+    const c = document.createElement("canvas");
+    const mx = c.getContext("2d"); mx.font = "bold 20px sans-serif";
+    const tw = Math.ceil(mx.measureText(txt).width);
+    c.width = 2*(tw+26); c.height = 48;          // Punkt bei (W/2, 24) = Zentrum
+    const x = c.getContext("2d");
+    x.fillStyle=color; x.beginPath(); x.arc(c.width/2, 24, 8, 0, 7); x.fill();
+    x.font="bold 20px sans-serif"; x.fillStyle="#fff";
+    x.strokeStyle="rgba(4,6,14,.85)"; x.lineWidth=4;
+    x.strokeText(txt, c.width/2+14, 31); x.fillText(txt, c.width/2+14, 31);
+    const m = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c), transparent:true, depthTest:false}));
+    m.userData.aspect = c.width/c.height;
+    m.visible = false; this.world.add(m); return m;
+  },
   /* Kartenmarker skalieren: Höhe = ms/2, Breite folgt dem Canvas-Seitenverhältnis
      (der Punkt bleibt so immer exakt auf der Objektposition) */
   scaleMarker(m, ms){
@@ -10351,6 +10457,16 @@ const Flight = {
       const dropped = this.v.segs.shift();
       this.stagedOnce = true;   // ab jetzt kein Aero-Wobble mehr (Oberstufen fliegen ruhig)
       this.v.stack.splice(this.v.stack.length-dropped.parts.length, dropped.parts.length);
+      // ⚠️⚠️ Saß das Fairing in der ABGEWORFENEN Stufe, ist es jetzt weg – das
+      // Flag muss mit. Vorher blieb `fairingIntact` stehen, obwohl der Teil aus
+      // `v.stack` verschwunden war: Die Hülle war nicht mehr zu sehen, halbierte
+      // aber weiter den Luftwiderstand (`cdA *= 0.5`), [N] verweigerte mit
+      // »Erst das Fairing absprengen!«, und [F] »sprengte« eine Hülle ab, die es
+      // gar nicht mehr gab (jettisonFairing findet kein Teil mehr → keine
+      // Halbschalen, nur die Meldung). Genau so gemeldet (Bug-Report Simon).
+      const fairingGone = this.v.fairingIntact &&
+        dropped.parts.some(id=>PARTS[id].type==="fairing");
+      if(fairingGone) this.v.fairingIntact = false;
       this.rebuildRocket();
       // abgeworfene Stufe wird zu physischem Trümmerteil – ODER, mit
       // Gitterflossen + Restsprit, zum autopilot-gelandeten Falcon-Booster!
@@ -10408,6 +10524,9 @@ const Flight = {
         this.showMsg(n && n.ignited
           ? (n.boost && n.boost.ignited ? "Stufentrennung + Zündung (mit Seitenboostern)! 🔥🔥" : "Stufentrennung + Zündung!")
           : "Stufentrennung!",2);
+      if(fairingGone)   // wichtiger als die Trenn-Meldung: die Nutzlast liegt jetzt frei
+        this.showMsg("💨 Das Fairing saß auf der ABGEWORFENEN Stufe und ist mit ihr weg – die Nutzlast fliegt ab jetzt nackt. "+
+          "Tipp: Fairing ÜBER den Stufentrenner bauen, dann bleibt es bis zum [F] an der Oberstufe!",7);
     }
   },
   toggleInfinite(){
@@ -11420,14 +11539,20 @@ const Flight = {
     }
   },
   /* ---------- Orbit-Ziele: [Z] auf der Startrampe wählt sie aus ---------- */
+  /* Anwählbare Orbit-Ziele: Station + jeder geparkte Tanker.
+     ⚠️ Alle laufen ON RAILS auf KREISBAHNEN (assetPos/stationPos kennen nichts
+     anderes) – Ap und Pe sind deshalb gleich, und die Anzeige sagt das auch so,
+     statt eine Ellipse vorzutäuschen, die es nicht gibt. */
   targetList(){
     const list = [{kind:"station", name:"Raumstation »Große Pause«", alt:STATION.alt,
+      ap:STATION.alt, pe:STATION.alt,
       phase0:STATION.phase, w:STATION.w,
       pos:t=>stationPos(t), vel:t=>stationVel(t)}];
     for(const d of (Game.assets||[])){
       if(d.kind!=="tanker" || d.body!=="LEIBNIZ") continue;
       const r = LEIBNIZ.R + d.alt, w = Math.sqrt(LEIBNIZ.mu/Math.pow(r,3));
-      list.push({kind:"tanker", name:d.name||"Tanker-Starship ⛽", alt:d.alt,
+      list.push({kind:"tanker", name:d.name||"Tanker ⛽", alt:d.alt,
+        ap:d.alt, pe:d.alt, fuel:assetFuel(d), cap:tankCapacity(d.stack),
         phase0:d.phase, w,
         pos:t=>this.assetPos(d,t), vel:t=>this.assetVel(d,t)});
     }
@@ -11435,14 +11560,32 @@ const Flight = {
     if(this.tutTanker){
       const d = this.tutTanker;
       const r = LEIBNIZ.R + d.alt, w = Math.sqrt(LEIBNIZ.mu/Math.pow(r,3));
-      list.push({kind:"tanker", name:d.name, alt:d.alt, phase0:d.phase, w,
+      list.push({kind:"tanker", name:d.name, alt:d.alt, ap:d.alt, pe:d.alt,
+        phase0:d.phase, w,
         pos:t=>this.assetPos(d,t), vel:t=>this.assetVel(d,t)});
     }
     return list;
   },
+  /* Kurzsteckbrief eines Ziels: Bahn + (beim Tanker) Restsprit.
+     ⚠️ Der Füllstand wird LIVE aus Game.assets geholt, nicht aus dem
+     targetList()-Schnappschuss – sonst zeigt das HUD nach dem Umpumpen noch
+     die alte Menge an. */
+  targetInfo(tg){
+    if(!tg) return "";
+    let s = "Ap "+Math.round(tg.ap/1000)+" km · Pe "+Math.round(tg.pe/1000)+" km (Kreisbahn)";
+    if(tg.kind==="tanker"){
+      const a = (Game.assets||[]).find(x=>x.kind==="tanker" && x.name===tg.name);
+      const f = a ? assetFuel(a) : tg.fuel, cap = a ? tankCapacity(a.stack) : tg.cap;
+      if(f!==undefined) s += " · ⛽ "+(f/1000).toFixed(1)+" t"+(cap?" von "+(cap/1000).toFixed(1)+" t":"");
+    }
+    return s;
+  },
+  /* [Z] auf der Rampe, [⇧Z] im Flug. ⚠️ Im Flug bleibt das blanke [Z] Vollgas –
+     das ist Muskelgedächtnis mitten im Brennvorgang und der Partner von [X]. */
   cycleTarget(){
     // Startfenster-Peilung nur am Äquator: von geneigten Rampen stimmt die
     // Bahnebene nicht mit der Station überein – ein Fenster gäbe es nicht.
+    // Im FLUG gilt das nicht: Da ist das Ziel nur die Peilung fürs Rendezvous.
     if(this.landed && this.pad && this.pad.lat!==0){
       this.showMsg("🎯 Startfenster-Peilung gibt's nur am Äquator! Von hier wären Bahnen ~"+
         Math.round(this.pad.lat*180/Math.PI)+"° geneigt – Rampe »Schulhof Süd« in der Montagehalle wählen.",5);
@@ -11451,11 +11594,17 @@ const Flight = {
     const list = this.targetList();
     const i = this.target ? list.findIndex(x=>x.name===this.target.name) : -1;
     this.target = (i+1 < list.length) ? list[i+1] : null;
-    if(this.target){
+    if(!this.target){ this.showMsg("🎯 Ziel abgewählt – freier Flug.",2); return; }
+    if(this.landed && !this.flew){
       const tw = this.nextLaunchWindow(this.target);
-      this.showMsg("🎯 Ziel: "+this.target.name+" ("+Math.round(this.target.alt/1000)+" km) – Startfenster um "+
-        this.clockStr(tw)+" Uhr. Mit [.] vorspulen!",5);
-    } else this.showMsg("🎯 Ziel abgewählt – freier Flug.",2);
+      this.showMsg("🎯 Ziel: "+this.target.name+" – "+this.targetInfo(this.target)+
+        " – Startfenster um "+this.clockStr(tw)+" Uhr. Mit [.] vorspulen!",5);
+    } else {
+      const d = this.pos.distanceTo(this.target.pos(this.t));
+      this.showMsg("🎯 Ziel: "+this.target.name+" – "+this.targetInfo(this.target)+
+        " – Entfernung "+(d>=10000 ? (d/1000).toFixed(1)+" km" : d.toFixed(0)+" m")+
+        ". Das rosa ✛ auf dem Navball führt hin.",5);
+    }
   },
   /* Nächstes Startfenster: Ziel ~30° HINTER der Rampe. Während des Aufstiegs
      (~3–4 min) holt es genau so weit auf, dass ihr euch oben trefft. */
@@ -11647,23 +11796,114 @@ const Flight = {
       }
     }
     if(Game.sandbox) return;
+    // ---- Karriere: echte Treibstoff-BILANZ zwischen Schiff und Objekt --------
+    // ⚠️⚠️ Früher machte jeder Tanker die Tanks pauschal VOLL und verschwand –
+    // egal, wie viel er selbst noch hatte. Ein zur Hälfte leer geflogener Tanker
+    // betankte damit eine 26-t-Superheavy-Stufe, und »Tanker mit Tanker laden«
+    // war sinnlos, weil Treibstoff aus dem Nichts kam. Jetzt wird umgepumpt,
+    // was wirklich da ist; ein Tanker mit Restsprit bleibt im Orbit stehen.
+    const t2s = m => (m/1000).toFixed(1)+" t";
+    const mine = this.isTanker();
     for(const d of (Game.assets||[])){
-      if(d.kind!=="tanker") continue;
+      if(d.kind==="wreck" || d.kind==="sat") continue;       // nichts zum Umpumpen
+      if(d.kind!=="tanker" && !mine) continue;               // geben darf nur ein Tanker
       if(this.pos.distanceTo(this.assetPos(d, this.t)) > 60) continue;
       if(this.vel.distanceTo(this.assetVel(d, this.t)) > 4) continue;
-      let filled = false;
-      for(const s of this.v.segs) if(s.fuelLeft < s.fuel){ s.fuelLeft = s.fuel; filled = true; }
-      if(filled){
-        Game.assets.splice(Game.assets.indexOf(d), 1);
-        if(this.target && this.target.kind==="tanker") this.target = null;   // Ziel ist verbraucht
-        this.spawnAssets(); autoSave();
-        this.showMsg("⛽ AUFGETANKT! Alle Tanks voll – der leere Tanker verglüht kontrolliert. 🔥",5);
+      // Richtung: Wer BRAUCHT, bekommt. Steht drüben ein Tanker mit Vorrat und
+      // wir haben Platz, wird gezapft; sonst gibt der geflogene TANKER ab – so
+      // lädt Tanker A den Tanker B und genauso jedes geparkte Schiff.
+      // ⚠️ Die Abgabe darf NICHT an »eigene Tanks randvoll« hängen: Nach der
+      // ersten Lieferung ist ein Tanker nie mehr voll und hätte nie wieder
+      // etwas abgeben können.
+      const need = this.v.segs.reduce((a,s)=>a+Math.max(0, s.fuel-s.fuelLeft), 0);
+      if(need > 1 && d.kind==="tanker" && assetFuel(d) > 1){
+        const moved = this.pumpFromAsset(d, need);
+        if(!moved) continue;
+        const rest = assetFuel(d);
+        if(rest <= 1){
+          Game.assets.splice(Game.assets.indexOf(d), 1);
+          if(this.target && this.target.kind==="tanker") this.target = null;   // Ziel ist verbraucht
+          this.spawnAssets();
+        }
+        autoSave();
+        this.showMsg("⛽ "+t2s(moved)+" übernommen"+
+          (moved >= need-1 ? " – alle Tanks VOLL!" : " – mehr hatte er nicht.")+
+          (rest > 1 ? " "+(d.name||"Tanker")+" hat noch "+t2s(rest)+" an Bord."
+                    : " Der leere Tanker verglüht kontrolliert. 🔥"), 6);
+        break;
       }
-      break;
+      if(mine){
+        const moved = this.pumpToAsset(d);
+        if(!moved) continue;   // dort ist auch alles voll → nächstes Objekt prüfen
+        autoSave();
+        this.showMsg("⛽ "+t2s(moved)+" abgegeben an "+(d.name||"Objekt")+
+          " – dort jetzt "+t2s(assetFuel(d))+" an Bord. Eigener Rest: "+
+          t2s(this.v.segs.reduce((a,s)=>a+s.fuelLeft,0)), 6);
+        break;
+      }
     }
   },
+  /* Trägt das geflogene Schiff selbst einen Tanker-Rumpf? Nur der darf abgeben. */
+  isTanker(){
+    return !!this.v && this.v.stack.some(id=>PARTS[id] && PARTS[id].tanker);
+  },
+  /* Aus einem geparkten Objekt in die eigenen Tanks pumpen. Gibt die wirklich
+     bewegte Menge zurück (kg). Der Schnappschuss `a.fuel` ist die Füllung JE
+     STUFE – gezapft wird von vorne. */
+  pumpFromAsset(a, need){
+    if(!Array.isArray(a.fuel)) a.fuel = [tankCapacity(a.stack)];   // Alt-Save: als voll ansehen
+    let avail = assetFuel(a), moved = 0;
+    for(const s of this.v.segs){
+      if(avail <= 0) break;
+      const give = Math.min(s.fuel - s.fuelLeft, avail);
+      if(give <= 0) continue;
+      s.fuelLeft += give; avail -= give; moved += give;
+    }
+    let drain = moved;
+    for(let i=0; i<a.fuel.length && drain>0; i++){
+      const take = Math.min(a.fuel[i]||0, drain);
+      a.fuel[i] = (a.fuel[i]||0) - take; drain -= take;
+    }
+    return moved;
+  },
+  /* Umgekehrt: der geflogene Tanker füllt ein geparktes Objekt auf.
+     ⚠️ Die Stufen-Fassungsvermögen kommen aus `VAB.vesselFrom(a.stack)` – exakt
+     dieselbe Zerlegung, die `startFromAsset` beim Übernehmen wieder ausliest.
+     Mit geschätzten Anteilen liefe `a.fuel` sonst gegen die echten Segmente aus
+     dem Takt, und beim Weiterfliegen fehlte (oder entstünde) Treibstoff. */
+  pumpToAsset(a){
+    // ⚠️ Billige Vorprüfung: checkTanker läuft pro SUBSTEP. Wer neben einem
+    // vollen Objekt parkt, würde sonst 50-mal pro Sekunde ein komplettes
+    // Fahrzeug zerlegen lassen (VAB.vesselFrom), nur um »ist voll« zu erfahren.
+    if(assetFuel(a) >= tankCapacity(a.stack) - 1) return 0;
+    if(!this.v.segs.some(s=>s.fuelLeft > 0)) return 0;
+    const caps = VAB.vesselFrom(a.stack||[]).segs.map(s=>s.fuel);
+    const cap = caps.reduce((x,y)=>x+y, 0);
+    if(cap <= 0) return 0;                               // Objekt hat gar keine Tanks
+    // Alt-Save ohne (oder mit unpassendem) Schnappschuss gilt als VOLL – lieber
+    // nichts abgeben als Treibstoff verschenken.
+    if(!Array.isArray(a.fuel) || a.fuel.length !== caps.length) a.fuel = caps.slice();
+    let room = cap - assetFuel(a), moved = 0;
+    if(room <= 1) return 0;
+    for(const s of this.v.segs){
+      if(room <= 0) break;
+      const give = Math.min(s.fuelLeft, room);
+      if(give <= 0) continue;
+      s.fuelLeft -= give; room -= give; moved += give;
+    }
+    let fill = moved;
+    for(let i=0; i<caps.length && fill>0; i++){
+      const put = Math.min(caps[i] - (a.fuel[i]||0), fill);
+      if(put <= 0) continue;
+      a.fuel[i] = (a.fuel[i]||0) + put; fill -= put;
+    }
+    return moved;
+  },
   spawnAssets(){
-    if(this.assetObjs) this.assetObjs.forEach(o=>this.world.remove(o.mesh));
+    if(this.assetObjs) this.assetObjs.forEach(o=>{
+      this.world.remove(o.mesh);
+      if(o.marker) this.world.remove(o.marker);
+    });
     this.assetObjs = [];
     if(Game.sandbox) return;   // Assets sind Karriere-Inventar
     for(const d of (Game.assets||[])){
@@ -11690,7 +11930,12 @@ const Flight = {
         const pan = deployWings(buildPartMesh("solar")); pan.position.y = -2; mesh.add(pan);
       }
       this.world.add(mesh);
-      this.assetObjs.push({d, mesh});
+      // Kartenmarker wie bei der »Großen Pause«: In der Karte ist ein Tanker
+      // sonst ein unsichtbarer Punkt im Nichts – mit mehreren geparkten Tankern
+      // sieht man ohne Namensschild nicht, welchen man gerade anfliegt.
+      const marker = this.mkMarker((ASSET_ICON[d.kind]||"🛰")+" "+(d.name||"Objekt"),
+        d.kind==="tanker" ? "#5fc46a" : d.kind==="wreck" ? "#e04b4b" : "#d8c39a");
+      this.assetObjs.push({d, mesh, marker});
     }
   },
   /* Rettung: mit Kapsel nah ran (< 40 m, < 4 m/s) → Crew steigt um */
@@ -11709,6 +11954,7 @@ const Flight = {
       this.crew.push(...o.d.crew.map(n=>"🆘 "+n));
       Game.assets.splice(Game.assets.indexOf(o.d),1);
       this.world.remove(o.mesh);
+      if(o.marker) this.world.remove(o.marker);
       this.assetObjs.splice(i,1);
       autoSave();
       this.showMsg("🆘➡️🚀 GERETTET: "+o.d.crew.join(", ")+" ist an Bord geklettert! Jetzt sicher auf Leibniz landen!",7);
@@ -13213,7 +13459,7 @@ const Flight = {
           crew:this.crewObjs.map(a=>a.name)}, snap));
       } else if(this.v.stack.includes("starshipTank") && stable){
         Game.assets.push(Object.assign({kind:"tanker", body:bodyKey, alt:Math.round(o.alt),
-          phase:Math.random()*Math.PI*2, name:"Tanker-Starship ⛽"}, snap));
+          phase:Math.random()*Math.PI*2, name:nextTankerName()}, snap));
       } else if(stable && this.v.stack.length){
         // ⚠️ Wie bei den Satelliten gedeckelt: jedes Objekt bekommt in der Flug-
         // szene ein echtes Raketen-Mesh (spawnAssets). Wer 30 Flüge im Orbit
@@ -14181,8 +14427,16 @@ const Flight = {
       g.visible = !this.map && !anomalyFound(a.id);
     }
     if(this.assetObjs) for(const o of this.assetObjs){
-      o.mesh.position.copy(this.assetPos(o.d, this.t));
+      const ap3 = this.assetPos(o.d, this.t);
+      o.mesh.position.copy(ap3);
       o.mesh.visible = !this.map;
+      if(o.marker){
+        o.marker.visible = this.map;
+        if(this.map){
+          o.marker.position.copy(ap3);
+          this.scaleMarker(o.marker, (this._cd||this.camDist)*0.03);
+        }
+      }
     }
     // Raumstation »Große Pause« auf ihrer Bahn + Kartenmarker
     this.stationMesh.position.copy(stationPos(this.t));
@@ -14625,6 +14879,15 @@ const Flight = {
     show("btnEva", this.crew.length > 0);
     show("btnBelly", st.some(id=>PARTS[id].type==="starship" && PARTS[id].flaps));
     show("btnDock", has("dock"));
+    // 🎯 Ziel wechseln: nur sinnvoll, wenn es überhaupt mehr als eines gibt
+    // (Station + jeder geparkte Tanker) und man nicht gerade angedockt ist.
+    // ⚠️ NICHT targetList() aufrufen – updateButtons läuft pro Frame und würde
+    // sonst pro Ziel zwei Closures wegwerfen. Zählen reicht.
+    const onPad = this.landed && !this.flew;
+    show("btnTarget", !evaGround && !this.docked &&
+      (!!this.tutTanker || (Game.assets||[]).some(a=>a.kind==="tanker" && a.body==="LEIBNIZ")));
+    const bt = document.getElementById("btnTarget");
+    if(bt){ const lbl = onPad ? "🎯 Ziel [Z]" : "🎯 Ziel [⇧Z]"; if(bt.textContent!==lbl) bt.textContent = lbl; }
     show("btnModul", !Game.sandbox && has("dock"));
     show("btnBay", has("bay"));
     show("btnExp", has("lab"));
@@ -14707,7 +14970,7 @@ const Flight = {
     document.getElementById("hudRight").innerHTML = `
       <b style="color:var(--orange)">⏩ Zeitraffer: ${WARPS[this.warpI]}×</b><br>
       <small style="color:var(--muted)">W/S nicken · A/D gieren · Q/E rollen<br>
-      ↑/↓ Schub · Z voll · X aus · T = SAS<br>Maus = Kamera · Rad = Zoom</small>
+      ↑/↓ Schub · Z voll · X aus · T = SAS<br>⇧Z = Ziel wählen · Maus = Kamera · Rad = Zoom</small>
       ${this.sas!=="off"?'<br><b style="color:var(--green)">SAS: '+(this.sas==="pro"?"PROGRADE ▲":"RETROGRADE ▼")+'</b>':""}
       <br>⚡ ${this.charge.toFixed(0)}/${this.maxCharge}${this.panelsOut?" ☀️":""}${this.powerDead?' <b style="color:var(--red)">STROM LEER</b>':""}
       ${this.infinite?'<br><b style="color:var(--green)">∞ Endlos-Treibstoff</b>':""}
@@ -14736,7 +14999,8 @@ const Flight = {
             const tw = this.nextLaunchWindow(this.target), wait = tw - this.t;
             const per = 2*Math.PI/this.target.w;
             const hot = wait < 30 || wait > per - 15;
-            out += '<br>🎯 Ziel: <b>'+this.target.name+'</b> <small>[Z] wechseln</small><br>'+
+            out += '<br>🎯 Ziel: <b>'+this.target.name+'</b> <small>[Z] wechseln</small>'+
+              '<br><small style="color:var(--muted)">'+this.targetInfo(this.target)+'</small><br>'+
               (hot ? '<b style="color:var(--green)">🚀 STARTFENSTER OFFEN – JETZT STARTEN!</b>'
                    : '⏰ Startfenster um <b>'+this.clockStr(tw)+'</b> Uhr <small>(in '+Math.round(wait)+' s · [.] vorspulen)</small>');
           } else out += '<br><small style="color:var(--muted)">[Z] = Orbit-Ziel wählen → Startfenster-Ansage</small>';
@@ -14744,7 +15008,9 @@ const Flight = {
           const tp = this.target.pos(this.t), tv = this.target.vel(this.t);
           const d = this.pos.distanceTo(tp), rv = this.vel.distanceTo(tv);
           out += '<br>🎯 '+this.target.name+': <b>'+(d>=10000?(d/1000).toFixed(1)+" km":d.toFixed(0)+" m")+
-            '</b> · rel. <b>'+rv.toFixed(1)+' m/s</b>';
+            '</b> · rel. <b>'+rv.toFixed(1)+' m/s</b>'+
+            '<br><small style="color:var(--muted)">'+this.targetInfo(this.target)+
+            ' <span style="opacity:.8">· [⇧Z] Ziel wechseln</span></small>';
           let tip = "";
           if(d < 200) tip = '<b style="color:var(--green)">[L] – der Docking-Autopilot übernimmt!</b>';
           else if(d < 20000) tip = "Nase aufs ROSA ✛ halten + Schub geben – es führt dich automatisch hin";

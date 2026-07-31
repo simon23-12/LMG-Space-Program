@@ -601,7 +601,36 @@ Das Repo raymarcht 3D-Texturen mit TAA und God Rays – für Schulrechner zu teu
 - **Funknetz:** `commCheck(stack,pos,t)` – bemannt immer ok; Sonde: Leibniz-SOI ok, sonst Antenne nötig + `commRelays()` (1 = inneres System <2.6e10 m Sonnenabstand, 3 = Newton). Ohne Signal: `commDead` blockt Rotation/Schub/Z/X. Relais = Sat mit Antenne+Solar via [N] (`Game.relays`).
 - **Anomalien:** `ANOMALIES` (8 Stück, `dir` = Einheitsvektor körperfest). Leuchtfeuer-Meshes (`anomalyMeshes`) pro Frame auf Oberfläche. Entdeckung in `onLanded(b)`: Winkel < 0,25 rad. `Game.anomaliesFound`.
 - **LMG-Flaggen (»erobern«):** `Game.flags` = `[{body:<SCHLÜSSEL>, dir:[x,y,z]}]`. ⚠️ Gespeichert wird der Schlüssel aus `BODY_BY_NAME()` ("MONTI"), NICHT `b.name` – sonst findet `start()` den Körper beim Laden nicht wieder; dafür gibt es `bodyKey(b)`. `Flight.start()` baut alle Meshes neu (`flagObjs`, positioniert pro Frame wie die Anomalien), Sandbox/Tutorial bekommen eine leere Liste. Mission `flagMonti` (req montiLand), Sektion »🚩 LMG-Flaggen« in der Missionszentrale.
-- **Orbit-Inventar:** `Game.assets` ({kind:"ship"|"sat"|"tanker"|"wreck", body, alt, phase, name, crew?, **stack, fuel[], srb[], charge**}) – on rails via `assetPos/assetVel`, gespawnt in `spawnAssets()`. Sats persistieren bei [N] (Cap 12), **Schiffe** (Cap 8) / Tanker / Wracks bei endFlight im All. Rettung `checkRescue()`: Kapsel < 40 m & < 4 m/s → Crew umsteigen; Landung auf Leibniz → `rescueLanded` + Status bereit (in `onLanded`).
+- **Orbit-Inventar:** `Game.assets` ({kind:"ship"|"sat"|"tanker"|"wreck", body, alt, phase, name, crew?, **stack, fuel[], srb[], charge**}) – on rails via `assetPos/assetVel`, gespawnt in `spawnAssets()` (jedes Objekt bekommt dort auch einen **Kartenmarker** via `Flight.mkMarker`, sichtbar nur in der Karte – vorher war ein geparkter Tanker dort ein unsichtbarer Punkt im Nichts). Sats persistieren bei [N] (Cap 12), **Schiffe** (Cap 8) / Tanker / Wracks bei endFlight im All. Rettung `checkRescue()`: Kapsel < 40 m & < 4 m/s → Crew umsteigen; Landung auf Leibniz → `rescueLanded` + Status bereit (in `onLanded`).
+
+### Orbitale Tankstellen (`checkTanker` / `pumpFromAsset` / `pumpToAsset`)
+Ein geparkter Tanker heißt **»Tanker ⛽ #1«, »#2« …** (`nextTankerName()` vergibt die
+KLEINSTE freie Nummer, ein verbrauchter gibt seine Nummer wieder her) und ist wie die
+Station über `targetList()` anwählbar: **[Z] auf der Rampe, [⇧Z] im Flug** (plain [Z] bleibt
+im Flug Vollgas – Muskelgedächtnis mitten im Brennvorgang und Partner von [X]); dazu der
+Knopf »🎯 Ziel«. `targetInfo(tg)` liefert Ap/Pe (⚠️ alles läuft on rails auf KREISBAHNEN,
+Ap = Pe – die Zeile sagt das auch so) und beim Tanker den **Restsprit, live aus
+`Game.assets`** statt aus dem targetList-Schnappschuss.
+- ⚠️⚠️ **Umgepumpt wird, was wirklich da ist.** Vorher machte JEDER Tanker die Tanks
+  pauschal voll und verschwand – egal, wie viel er selbst noch hatte: Ein halb leer
+  geflogener Tanker betankte damit eine 26-t-Superheavy-Stufe, und »Tanker mit Tanker
+  laden« war sinnlos, weil Treibstoff aus dem Nichts kam. Ein Tanker mit Restsprit bleibt
+  jetzt im Orbit stehen. Verifiziert: Treibstoff-Bilanz über drei Umpump-Vorgänge exakt
+  ±0 kg, Dauerkontakt (40 Aufrufe) pumpt nicht doppelt.
+- **Richtung: wer BRAUCHT, bekommt.** Steht drüben ein Tanker mit Vorrat und wir haben
+  Platz → zapfen. Sonst gibt der geflogene TANKER ab (`isTanker()` = `PARTS[..].tanker`) –
+  an andere Tanker genauso wie an geparkte Schiffe. ⚠️ Die Abgabe darf NICHT an »eigene
+  Tanks randvoll« hängen: Nach der ersten Lieferung ist ein Tanker nie mehr voll und
+  hätte nie wieder etwas abgeben können.
+- ⚠️ Die Stufen-Kapazitäten in `pumpToAsset` kommen aus `VAB.vesselFrom(a.stack)` – exakt
+  dieselbe Zerlegung, die `startFromAsset` beim Übernehmen wieder ausliest. Mit
+  geschätzten Anteilen liefe `a.fuel` gegen die echten Segmente aus dem Takt.
+- ⚠️ `checkTanker` läuft pro SUBSTEP: `pumpToAsset` steigt deshalb mit der billigen
+  Prüfung `assetFuel >= tankCapacity` aus, bevor es ein Fahrzeug zerlegen lässt.
+- ⚠️ `FUEL_TYPES` = tank/superheavy/starship – **Feststoff (`srb`) zählt NICHT**: Ein
+  Feststoffbooster lässt sich weder anzapfen noch nachfüllen.
+- `migrateGame` nummeriert Bestands-Tanker nach und gibt ihnen einen vollen
+  `fuel[]`-Schnappschuss (unter der alten Regel wurden sie ja auch voll geparkt).
 
 ### »🛰️ Objekte im All« – zurückgelassenes wieder fliegen
 Was im All bleibt, verschwand früher spurlos (außer Tanker & bemannte Wracks). Jetzt schreibt
@@ -677,7 +706,7 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
 - **Kartenmarker:** `mkMarker(txt,color)` legt den farbigen Punkt EXAKT ins Sprite-Zentrum (= Objektposition), Label rechts daneben; Breite dynamisch (`userData.aspect`), skalieren NUR über `Flight.scaleMarker(m,ms)`. Stationsmarker heißt »Große Pause« (nicht mehr "ISS").
 
 ## Bauteile & Stack
-`PARTS` (Reihenfolge im Stack: Index 0 = SPITZE). **Radialteile** (`isRadial`: fin, sb2/sb4, gridfin, **legs**) belegen KEINE Stack-Höhe (`stackHeight()` statt Summe!) und werden in `buildRocketGroup` an den benachbarten Tank montiert (`radialHost`: erst darunter, dann darüber; `buildPartMesh(id, {r,h})`). **Sidebooster = Pool PRO STUFE** (`seg.boost` in buildVessel, kein globales v.boost mehr!): zünden mit IHRER Stufe (Zündung/Stufentrennung setzt `n.boost.ignited`) oder [R] (aktive Stufe), [J] wirft NUR die Booster der aktiven Stufe ab (nächstes [J] nach der Trennung = nächste Stufe); abgeworfene Stufen nehmen ihren Pool automatisch mit (hängt am Segment). Physik/HUD/Gauge/Flammen lesen `activeSeg().boost`; Flammen von Oberstufen-Boostern via `bflame.userData.upper` aus (gesetzt in buildRocketGroup, wenn Decoupler darunter). Trümmer-Mesh = `buildStrapOnMesh(strapOnHeight(stack,i))` – NICHT das srb-Mesh (Formwechsel-Bug). Servicebuchten (`bayCoverage()`): `bay` = »M« verkleidet 2 Teile darüber, `bayS` 1 (`PARTS[..].covers`) – aber NUR Typen aus `BAY_FITS` (battery/solar/probe/antenna/lab), sonst "verschluckt" die Bucht z. B. Oberstufen-Triebwerke; geschlossene Bucht schützt Solarpanele vor Fahrtwind, [G] öffnet sie automatisch mit. Oberstufen-Triebwerke (Decoupler darunter) kriegen `flame.userData.idle` – `setFlames` lässt sie aus, bis sie unterste Stufe sind. VAB-Info: Seitenbooster zählen zu Gesamtmasse + TWR IHRER Stufe (nicht Δv, `segBoost[]`); jede Stufe zeigt Leergewicht, Rakete gesamt »Leergewicht (Tanks leer)«. Solarflügel (`name:"wing"`) starten eingefahren (scale.x 0.1) – für Orbit-Sats `deployWings()`. Fairing verkleidet alles darüber.
+`PARTS` (Reihenfolge im Stack: Index 0 = SPITZE). **Radialteile** (`isRadial`: fin, sb2/sb4, gridfin, **legs**) belegen KEINE Stack-Höhe (`stackHeight()` statt Summe!) und werden in `buildRocketGroup` an den benachbarten Tank montiert (`radialHost`: erst darunter, dann darüber; `buildPartMesh(id, {r,h})`). **Sidebooster = Pool PRO STUFE** (`seg.boost` in buildVessel, kein globales v.boost mehr!): zünden mit IHRER Stufe (Zündung/Stufentrennung setzt `n.boost.ignited`) oder [R] (aktive Stufe), [J] wirft NUR die Booster der aktiven Stufe ab (nächstes [J] nach der Trennung = nächste Stufe); abgeworfene Stufen nehmen ihren Pool automatisch mit (hängt am Segment). Physik/HUD/Gauge/Flammen lesen `activeSeg().boost`; Flammen von Oberstufen-Boostern via `bflame.userData.upper` aus (gesetzt in buildRocketGroup, wenn Decoupler darunter). Trümmer-Mesh = `buildStrapOnMesh(strapOnHeight(stack,i))` – NICHT das srb-Mesh (Formwechsel-Bug). Servicebuchten (`bayCoverage()`): `bay` = »M« verkleidet 2 Teile darüber, `bayS` 1 (`PARTS[..].covers`) – aber NUR Typen aus `BAY_FITS` (battery/solar/probe/antenna/lab), sonst "verschluckt" die Bucht z. B. Oberstufen-Triebwerke; geschlossene Bucht schützt Solarpanele vor Fahrtwind, [G] öffnet sie automatisch mit. Oberstufen-Triebwerke (Decoupler darunter) kriegen `flame.userData.idle` – `setFlames` lässt sie aus, bis sie unterste Stufe sind. VAB-Info: Seitenbooster zählen zu Gesamtmasse + TWR IHRER Stufe (nicht Δv, `segBoost[]`); jede Stufe zeigt Leergewicht, **Kosten (🪙 + Anteil an der Rakete, plus Notiz »mit Gitterflossen bergbar«)** und Δv/TWR, Rakete gesamt »Leergewicht (Tanks leer)«. Die Stufenkosten sind die entscheidende Zahl für Reusability-Builds: Erstattet wird immer nur der gelandete Reststack (`settleCrewAndAssets`) bzw. der geborgene Booster (`b.value = stackCost(debrisStack)`). Solarflügel (`name:"wing"`) starten eingefahren (scale.x 0.1) – für Orbit-Sats `deployWings()`. Fairing verkleidet alles darüber.
 
 ### Ausfahrbare Landebeine – RADIALTEIL ([Y] / `legDrop`/`legClearance`)
 ⚠️⚠️ **Beine sind seit Juli 2026 ein RADIALTEIL** (`isRadial` kennt jetzt auch `"legs"`),
@@ -791,6 +820,23 @@ Werkzeugleiste `#vabTop` per `clamp()` an `vw` gekoppelt.
 
 ## CFD-Windkanal (Gadget, Button im VAB-Info-Panel)
 `CFD`-Objekt + `#cfd`-Overlay (eigener Renderer/Loop, stoppt bei close()). **Keine echte CFD**, aber Geometrie-ehrlich: `profile(stack)` = Rumpfprofil von der Spitze (Fairing ersetzt Verkleidetes durch Ogive), `aero(stack, mode)` zerlegt Cd in Bug (`bluntOf` je Spitzenteil: Fairing 0.06 … Tank 0.95, quadratisch) + Durchmessersprünge + Heck + Reibung + Flossen + Booster; Modus "reentry" dreht die Segmentfolge um (Heck voran/retrograde) und liefert Thermik via Sutton-Graves (`qdot=1.74e-4·√(ρ/Rn)·v³`, Rn wächst mit Stumpfheit → stumpf = kühl, Strahlungsgleichgewichts-Temp, Brems-g, Schild-Check). Getestet: Fairing senkt Cd um ~37 % ggü. nackter Sonde.
+- ⚠️⚠️ **`profile()` kennt ALLE Verkleidungen, nicht nur das Fairing.** Der Fahrtwind
+  sieht die HÜLLE, nicht das Teil darunter:
+  - **Stufenadapter** (`type:"inter"`): Die Röhre ragt `shroudH − eigene Höhe` nach OBEN
+    (Falcon-9-Interstage). Jedes Teil, das mehrheitlich darin steckt, bekommt den
+    Adapter-Radius. Ohne das meldete der Windkanal an der **richtig** gebauten Rakete
+    einen Durchmessersprung, den es in der Szene gar nicht gibt: Der Ø-10-Stufentrenner
+    zwischen zwei Ø-12-Teilen steckt komplett im Adapter, kostete in der Rechnung aber
+    **33 % des Widerstands** (Cd 0,653 statt 0,435). Genau das trieb die AG dazu, das
+    Fairing UNTER den Adapter zu bauen – wo es beim Stufentrennen mit abfliegt und
+    architektonisch Unsinn ist (Bug-Report Simon). Verifiziert: beide Bauweisen jetzt
+    Cd 0,435 · ohne Adapter bleibt der Sprung erhalten (0,90–0,95).
+  - **Servicebuchten** (`bayCoverage`): Inhalt bekommt den Buchtradius, und das OBERSTE
+    verkleidete Teil zusätzlich den Typ **`bayCap`** (Stumpfheit 0,35). ⚠️ Nur den Radius
+    anzuheben und die Stumpfheit des Satelliten zu behalten machte die Bucht in der
+    Rechnung SCHLECHTER als gar keine (Cd 1,04 gegen 0,89) – obwohl ihr Teiletext »senkt
+    den Luftwiderstand« verspricht und `buildRocketGroup` oben einen KEGEL zeichnet
+    (`lid` von r·0,35 auf r/2). Jetzt 0,59 gegen 0,89 = −34 %.
 
 ### Optik: Rauchfahnen wie im echten Windkanal (`smokeMat` + `makeSmokeTexture`)
 Vorher zeichnete der Windkanal 48 dünne `THREE.Line`-Stromlinien – geometrisch korrekt, sah aber aus wie ein Drahtmodell. Ein echter Windkanal macht die Strömung mit **Rauch** sichtbar: eingeblasene Schnüre, die sich glatt um den Körper legen und im Nachlauf turbulent aufreißen. Die Bahnen sind dieselben wie vorher (Stromröhren-Näherung `r_Linie=√(r_Profil²+z0²)`, 7 Radien × 8 Azimute), gerendert als **kameragerichtete Bänder** mit scrollender Rauch-Kachel.
@@ -855,6 +901,17 @@ Dazu weiter: Wirbel-Blobs an Emittern (Heck-Totwasser + Stufen, blähen sich mit
 - Komplett-Satelliten `satW`/`satR`/`satS`/`satT`/`satD` (type "sat", passen in Buchten): [N] ruft `deploySpecialSat()` – prüft Orbit-Anforderung (satW stabil · satR Pe>250 km · satS Pe>70/Ap<130 km · satT Pe>250 km · **satD Pe>200 km UND Inklination>75°**), setzt Flags `satWeather/satRad/satSpy/scopeUp/surveyUp` für die Missionen satWetter/satStrahlung/satSpion/scope1/scope2. `probeS` = flacher Sondenbus (type "probe", wird NIE ausgesetzt). ⚠️ Der Mesh-Zweig in `buildPartMesh` ist eine if/else-Kette; wer keinen eigenen Zweig hat, landet im `else` und bekommt den dunklen Späh-Tubus (so teilen sich satS und satT einen Look). `satD` hat bewusst den Gegenentwurf: kurz und WEIT statt lang und dünn, mit offener Spiegel-Öffnung und halb offener Sonnenhaube (⚠️ offener Zylinder = `side:DoubleSide`, sonst fehlt die Innenseite).
 - **Stufenadapter** (`interXS`/`inter`/`interL`, type "inter", Ø 8/10/12): offene Röhre (`shroudH` 10/16/18) wächst von der Unterkante nach OBEN über Stufentrenner + Oberstufen-Triebwerk (belegt selbst nur h≈3 Stack-Höhe, Radius ×1.06 gegen Z-Fighting). Direkt UNTER den Decoupler bauen → gehört zum unteren Segment (segments() teilt NACH dem Decoupler) und bleibt wie der Falcon-9-Interstage auf der abgeworfenen Stufe. Rein strukturell (nur Masse). Tutorials orbit/launchwindow/booster haben ihn im Stack.
 - Fairing: `buildFairingShell(r,H,phiStart?,phiLength?)` (Lathe-Ogive); [F] spawnt 2 Halbschalen als Debris (seitlich + Spin).
+  - ⚠️⚠️ **`stage()` muss `v.fairingIntact` löschen, wenn das Fairing in der ABGEWORFENEN
+    Stufe saß** (Flag `fairingGone`). Vorher blieb es stehen, obwohl das Teil aus `v.stack`
+    verschwunden war: Die Hülle war nicht mehr zu sehen, **halbierte aber weiter den
+    Luftwiderstand** (`cdA *= 0.5`), [N] verweigerte mit »Erst das Fairing absprengen!«,
+    und [F] »sprengte« eine Hülle ab, die es gar nicht mehr gab (`jettisonFairing` findet
+    kein Teil → keine Halbschalen, nur die Meldung). Genau so gemeldet (Bug-Report Simon).
+    Es gibt dazu eine eigene Flug-Meldung UND einen Hinweis im VAB-Info-Panel (Fairing
+    unter einem Stufentrenner), denn architektonisch gehört es über den Trenner.
+    Verifiziert: unten gebaut → nach der Trennung `fairingIntact=false`, Teil weg,
+    Knopf aus · oben gebaut → überlebt die Trennung, [N] bleibt gesperrt, [F] wirft
+    weiterhin 2 Halbschalen.
 - Partikel-Pool (110 Sprites, `fresh`-Flag, altern mit Sim-Zeit `simmed`), Rauch nur in Atmosphäre.
 - ⚠️⚠️ **Partikel-Sprites hängen an `Flight.world`, nicht an der Szene.** Position UND
   Geschwindigkeit müssen deshalb ABSOLUT übergeben werden (`this.pos` bzw. `this.vel`
@@ -948,7 +1005,7 @@ innerhalb der Atmosphäre. Auf dem Boden: W/A/S/D laufen (kamerarelativ, 3,5 m/s
   nie). `updateButtons` blendet `btnFlag`/`btnFairing` gegenseitig aus.
 
 ## Tastenkürzel
-Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · K Knoten · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp · WASD/QE drehen · ↑↓ Schub · **Z auf Rampe = Orbit-Ziel wählen (nur Äquator-Rampe)**, im Flug Vollgas · X Schub aus
+Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · K Knoten · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp · WASD/QE drehen · ↑↓ Schub · **Z auf Rampe = Orbit-Ziel wählen (nur Äquator-Rampe)**, im Flug Vollgas · **⇧Z im Flug = Orbit-Ziel wechseln (Station/Tanker, ohne Rampen-Guard)** · X Schub aus
 
 ## Test-Workflow (immer so!)
 1. Preview: `preview_start` mit `lmg-space-program` (Port 8642).
