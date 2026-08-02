@@ -10686,6 +10686,51 @@ const Flight = {
      Position das Terrain: kein Wald im Wasser, keiner über der Baumgrenze,
      keiner in der Polarzone (`forestMask` liefert dort 0) – und die Bäume
      sitzen auf der Geländehöhe statt auf y = 0. */
+  /* ---------- Höhe der GEZEICHNETEN Geländescheibe an (Ost, Nord) ----------
+     ⚠️⚠️ `terrainH` ist die analytische Funktion, die GEOMETRIE ist eine
+     Ringscheibe mit quadratisch wachsenden Ringen – bei 10 km Abstand sind ihre
+     Dreiecke rund 900 m breit. Zwischen zwei Scheiteln interpoliert das Mesh
+     LINEAR, die Funktion nicht: Ein Punkt auf einer kleinen Kuppe liegt
+     analytisch hoch, die Dreiecksfläche darunter schneidet sie aber ab. Genau
+     daran hingen die Bäume in der Luft (Bug-Report Simon) – gemessen am
+     LMG-Startplatz: Median 92 m zu hoch, Extremwert 887 m, einzelne auch 43 m
+     im Boden versenkt. Wer etwas AUF den sichtbaren Boden stellt, muss die
+     Höhe des MESHES nehmen, nicht die der Funktion.
+     Bilinear zwischen den vier umgebenden Scheiteln – die Gitterlage ist
+     analytisch bekannt (Ring aus r = GROUND_R·t², Segment aus dem Azimut), es
+     braucht also weder Raycasts noch eine Suche. Nimmt automatisch alles mit,
+     was `shapeTerrain` sonst noch macht (z. B. den abgesenkten Seegrund). */
+  terrainMeshH(e, n){
+    const g = this.groundPlane && this.groundPlane.geometry;
+    if(!g) return 0;
+    const SEG = 128, RINGS = 44, P = g.attributes.position;
+    const idx = (ring, seg)=> ring <= 0 ? 0
+                            : 1 + (ring-1)*SEG + (((seg % SEG) + SEG) % SEG);
+    const r = Math.hypot(e, n);
+    if(r >= GROUND_R) return P.getZ(idx(RINGS, Math.round(Math.atan2(n, e)/(2*Math.PI)*SEG)));
+    const tr = Math.sqrt(r/GROUND_R)*RINGS;          // Umkehrung von r = GROUND_R·t²
+    const ts = (Math.atan2(n, e)/(2*Math.PI) + 1)*SEG;
+    const r0 = Math.floor(tr), s0 = Math.floor(ts);
+    /* ⚠️ Barycentrisch auf dem ECHTEN Dreieck, nicht bilinear über das Viereck:
+       Die Ringe liegen quadratisch gestaffelt und auf Kreisbögen, das Viereck
+       ist also windschief. Bilinear blieben an den groben Außenringen bis zu
+       10 m Fehler stehen. `terrainGeometry` teilt jedes Feld als
+       (A,C,D) + (A,D,B) mit A=(Ring,s) B=(Ring,s+1) C=(Ring+1,s) D=(Ring+1,s+1). */
+    const A = idx(r0, s0), B = idx(r0, s0+1), C = idx(r0+1, s0), D = idx(r0+1, s0+1);
+    const tri = (i, j, k)=>{
+      const ax = P.getX(i), ay = P.getY(i), bx = P.getX(j), by = P.getY(j),
+            cx = P.getX(k), cy = P.getY(k);
+      const d0 = (by-cy)*(ax-cx) + (cx-bx)*(ay-cy);
+      if(Math.abs(d0) < 1e-9) return null;
+      const w0 = ((by-cy)*(e-cx) + (cx-bx)*(n-cy))/d0;
+      const w1 = ((cy-ay)*(e-cx) + (ax-cx)*(n-cy))/d0;
+      return {w0, w1, h: w0*P.getZ(i) + w1*P.getZ(j) + (1-w0-w1)*P.getZ(k)};
+    };
+    const t1 = tri(A, C, D);
+    if(t1 && t1.w0 >= -1e-6 && t1.w1 >= -1e-6 && t1.w0 + t1.w1 <= 1+1e-6) return t1.h;
+    const t2 = tri(A, D, B);
+    return t2 ? t2.h : (t1 ? t1.h : 0);
+  },
   placeTrees(up, east, north){
     const R = LEIBNIZ.R, d = new THREE.Vector3(), tm = new THREE.Matrix4();
     // Baumzahl kommt aus der Grafikstufe (Optionen) – der Puffer bleibt groß,
@@ -10694,25 +10739,28 @@ const Flight = {
     const rnd = seededRand(99);
     const dirAt = (e, n)=>d.copy(up).multiplyScalar(R)
       .addScaledVector(east, e).addScaledVector(north, n).normalize();
-    const h0 = this._terrainH0 || 0;
     let placed = 0, guard = 0;
     while(placed < NT && guard++ < 4000){
-      // 60 % im 0,5–2,5-km-Ring ums Schiff (dort spielt sich alles ab)
-      let ex, nz;
-      if(rnd() < 0.6){ const a = rnd()*6.283, r = 560 + rnd()*1900; ex = Math.cos(a)*r; nz = Math.sin(a)*r; }
-      else { const a = rnd()*6.283, r = 2500 + rnd()*9000; ex = Math.cos(a)*r; nz = Math.sin(a)*r; }
-      if(Math.hypot(ex, nz) < 540) continue;   // Rampe, Gebäude & Landezone frei
+      /* ⚠️⚠️ (ex, nn) sind OST und NORD – gepflanzt wird aber im Objektraum der
+         Bodengruppe, und deren dritte Achse ist SÜD (makeBasis(east, up,
+         −north), s. »Küste«). Norden ist dort also −z. Die alte Fassung
+         benutzte dieselbe Zahl für beides: Höhe und Waldmaske wurden am
+         NORDSPIEGELBILD des Baumes abgetastet. */
+      let ex, nn;
+      if(rnd() < 0.6){ const a = rnd()*6.283, r = 560 + rnd()*1900; ex = Math.cos(a)*r; nn = Math.sin(a)*r; }
+      else { const a = rnd()*6.283, r = 2500 + rnd()*9000; ex = Math.cos(a)*r; nn = Math.sin(a)*r; }
+      if(Math.hypot(ex, nn) < 540) continue;   // Rampe, Gebäude & Landezone frei
       if(ex > 700) continue;                   // nicht in Strand/Meer
-      const dd = dirAt(ex, nz);
+      const dd = dirAt(ex, nn);
       const th = terrainH(dd.x, dd.y, dd.z, TERRAIN_OCT_LOCAL);
       if(forestMask(dd.x, dd.y, dd.z, th) < 0.30) continue;   // hier wächst nichts
       const s = 1.0 + rnd()*1.2;
-      // auf die Geländehöhe setzen (dieselbe Absenkung wie shapeTerrain)
-      const w = THREE.MathUtils.smoothstep(Math.hypot(ex, nz), 900, 4200);
-      const y = (th - h0)*w;
-      tm.makeScale(s,s,s).setPosition(ex, y + 3.5*s, nz);
+      // ⚠️ Höhe des gezeichneten MESHES, nicht der Funktion – sonst schweben
+      // die Bäume über den groben Außenringen (s. terrainMeshH).
+      const y = this.terrainMeshH(ex, nn);
+      tm.makeScale(s,s,s).setPosition(ex, y + 3.5*s, -nn);
       this.treeTrunks.setMatrixAt(placed, tm);
-      tm.makeScale(s,s,s).setPosition(ex, y + 16*s, nz);
+      tm.makeScale(s,s,s).setPosition(ex, y + 16*s, -nn);
       this.treeCrowns.setMatrixAt(placed, tm);
       placed++;
     }

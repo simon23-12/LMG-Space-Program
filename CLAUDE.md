@@ -218,7 +218,23 @@ Damit ist der Strand vor der Rampe wirklich derselbe Kontinentrand wie aus dem O
   Explizites `renderOrder` hat es nicht geheilt. Wer es nochmal versucht, braucht einen
   eigenen Blend-Pass, keine `transparent`-Flags.
 - **Luftperspektive** (`Flight.groundHaze`, via `onBeforeCompile` NUR in dieses Material injiziert – `scene.fog` wäre fatal, die Szene reicht über 1e10 m): ohne sie hat ein Gipfel in 30 km dieselbe Farbe wie die Wiese vor den Füßen und die Landschaft wirkt flach, obwohl die Geometrie stimmt. ⚠️ Entfernung zur KAMERA (`length(mvPosition.xyz)`), nicht zum Anker – sonst liegt beim Blick aus 5 km Höhe auch der Boden direkt unter dem Schiff im vollen 40-km-Dunst. Farbe = `uHorizonCol` des Meeres, damit ferne Berge und ferne See im selben Dunst verschwinden.
-- **Bäume** setzt jetzt `Flight.placeTrees` bei jedem Verankern neu (max. 420 Instanzen, `count` kappen!): Position nur wo `forestMask ≥ 0,30`, Höhe = Geländehöhe. Damit stehen an der **Polarstation 0 Bäume** – das fällt aus dem Terrainmodell, ist kein Sonderfall. Die Polar-Tönung des Bodens kommt ebenfalls aus den Scheitelfarben (Breitengrad des ANKERS), nicht mehr aus der Rampen-ID.
+- **Bäume** setzt jetzt `Flight.placeTrees` bei jedem Verankern neu (max. 420 Instanzen, `count` kappen!): Position nur wo `forestMask ≥ 0,30`, Höhe = Geländehöhe.
+  - ⚠️⚠️ **Die Höhe kommt aus `Flight.terrainMeshH(ost, nord)`, NICHT aus `terrainH`.** `terrainH`
+    ist die analytische Funktion, gezeichnet wird aber die Ringscheibe – und deren Dreiecke sind
+    bei 10 km Abstand rund **900 m** breit. Dazwischen interpoliert das Mesh LINEAR, die Funktion
+    nicht: Ein Baum auf einer kleinen Kuppe steht analytisch hoch, die Dreiecksfläche darunter
+    schneidet sie ab. Gemessen am LMG-Startplatz: Median **92 m** zu hoch, Extremwert **887 m**,
+    48 von 260 Bäumen hatten überhaupt keinen Boden mehr unter sich (Bug-Report Simon:
+    »Bäume schweben in der Luft«). `terrainMeshH` interpoliert **barycentrisch auf dem echten
+    Dreieck** – die Gitterlage ist analytisch bekannt (Ring aus `r = GROUND_R·t²`, Segment aus
+    dem Azimut), es braucht also weder Raycasts noch eine Suche, und der abgesenkte Seegrund
+    ist automatisch mit drin. ⚠️ Bilinear über das Viereck reicht NICHT (die Ringe liegen
+    quadratisch gestaffelt und auf Kreisbögen, das Feld ist windschief): damit blieben außen
+    bis zu 10 m stehen. Nachher: 419 von 420 Bäumen exakt auf der Fläche, ein Ausreißer 6 m.
+  - ⚠️⚠️ **Norden ist im Objektraum der Bodengruppe −z** (`makeBasis(east, up, −north)`, s.
+    »Küste«). `placeTrees` benutzte dieselbe Zahl für die Abtastung und fürs Setzen – Höhe UND
+    Waldmaske wurden also am **Nordspiegelbild** des Baumes genommen. Deshalb heißt die Variable
+    jetzt `nn` (Nord) und gepflanzt wird bei `-nn`. Kostet nichts: 1,6 ms je Aufruf. Damit stehen an der **Polarstation 0 Bäume** – das fällt aus dem Terrainmodell, ist kein Sonderfall. Die Polar-Tönung des Bodens kommt ebenfalls aus den Scheitelfarben (Breitengrad des ANKERS), nicht mehr aus der Rampen-ID.
 
 ## Himmel: Rayleigh- + Mie-Streuung (`SKY_FRAG` + JS-Zwilling `skyRadiance`)
 Vorher war der Himmel EINE Farbe von Nachtschwarz nach Tagblau – deshalb gab es nie eine Morgen-/Abendröte (ein Sonnenuntergang IST ein Farbverlauf über den Himmel). Jetzt echte Einfachstreuung auf einer Himmelskuppel: `L = (β_R·ph_R + β_M·ph_M)/(β_R+β_M) · (1−e^(−τ_Blick)) · e^(−τ_Sonne)`, Rayleigh ∝ 1/λ⁴ (β_blau ≈ 5,7× β_rot), Mie mit Henyey-Greenstein g = 0,76 (weißer Hof um die Sonne). Am Horizont laufen ~38 Luftmassen → Blau ist weggefressen, Rot überlebt.
