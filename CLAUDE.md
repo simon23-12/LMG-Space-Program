@@ -28,7 +28,8 @@ Screen `#options` (Hauptmenü »⚙️ Optionen«, im VAB der ⚙️-Knopf), ger
   zum RECHNER – die Kinder tauschen Saves als Datei aus, sonst erbt der lahme Schulrechner
   die »Hoch«-Stufe vom Gaming-PC.
 - Eine Stufe schaltet ALLE teuren Schrauben gemeinsam: `dpr` (Auflösung), `shadow`
-  (Schattenkarte in px, 0 = aus), `trees`, `clouds`.
+  (Schattenkarte in px, 0 = aus) und `trees`. (Ein `clouds`-Regler existierte bis
+  August 2026 – er zählte die Puff-Wolken, die es nicht mehr gibt.)
 - **`gfxPixelRatio()` ist der größte Einzelhebel.** Vorher rief niemand `setPixelRatio` auf →
   auf jedem HiDPI-Bildschirm (Simons Rechner: devicePixelRatio 1,75) rendert das Spiel in
   ~57 % Linearauflösung und wird hochskaliert. Das war der »irgendwie matschig«-Eindruck.
@@ -43,8 +44,7 @@ Screen `#options` (Hauptmenü »⚙️ Optionen«, im VAB der ⚙️-Knopf), ger
   rechte Info-Panel (»die rechte Seite ist abgeschnitten«, Bug-Report Simon, 13"). Das
   Lens-Flare-Overlay ist 1:1 groß und lag deshalb auch nicht mehr auf der sichtbaren Sonne.
   Gegenprobe: `canvas.getBoundingClientRect()` MUSS `#vab3d`/`#flight3d` exakt entsprechen.
-- Wolkenzahl über `geo.instanceCount` (Puffer bleibt voll, gezeichnet wird nur der Anfang) →
-  live umschaltbar ohne Neubau. Bäume über `Settings.q.trees` in `placeTrees`; `applyGraphics`
+- Bäume über `Settings.q.trees` in `placeTrees`; `applyGraphics`
   ruft `placeTrees` sofort neu auf, wenn eine Bodenszene steht (sonst wirkt der Regler erst
   beim nächsten Verankern und sieht kaputt aus).
 - ⚠️ **`shadowMap.enabled` wird NUR am VAB-Renderer geschaltet.** Die Flugszene hat keine
@@ -555,14 +555,22 @@ Plattform 8×8 und Crawlerway 30×3), `makeScorchTex` (Brandfleck), `makePadWall
 - Polar-Tönung über `uDeepCol`/`uShallowCol`/`uChop` + `seaHorizonBase` in `start()`. 60 fps, 1 Draw-Call pro Mesh, ~75k Dreiecke Patch.
 - Wald: `treeTrunks`/`treeCrowns` = 2 InstancedMeshes (max. 420), platziert von `Flight.placeTrees` nach `forestMask` – s. »Bodenszene« oben. ⚠️ `count = placed` setzen, sonst stehen Identity-Matrix-Bäume auf der Rampe!
 
-### Wolken (Ansatz wie github.com/leoawen/volumetric_cloud_atmosphere_scattering)
-Das Repo raymarcht 3D-Texturen mit TAA und God Rays – für Schulrechner zu teuer. Übernommen ist die PHYSIK (HG-Phase, Beer-Lambert, Powder), gerendert wird als **Impostor-Puffs in EINEM Draw-Call**: `Flight.cloudField` = InstancedMesh mit 40 Wolken à **14** Puffs, Attribute `iPos`/`iParam` (Größe, UV-Drehung, Höhe in der Wolke)/`iCloud` (Versatz zum Wolkenmittelpunkt + Wolkenradius); Billboard-Ausrichtung im Vertex über `uCamRight/uCamUp`. Hängt in `Flight.cloudGroup` (Position = `lp+padLocal`, Quaternion = `padQ`, also **Objektraum x=Ost, y=hoch, z=Süd** – Achtung, anders als beim Meer!).
-- Optik im Fragment (`CLOUD_FRAG`): Beer-Lambert `1−e^(−σd)`, **Powder-Effekt** `1−e^(−2σd)` (dunkle Kerne, helle Ränder), **Henyey-Greenstein g=0,62** → Silberrand gegen die Sonne, **Impostor-Normale** (Scheibe als Kugel `n_z=√(1−r²)`, mit dem Dichte-Gradienten aus RG der Textur verbeult = Blumenkohl). Beleuchtung: Sonne (Extinktion fast farbneutral!) + Himmelslicht von oben + Bodenlicht von unten; Schattenseiten werden über den `uSkyCol`-Term blau, NICHT über die Extinktion (sonst braune Wolken).
-- ⚠️ **Selbstbeschattung auf WOLKEN-Ebene** (`vOfs` aus `iCloud`): Ohne sie wird jeder Puff für sich beleuchtet, alle sehen gleich aus und die Wolke wirkt wie ein Haufen Wattebäusche. Wie tief ein Puff im Wolkenkörper sitzt, sagt seine Lage relativ zum Wolkenmittelpunkt – das ist die Licht-Marschierung eines Raymarchers, nur pro Puff statt pro Sample. 14 statt 8 Puffs, weil die Silhouette erst durchs Überlappen vieler Kugeln entsteht.
-- ⚠️ **`uSunI` NICHT an `dayLight` koppeln!** Wolken hängen 1,3–9 km hoch und stehen noch in voller Sonne, wenn es am Boden längst dämmert – GENAU deshalb glühen Wolken beim Sonnenuntergang orange. Mit `dayLight` (bei 0° Sonnenhöhe nur noch 0,12) waren sie stattdessen matschig braun. Also allein `smoothstep(sz, −0.16, 0.02)`. Farbe aus `sunTint` (s. Himmel-Abschnitt).
-- `makeCloudPuffTexture()` = 128er-Canvas: A = radialer Abfall × Billow-Turbulenz (|2n−1|, 4 Oktaven Wertrauschen), RG = Dichte-Gradient.
-- Sichtbar < 34 km, `uFade` blendet ab 22 km aus. Tiefe Haufenwolken 1,3–2,8 km (75 %), hohe 5,5–9,3 km.
-- `makeCloudTexture()` (Wolkendecke des Planeten aus dem Orbit) ist ebenfalls FBM statt gemalter Ellipsen, mit Zonen-Maske über den Breitengrad; Schwelle 0.455/0.17 lässt bewusst Kontinente durchschauen. Wie sie im Orbit gerendert und im Shader nachgeschärft wird, steht unter »Wolkenschale & Lufthülle von Leibniz«.
+### ⚠️ Die Puff-Wolken sind RAUS (August 2026) – nicht wieder einbauen
+Bodennah hingen bis August 2026 zusätzlich 40 Haufenwolken à 14 Impostor-Puffs in der
+Szene (`Flight.cloudField`/`cloudGroup`, `CLOUD_VERT`/`CLOUD_FRAG`, `makeCloudPuffTexture`,
+`updateClouds`, Grafikstufe `clouds`). Sie sind **komplett entfernt**, mitsamt dem
+Wolken-Regler in den Optionen. Grund (Bug-Report Simon): Seit die **Wolkenschale des
+Planeten** im Shader nachgeschärft wird (s. »Wolkenschale & Lufthülle von Leibniz«), zeigen
+beide dasselbe – man sah unter 34 km Höhe zwei Wolkendecken übereinander, und die Puffs
+verrieten sich dabei als flache Billboards, sobald man an ihnen vorbeiflog. Die Schale ist
+die bessere Darstellung, deckt den ganzen Planeten ab und kostet keinen eigenen Draw-Call.
+Wer bodennah wieder Wolken will, sollte an der SCHALE ansetzen (z. B. sie unter ~20 km
+näher an die Kamera holen), nicht ein zweites System danebenstellen.
+- Mit rausgeflogen ist `sunWarmth(sunUp)` – die Funktion stand seit dem Himmels-Rewrite
+  ohnehin ungenutzt in der Datei (Sonnenlichtfarbe kommt aus `sunTint`).
+- `makeCloudTexture()` (Wolkendecke des Planeten aus dem Orbit) bleibt und ist unberührt:
+  FBM statt gemalter Ellipsen, Zonen-Maske über den Breitengrad, Schwelle 0.455/0.17 lässt
+  bewusst Kontinente durchschauen.
 
 ### Sonnenstand & Licht bodennah
 - ⚠️ `Flight.groundSunDir`: Die Rampen liegen **inertial fest** – ein echter Sonnen-"Tag" über dem Startplatz dauert deshalb ein Leibniz-JAHR (9,2e6 s), und die ECHTE Sonne stand beim Start unter dem Horizont (das Licht kam von UNTEN durch den Planeten, die ganze Bodenszene war reines Ambient-Grau, ohne Glitzern auf dem Meer und ohne Sonnenseite an den Wolken). Deshalb geht die Sonne nach der **Spieluhr** auf und unter: `φ = 2π(dayFrac−0.25)`, `clockSun = padEast·cos φ + padUp·sin φ + padNorth·0,18` → Osten auf, mittags Zenit, Westen unter.
@@ -574,7 +582,6 @@ Das Repo raymarcht 3D-Texturen mit TAA und God Rays – für Schulrechner zu teu
 - ⚠️⚠️ …aber **NUR in der Flugansicht!** In der KARTE ist die Sonne das Zentrum des Sonnensystems, alle Bahnellipsen laufen um sie herum – dort MUSS sie im Weltursprung stehen (`sunScenePos = −pos`). Sonst wandert sie sichtbar zwischen den Bahnen umher, während der gemeinsame Mittelpunkt leer bleibt. Der Bug trat nur bei geöffneter Karte UNTER 40 km auf (darüber ist `gb = 0` und der Spieluhr-Versatz ohnehin null) – also z. B. mitten im Tutorial »Dein erster Start«. Verifiziert: Karte 0 m Abweichung vom Zentrum, Flugansicht bei 19 km 2,1e10 m Versatz (gewollt), Orbit 200 km wieder 0.
 - ⚠️ **Die SICHTBARE Sonne muss dort stehen, wo ihr LICHT herkommt.** `Flight.sunScenePos` = `groundSunDir · |pos|` (Szenen-Koordinaten, Schiff = Ursprung); daraus folgt `sunGlow.position = sunScenePos + pos` (Szene → world-lokal, denn `world.position = −pos`) und `drawLensflare` projiziert dieselbe Stelle. Vorher hingen Glow und Flare am Weltursprung = echte Sonne, die bodennah UNTER dem Horizont stand → man sah bis 40 km Höhe überhaupt keine Sonne, obwohl sie schien. Im All (gb=0) ist `groundSunDir = sunReal`, also `sunScenePos + pos = 0` → exakt der Weltursprung wie vorher (verifiziert: 0,0 m Abweichung im Orbit). Sonnenauf-/untergang getestet: 6:00 Horizont Ost, 12:00 Zenit, 19:00 unter dem Horizont West.
 - Deshalb neu ausbalanciert: `ambLight.intensity = 0.55 − 0.25·gb·dayLight − 0.40·gb·(1−dayLight)` (Tag 0,30: vorher +0.5 → Strand/Wiese brannten aus, seit die Sonne wirklich scheint · Nacht 0,15: sonst leuchten Strand und Wiese unter sternenklarem Nachthimmel weiter wie am Mittag, was mit der sichtbaren Sonne erst richtig auffiel; Restlicht ist kühl, weil die Farbe bei dayLight→0 auf `ambSpace` zurückfällt) plus `Flight.fillLight` (kühles Himmels-Fülllicht aus der Gegenrichtung, `0.42·gb·dayLight`, im All 0) – ohne das wäre die sonnenabgewandte Raketenseite fast schwarz.
-- (`sunWarmth(sunUp)` steht noch in der Datei, wird aber **nirgends mehr aufgerufen** – die Sonnenlichtfarbe kommt seit dem Himmels-Rewrite aus `sunTint(czSun)`. Nicht wieder anschließen, sonst gibt es zwei Quellen.)
 - Himmelsfarbe: **Höhe quadratisch, Tageszeit linear** (`f·f·dayLight`). Vorher war beides gemeinsam quadriert – dann ist der Himmel schon um 16 Uhr nachtschwarz, während Boden, Meer und Wolken noch in der Sonne stehen.
 - ⚠️ `Flight.setViewUniforms(cam, h)` setzt die kamera-abhängigen Uniforms von Meer & Wolken (`uEye`, `uPixel`, `uCamRight/Up`) und **muss direkt vor JEDEM render() mit der jeweiligen Kamera laufen** – die Booster-PiP rendert dieselbe Szene aus einer anderen Perspektive.
 
@@ -706,7 +713,7 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
 - **Kartenmarker:** `mkMarker(txt,color)` legt den farbigen Punkt EXAKT ins Sprite-Zentrum (= Objektposition), Label rechts daneben; Breite dynamisch (`userData.aspect`), skalieren NUR über `Flight.scaleMarker(m,ms)`. Stationsmarker heißt »Große Pause« (nicht mehr "ISS").
 
 ## Bauteile & Stack
-`PARTS` (Reihenfolge im Stack: Index 0 = SPITZE). **Radialteile** (`isRadial`: fin, sb2/sb4, gridfin, **legs**) belegen KEINE Stack-Höhe (`stackHeight()` statt Summe!) und werden in `buildRocketGroup` an den benachbarten Tank montiert (`radialHost`: erst darunter, dann darüber; `buildPartMesh(id, {r,h})`). **Sidebooster = Pool PRO STUFE** (`seg.boost` in buildVessel, kein globales v.boost mehr!): zünden mit IHRER Stufe (Zündung/Stufentrennung setzt `n.boost.ignited`) oder [R] (aktive Stufe), [J] wirft NUR die Booster der aktiven Stufe ab (nächstes [J] nach der Trennung = nächste Stufe); abgeworfene Stufen nehmen ihren Pool automatisch mit (hängt am Segment). Physik/HUD/Gauge/Flammen lesen `activeSeg().boost`; Flammen von Oberstufen-Boostern via `bflame.userData.upper` aus (gesetzt in buildRocketGroup, wenn Decoupler darunter). Trümmer-Mesh = `buildStrapOnMesh(strapOnHeight(stack,i))` – NICHT das srb-Mesh (Formwechsel-Bug). Servicebuchten (`bayCoverage()`): `bay` = »M« verkleidet 2 Teile darüber, `bayS` 1 (`PARTS[..].covers`) – aber NUR Typen aus `BAY_FITS` (battery/solar/probe/antenna/lab), sonst "verschluckt" die Bucht z. B. Oberstufen-Triebwerke; geschlossene Bucht schützt Solarpanele vor Fahrtwind, [G] öffnet sie automatisch mit. Oberstufen-Triebwerke (Decoupler darunter) kriegen `flame.userData.idle` – `setFlames` lässt sie aus, bis sie unterste Stufe sind. VAB-Info: Seitenbooster zählen zu Gesamtmasse + TWR IHRER Stufe (nicht Δv, `segBoost[]`); jede Stufe zeigt Leergewicht, **Kosten (🪙 + Anteil an der Rakete, plus Notiz »mit Gitterflossen bergbar«)** und Δv/TWR, Rakete gesamt »Leergewicht (Tanks leer)«. Die Stufenkosten sind die entscheidende Zahl für Reusability-Builds: Erstattet wird immer nur der gelandete Reststack (`settleCrewAndAssets`) bzw. der geborgene Booster (`b.value = stackCost(debrisStack)`). Solarflügel (`name:"wing"`) starten eingefahren (scale.x 0.1) – für Orbit-Sats `deployWings()`. Fairing verkleidet alles darüber.
+`PARTS` (Reihenfolge im Stack: Index 0 = SPITZE; die Zuordnung zu den Rubriken der Teileliste steht in `CATS[].ids`, NICHT mehr als `cat`-Feld am Teil – s. »Teileauswahl im KSP-Stil«). **Radialteile** (`isRadial`: fin, sb2/sb4, gridfin, **legs**) belegen KEINE Stack-Höhe (`stackHeight()` statt Summe!) und werden in `buildRocketGroup` an den benachbarten Tank montiert (`radialHost`: erst darunter, dann darüber; `buildPartMesh(id, {r,h})`). **Sidebooster = Pool PRO STUFE** (`seg.boost` in buildVessel, kein globales v.boost mehr!): zünden mit IHRER Stufe (Zündung/Stufentrennung setzt `n.boost.ignited`) oder [R] (aktive Stufe), [J] wirft NUR die Booster der aktiven Stufe ab (nächstes [J] nach der Trennung = nächste Stufe); abgeworfene Stufen nehmen ihren Pool automatisch mit (hängt am Segment). Physik/HUD/Gauge/Flammen lesen `activeSeg().boost`; Flammen von Oberstufen-Boostern via `bflame.userData.upper` aus (gesetzt in buildRocketGroup, wenn Decoupler darunter). Trümmer-Mesh = `buildStrapOnMesh(strapOnHeight(stack,i))` – NICHT das srb-Mesh (Formwechsel-Bug). Servicebuchten (`bayCoverage()`): `bay` = »M« verkleidet 2 Teile darüber, `bayS` 1 (`PARTS[..].covers`) – aber NUR Typen aus `BAY_FITS` (battery/solar/probe/antenna/lab), sonst "verschluckt" die Bucht z. B. Oberstufen-Triebwerke; geschlossene Bucht schützt Solarpanele vor Fahrtwind, [G] öffnet sie automatisch mit. Oberstufen-Triebwerke (Decoupler darunter) kriegen `flame.userData.idle` – `setFlames` lässt sie aus, bis sie unterste Stufe sind. VAB-Info: Seitenbooster zählen zu Gesamtmasse + TWR IHRER Stufe (nicht Δv, `segBoost[]`); jede Stufe zeigt Leergewicht, **Kosten (🪙 + Anteil an der Rakete, plus Notiz »mit Gitterflossen bergbar«)** und Δv/TWR, Rakete gesamt »Leergewicht (Tanks leer)«. Die Stufenkosten sind die entscheidende Zahl für Reusability-Builds: Erstattet wird immer nur der gelandete Reststack (`settleCrewAndAssets`) bzw. der geborgene Booster (`b.value = stackCost(debrisStack)`). Solarflügel (`name:"wing"`) starten eingefahren (scale.x 0.1) – für Orbit-Sats `deployWings()`. Fairing verkleidet alles darüber.
 
 ### Ausfahrbare Landebeine – RADIALTEIL ([Y] / `legDrop`/`legClearance`)
 ⚠️⚠️ **Beine sind seit Juli 2026 ein RADIALTEIL** (`isRadial` kennt jetzt auch `"legs"`),
@@ -788,6 +795,59 @@ Spiels (Leibniz/Monti), damit die AG nachschlagen kann, was das HUD anzeigt.
   sind hier nochmal 256× empfindlicher.
 - Schreibschrift nur für Überschriften (Fallback-Kette bis `cursive` – auf Schulrechnern ist
   ungewiss, welche Font existiert); Formeln in einer Serifen-Font.
+### Teileauswahl im KSP-Stil (`CATS` / `VAB.renderParts` / `PartIcons`)
+Links steht nur noch eine schmale **Kategorien-Leiste** (`#partRail`), daneben die
+ausklappbare **Teileliste** (`#partList`). Klick auf eine Kategorie öffnet sie, Klick auf die
+OFFENE fährt die Liste ein – dann hat die Halle die volle Breite. Genau dafür ist das da:
+gemessen bei 1440 px 929 → **1130 px Halle**, bei 1280 px 818 → **1004 px**.
+- ⚠️⚠️ **Sortiert wird nach HARDWARE, nicht nach Raketenstufe.** Vorher hießen die Rubriken
+  »1. Stufe« / »2. Stufe«, und dadurch lagen Tanks in DREI davon verstreut (S/M oben, L/XL
+  unten, Mini bei den Satelliten) – wer einen Tank suchte, musste raten, für welche Stufe die
+  Rakete ihn wohl braucht (Bug-Report Simon). Jetzt: Kapseln · Tanks · Antrieb · Booster ·
+  Struktur · Aero & Landung · Elektrik · Nutzlast.
+- ⚠️ **`CATS[].ids` ist die EINZIGE Quelle der Zuordnung** und zugleich die Reihenfolge in der
+  Liste (klein → groß). Das alte `cat:"…"`-Feld in `PARTS` ist ersatzlos weg – sonst pflegt
+  man dieselbe Information zweimal. Gegenprobe nach jeder Teile-Änderung: Summe der `ids`
+  muss `Object.keys(PARTS)` sein, ohne Dubletten (getestet: 50/50).
+- `short` ist der Text auf der schmalen Leiste (max ~8 Zeichen, sonst bricht er zweizeilig um),
+  `name`/`sub` stehen über der offenen Liste.
+- Gesperrte Teile bleiben SICHTBAR, grau (`filter:grayscale(1)`) und nennen den fehlenden
+  Tech-Knoten im Klartext (»🔒 Erst erforschen: Flüssigtriebwerke I«) – man soll sehen, was
+  es noch gibt, und wo es herkommt.
+- ⚠️ **`renderParts()` baut nur neu, wenn sich wirklich etwas ändert** (`_partsKey` aus
+  Kategorie + Sandbox/Karriere + Zahl der erforschten Knoten). `VAB.refresh()` läuft bei
+  JEDEM Anbauen und Verschieben – ohne den Schlüssel würden dabei jedes Mal zehn
+  Bauteil-Meshes weggeworfen und neu gebaut.
+- ⚠️ **Preis der neuen Leiste: bei 1280 px bricht `#vabTop` zweizeilig um, solange die Liste
+  offen ist** (Rail 52 + Liste 186 = 238 px gegen früher 198 px, und die Werkzeugleiste
+  brauchte dort schon 853 von 858 px). Bei **1440 px bleibt sie einzeilig** – dafür sind die
+  clamp()-Werte gelegt, nicht enger. Wer daran dreht, misst beides nach.
+
+#### Die 3D-Icons (`PartIcons`)
+Jede Karte zeigt das Bauteil als langsam drehendes 3D-Modell – gebaut mit DEMSELBEN
+`buildPartMesh`, das auch die Rakete in der Halle baut. Was im Icon steht, ist garantiert das,
+was man bekommt.
+- ⚠️⚠️ **EIN Offscreen-Renderer für ALLE Icons** (72×72, `preserveDrawingBuffer:true`), das
+  Bild wandert per `drawImage` in das 2D-Canvas der Karte. Ein WebGL-Kontext pro Kachel wäre
+  nach ~16 Stück am Browser-Limit. Ohne `preserveDrawingBuffer` darf der Browser den
+  Zeichenpuffer nach dem Render verwerfen und drawImage liefert je nach Treiber Schwarz.
+- ⚠️⚠️ **Materialien werden GEKLONT.** `buildPartMesh` verteilt die gemeinsamen
+  `MAT.*`-Singletons, die auch in der Hallenszene hängen. Bekämen die hier eine envMap
+  verpasst, hätte die Halle eine Umgebungskarte aus einem FREMDEN WebGL-Kontext – das kann
+  three.js nicht abfangen. Klonen ist billig (Texturen bleiben geteilt), `clear()` gibt die
+  Klone beim Kategoriewechsel wieder frei.
+- ⚠️ **Flammen (`name:"flame"/"bflame"`) fliegen raus, BEVOR die Bounding-Box gemessen wird.**
+  In three r128 zählt `Box3.setFromObject` auch unsichtbare Kinder mit – sonst wäre jedes
+  Triebwerk auf ein Zehntel geschrumpft, weil sein Abgasstrahl mitgemessen wird.
+- ⚠️ Sonderfall **Fairing**: `buildPartMesh` liefert nur den Montagering, die Ogive baut erst
+  `buildFairingShell` beim Zusammensetzen. Als Icon wäre das eine gelbe Scheibe, die niemand
+  erkennt – deshalb stellt `make()` die Hülle fürs Bild dazu.
+- Gerendert wird aus `VAB.frame()` heraus, gedrosselt auf ~30 fps, und nur für Karten, die
+  wirklich sichtbar sind (`offsetParent`). Bei eingefahrener Liste läuft gar nichts.
+- Gegenprobe nach Teile-Änderungen: alle 50 Icons einmal rendern und die Zahl der
+  nicht-transparenten Pixel zählen – 0 heißt kaputtes Mesh (gemessen: 432…2500 von 5184,
+  die dünnen Teile Antenne/Beine/Solarpanel am unteren Ende).
+
 ### Layout: passt sich der Fensterbreite an (13"-Laptop bis 27"-Schreibtisch)
 Drei Spalten (`#partList` · `#vabCenter` · `#vabInfo`), Breiten und die Größen in der
 Werkzeugleiste `#vabTop` per `clamp()` an `vw` gekoppelt.
@@ -997,6 +1057,18 @@ Reaktionsräder und darf nicht pusten (verifiziert: 0 Partikel, Zischen 0).
 - Tutorials: `Tut.start(id)` erzwingt Sandbox + ∞-Strom; Szenario: `stack`, `orbit:{body,alt,pe?}` oder `nearStation:<m hinter Station>`; Checks `check(o,F)` laufen pro Frame.
 - Admin-Cam: `AdminCam` (eigene Three-Szene, echte Ephemeriden, Fokus-Buttons, Zeitraffer) – Vollbild aus dem Universum-Screen. Start-Zeitraffer `speedI:0` = **1 min/s** (mit 1 h/s wirbelten die inneren Planeten los, bevor man überhaupt hingesehen hat). ⚠️ **Die Bahnhof-Marker hängen als KINDER am Leibniz-Mesh** und erben dessen sichtbare Drehung (`rotation.y` in `frame()`); als Szenen-Kinder auf `padDir(p)·R` blieben sie stur im Weltraum-Frame stehen und wanderten über fremde Kontinente. Für die Physik sind die Rampen weiterhin inertial fix – die Admin-Cam ist ein Schaukasten, kein Simulationsschritt. Die Station bleibt Szenen-Kind (echter Orbit, on rails). ⚠️ **Ambient + PointLight zusammen unter 1,5 halten** (jetzt 0,30 + 1,12): Mit den alten 0,45 + 1,5 = 1,95 brannte alles mit einer Albedo über ~0,5 zu reinem Weiß aus – Leibniz' Gebirge sah aus, als hätte jemand mit Tipp-Ex Adern über die Kontinente gezogen, und auf Newtons Eiswelt war überhaupt keine Struktur mehr zu sehen.
 - localStorage: `lmgAutoSave`, `lmgMusic`, `lmgSettings` (Grafik/Lautstärke, s. Optionen-Abschnitt), `lmgLoadedOnce`, `lmgHint_*`, `tutsDone` im Save, `lmgRockets` (💾/📂-Hangar: gespeicherte Raketen `{name,stack}`; Laden in Karriere nur mit erforschten Teilen).
+- ⚠️⚠️ **Solarstrom gibt es NUR im Sonnenlicht** (`Flight.sunlit()`, Faktor 0…1 auf die
+  3 ⚡/s je Panel). Vorher lud ein Panel auch mitten im Planetenschatten weiter – damit war
+  die Batterie komplett überflüssig und die Nachtseite folgenlos (Bug-Report Simon).
+  `sunlit()` fragt ZWEI Dinge ab, weil das Spiel zwei Sonnen kennt (s. »Sonnenstand & Licht
+  bodennah«): bodennah zählt die SPIELUHR über `dayLight` (sonst lädt ein Panel auf der
+  nachtschwarzen Rampe munter weiter – im Orbit ist `dayLight` immer 1, dort stört der
+  Faktor nicht), draußen die echte Geometrie als **Zylinderschatten des dominanten Körpers**
+  (Halbschatten ist bei diesen Größenverhältnissen nur ein schmaler Saum). Bewusst nur der
+  dominante Körper: In seiner Sphäre ist er der einzige, der groß genug am Himmel steht –
+  und die Prüfung läuft in JEDEM Substep. Verifiziert: 200-km-Orbit Tagseite +2,75 ⚡/s,
+  Nachtseite −0,25 ⚡/s (nur Verbrauch); hinter Monti 0, davor 1. `Flight.solarLit` treibt
+  zugleich die HUD-Anzeige (☀️ ↔ 🌑 Schatten), Reset in `start()`.
 - **Solarpanele nur im Vakuum** (`PANEL_SAFE_ALT` = 50 km über Leibniz): `togglePanels` verweigert
   das Ausfahren darunter, `step()` klappt sie beim Sinkflug automatisch ein. Der alte
   Abriss-Mechanismus (`panelsBroken` bei `rho·v² > 12000`, greift ~35–40 km) bleibt als letzte

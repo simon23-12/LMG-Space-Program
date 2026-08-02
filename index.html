@@ -38,13 +38,38 @@ button{cursor:pointer;font-family:inherit;}
    mehr Platz, als da ist) – Untergrenze so gewählt, dass die Teile-Karten
    noch zweizeilig lesbar bleiben. */
 .vab-col{display:flex;flex-direction:column;background:var(--panel);overflow-y:auto;flex-shrink:0;}
-#partList{width:clamp(198px,15.5vw,250px);padding:clamp(6px,.7vw,10px);gap:8px;border-right:2px solid var(--blue-dark);}
+/* Teileauswahl im KSP-Stil: schmale Kategorien-Leiste (#partRail), daneben die
+   ausklappbare Liste (#partList). Nochmal auf dieselbe Kategorie klicken fährt
+   die Liste ein – dann hat die Halle die volle Breite (genau dafür ist sie da,
+   auf einem 13"-Laptop sind das 270 px mehr Rakete). */
+#partRail{width:clamp(52px,4vw,64px);flex-shrink:0;display:flex;flex-direction:column;gap:4px;
+  padding:6px 4px;background:var(--panel);border-right:2px solid var(--blue-dark);overflow-y:auto;}
+.cat-btn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;cursor:pointer;
+  background:var(--panel2);color:var(--text);border:1px solid #2a3a64;border-radius:8px;
+  font-size:9px;letter-spacing:-.3px;line-height:1.15;text-align:center;white-space:normal;overflow-wrap:anywhere;}
+.cat-btn .ci{font-size:clamp(15px,1.35vw,20px);line-height:1;}
+.cat-btn:hover{border-color:var(--orange);}
+.cat-btn.on{background:var(--orange);color:#141414;border-color:#ffd9a0;font-weight:700;}
+#partList{width:clamp(186px,14vw,244px);padding:clamp(6px,.7vw,10px);gap:8px;border-right:2px solid var(--blue-dark);}
 #partList h3,#vabInfo h3{color:var(--orange);font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:6px 0;}
-.part-btn{display:flex;flex-direction:column;text-align:left;background:var(--panel2);color:var(--text);
-  border:1px solid #2a3a64;border-radius:6px;padding:8px;font-size:13px;}
+#partList h3 small{display:block;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;
+  font-size:11px;line-height:1.3;margin-top:3px;}
+.part-btn{display:flex;flex-direction:column;gap:5px;text-align:left;background:var(--panel2);color:var(--text);
+  border:1px solid #2a3a64;border-radius:8px;padding:7px;font-size:13px;}
 .part-btn:hover{border-color:var(--orange);}
-.part-btn.locked{opacity:.35;cursor:default;}
+.part-btn.locked{opacity:.42;cursor:default;filter:grayscale(1);}
 .part-btn small{color:var(--muted);}
+.part-head{display:flex;gap:8px;align-items:center;width:100%;}
+/* Das Icon ist ein 2D-Canvas, in das der Icon-Renderer sein Bild kopiert
+   (s. PartIcons). Feste Pixelmaße – der Puffer ist 72 px groß. */
+.part-ico{width:54px;height:54px;flex:0 0 54px;border-radius:6px;
+  background:radial-gradient(circle at 40% 32%,#2b3a60,#131b2f 72%);}
+.part-name{display:flex;flex-direction:column;min-width:0;gap:1px;}
+.part-name b{line-height:1.2;overflow-wrap:break-word;}
+.part-stat{color:#cfd8ee!important;font-size:11px;}
+.part-cost{color:var(--orange)!important;font-size:11px;font-weight:700;}
+.part-desc{font-size:11.5px;line-height:1.32;}
+.part-lock{color:#ffb4b4!important;font-size:11px;}
 #vabCenter{flex:1;display:flex;flex-direction:column;min-width:0;background:#0e1526;}
 /* ⚠️ `flex-wrap:wrap` ist die HARTE Garantie gegen Überlappung: #vabCenter hat
    `min-width:0`, die Leiste ragt sonst einfach rechts heraus und legt sich
@@ -227,6 +252,7 @@ input[type=file]{display:none;}
 
 <!-- VAB -->
 <div id="vab" class="screen">
+  <div id="partRail"></div>
   <div id="partList" class="vab-col"></div>
   <div id="vabCenter">
     <div id="vabTop">
@@ -505,11 +531,11 @@ const V3 = (x=0,y=0,z=0)=>new THREE.Vector3(x,y,z);
    sonst erbt der lahme Schulrechner die "Hoch"-Einstellung vom Gaming-PC.
    ================================================================= */
 const GFX_PRESETS = {
-  low: {name:"Niedrig", dpr:1,    shadow:0,    trees:110, clouds:12,
+  low: {name:"Niedrig", dpr:1,    shadow:0,    trees:110,
         info:"Für ältere Schulrechner: keine Schatten, einfache Auflösung."},
-  mid: {name:"Mittel",  dpr:1.4,  shadow:1024, trees:260, clouds:26,
+  mid: {name:"Mittel",  dpr:1.4,  shadow:1024, trees:260,
         info:"Empfohlen: Schatten in der Montagehalle, scharfes Bild."},
-  high:{name:"Hoch",    dpr:2,    shadow:2048, trees:420, clouds:40,
+  high:{name:"Hoch",    dpr:2,    shadow:2048, trees:420,
         info:"Für kräftige Rechner: weiche Schatten überall, volle Schärfe."}
 };
 const Settings = {
@@ -563,7 +589,7 @@ function renderOptions(){
   document.getElementById("optGfxNote").innerHTML =
     q.info + "<br>Schatten: <b>" + (q.shadow ? "an" : "aus") +
     "</b> · Bildschärfe: <b>" + (gfxPixelRatio()/dpr*100).toFixed(0) + "%</b>" +
-    " · Bäume: <b>" + q.trees + "</b> · Wolken: <b>" + q.clouds + "</b>";
+    " · Bäume: <b>" + q.trees + "</b>";
   for(const [key, sl, val] of [["music","optMusic","optMusicVal"], ["sfx","optSfx","optSfxVal"]]){
     const s = document.getElementById(sl);
     if(s) s.value = Math.round(Settings[key]*100);
@@ -603,12 +629,6 @@ function applyGraphics(){
     }
   }
   if(typeof VAB!=="undefined" && VAB.setShadowRes) VAB.setShadowRes(sm);
-  // Wolkenzahl: nur der gezeichnete Ausschnitt des Instanz-Puffers
-  if(typeof Flight!=="undefined" && Flight.cloudField){
-    const g = Flight.cloudField.geometry;
-    if(g.userData.puffs)
-      g.instanceCount = Math.min(40, Settings.q.clouds) * g.userData.puffs;
-  }
   // Bäume: sofort neu setzen, wenn eine Bodenszene steht – sonst würde die
   // Stufe erst beim nächsten Verankern wirken und der Regler sähe kaputt aus.
   if(typeof Flight!=="undefined" && Flight.treeTrunks){
@@ -988,92 +1008,121 @@ function drawPlanetSurface(ctx,b,sx,sy,rp,t){ // 2D – nur für Universum-Ansic
   ctx.restore();
 }
 
-/* ---------- Bauteile / Tech / Missionen (wie 2D-Version) ---------- */
+/* ---------- Bauteil-Kategorien: nach HARDWARE, nicht nach Stufe ----------
+   ⚠️ Vorher war die Liste nach Raketenstufen sortiert ("1. Stufe", "2. Stufe").
+   Das klingt logisch, war beim Bauen aber unbrauchbar: Tanks lagen in DREI
+   Rubriken verstreut (S/M in "Oberstufe", L/XL in "Unterstufe", Mini bei den
+   Satelliten), und wer einen Tank suchte, musste raten, für welche Stufe die
+   Rakete ihn wohl brauchen soll. Sortiert wird deshalb wie in KSP nach dem,
+   was ein Teil IST – welche Stufe es trägt, steht im Text und ergibt sich beim
+   Bauen von selbst.
+   `ids` ist zugleich die Reihenfolge in der Klappliste (klein → groß, einfach
+   → fortgeschritten) und die EINZIGE Quelle der Zuordnung – ein `cat`-Feld in
+   PARTS gibt es nicht mehr, sonst pflegt man dieselbe Information zweimal. */
 const CATS = [
-  {id:"cmd",    name:"🧑‍🚀 Kommando & Rückkehr", sub:"Gehört an die Spitze jeder Rakete."},
-  {id:"sat",    name:"📡 Nutzlast & Satelliten", sub:"Satellitenbau: Sonde, Strom, Antenne, Fairing."},
-  {id:"upper",  name:"🛰️ 2. Stufe (Oberstufe)",  sub:"Leicht & effizient – arbeitet oben im Vakuum."},
-  {id:"struct", name:"🔗 Struktur & Stufentrennung", sub:"Verbindet die Stufen miteinander."},
-  {id:"lower",  name:"🚀 1. Stufe (Unterstufe)", sub:"Viel Schub – hebt die Rakete vom Boden."}
+  {id:"cmd", short:"Kapseln", icon:"🧑\u200d🚀", name:"Kommando",
+   sub:"Kapseln & Sonden – das Gehirn der Rakete, gehört an die SPITZE.",
+   ids:["probePod","pod","probeS","probe","starship","starshipTank"]},
+  {id:"tank", short:"Tanks", icon:"🛢️", name:"Tanks",
+   sub:"Treibstoff. Mehr Tank = mehr Δv, aber auch mehr Masse.",
+   ids:["tankXS","tankS","tankM","tankL","tankXL"]},
+  {id:"engine", short:"Antrieb", icon:"🔥", name:"Triebwerke",
+   sub:"Schub. Kurze Düsen für unten, große Vakuumdüsen für oben.",
+   ids:["engT","engS","engStd","engVac","engMain","engRapSL","engRapVac","engNuc","engIon"]},
+  {id:"boost", short:"Booster", icon:"🧨", name:"Booster",
+   sub:"Extra-Wumms für den Start – Feststoff brennt bis zum Schluss durch.",
+   ids:["srb","srbL","sb2","sb4","superheavy"]},
+  {id:"struct", short:"Struktur", icon:"🔗", name:"Struktur",
+   sub:"Verbinden, trennen, andocken.",
+   ids:["decoupler","interXS","inter","interL","dock"]},
+  {id:"aero", short:"Aero", icon:"🪂", name:"Aero & Landung",
+   sub:"Alles gegen die Luft: Flossen, Hülle, Schirme, Schild, Beine.",
+   ids:["fin","gridfin","fairing","chute","chute3","shield","legs"]},
+  {id:"elec", short:"Elektrik", icon:"⚡", name:"Elektrik",
+   sub:"Strom und Steuerdüsen – ohne Saft reagiert eine Sonde nicht mehr.",
+   ids:["battery","solar","rcs"]},
+  {id:"pay", short:"Nutzlast", icon:"🛰️", name:"Nutzlast",
+   sub:"Was die Rakete eigentlich ins All bringen soll.",
+   ids:["bay","bayS","antenna","lab","satW","satK","satR","satS","satT","satD"]}
 ];
 const PARTS = {
-  probePod:{name:"Sondenkapsel »Fernblick«",  type:"probe",  cat:"cmd", mass:400,  w:10,h:10, tech:"start", charge:200,
+  probePod:{name:"Sondenkapsel »Fernblick«",  type:"probe", mass:400,  w:10,h:10, tech:"start", charge:200,
             info:"Ferngesteuerte Kapsel – fliegt unbemannt. Braucht Strom (0,25 ⚡/s)! Interne Batterie: 200 ⚡."},
-  probeS: {name:"Sondenbus »Teller«",         type:"probe",  cat:"cmd", mass:120,  w:9,h:3,   tech:"payload", charge:120,
+  probeS: {name:"Sondenbus »Teller«",         type:"probe", mass:120,  w:9,h:3,   tech:"payload", charge:120,
             info:"Flache, runde Mini-Steuereinheit für Satellitenstarts: Satellit obendrauf bauen, im Zielorbit mit [N] abstoßen – wie in echt! Braucht Strom (0,25 ⚡/s)."},
-  pod:    {name:"Kommandokapsel »Leibniz I«", type:"pod",    cat:"cmd", mass:800,  w:10,h:14, tech:"crewed", charge:150, info:"Sitz für eine mutige Pilotin / einen mutigen Piloten. Interne Batterie: 150 ⚡."},
-  chute:  {name:"Fallschirm Mk1",            type:"chute",  cat:"cmd", mass:100,  w:10,h:5,  tech:"start", chuteA:500,
+  pod:    {name:"Kommandokapsel »Leibniz I«", type:"pod", mass:800,  w:10,h:14, tech:"crewed", charge:150, info:"Sitz für eine mutige Pilotin / einen mutigen Piloten. Interne Batterie: 150 ⚡."},
+  chute:  {name:"Fallschirm Mk1",            type:"chute", mass:100,  w:10,h:5,  tech:"start", chuteA:500,
            info:"Für die sichere Landung leichter Kapseln – bremst bis ca. 2 t sicher. Mit [P] auslösen."},
-  chute3: {name:"Fallschirm Mk2 (Dreifach)", type:"chute",  cat:"cmd", mass:260,  w:10,h:5,  tech:"crewed", chuteA:2000,
+  chute3: {name:"Fallschirm Mk2 (Dreifach)", type:"chute", mass:260,  w:10,h:5,  tech:"crewed", chuteA:2000,
            info:"Drei Kappen wie bei der Dragon-Kapsel: bremst auch schwere Schiffe bis ca. 8 t. Mit [P] auslösen."},
-  lab:    {name:"Materiallabor »Curie«",     type:"lab",    cat:"cmd", mass:180,  w:10,h:7,  tech:"surv",
+  lab:    {name:"Materiallabor »Curie«",     type:"lab", mass:180,  w:10,h:7,  tech:"surv",
            info:"Führt Experimente durch [B] – jeder neue Ort bringt einmalig Wissenschaft!"},
-  shield: {name:"Hitzeschild",               type:"shield", cat:"cmd", mass:200,  w:11,h:3,  tech:"surv",
+  shield: {name:"Hitzeschild",               type:"shield", mass:200,  w:11,h:3,  tech:"surv",
            info:"Ablativer Schutzschild – ohne ihn verglüht die Rakete beim Wiedereintritt aus dem Orbit!"},
-  tankS:  {name:"Treibstofftank S",          type:"tank",   cat:"upper", mass:250,  fuel:1400, w:10,h:16, tech:"start", info:"1,4 t Treibstoff – klein und leicht."},
-  engS:   {name:"Triebwerk »Funke«",         type:"engine", cat:"upper", mass:200,  thrust:45000, isp:300, w:10,h:8, tech:"start", info:"45 kN Schub, drosselbar."},
-  engStd: {name:"Triebwerk »Ochse«",         type:"engine", cat:"lower", mass:600,  thrust:200000, isp:265, w:10,h:10, tech:"propI",
+  tankS:  {name:"Treibstofftank S",          type:"tank", mass:250,  fuel:1400, w:10,h:16, tech:"start", info:"1,4 t Treibstoff – klein und leicht."},
+  engS:   {name:"Triebwerk »Funke«",         type:"engine", mass:200,  thrust:45000, isp:300, w:10,h:8, tech:"start", info:"45 kN Schub, drosselbar."},
+  engStd: {name:"Triebwerk »Ochse«",         type:"engine", mass:600,  thrust:200000, isp:265, w:10,h:10, tech:"propI",
            info:"Das Arbeitstier für die ERSTE Stufe: 200 kN, drosselbar, robust – und mit kurzer Düse gebaut, damit sie am Boden sauber arbeitet. Dafür schluckt sie viel (Isp 265 s). Vakuum-Triebwerke wie der »Terrier« haben große Düsen: die sind oben sparsamer, am Boden aber nutzlos."},
-  tankM:  {name:"Treibstofftank M",          type:"tank",   cat:"upper", mass:450,  fuel:2800, w:10,h:28, tech:"advProp", info:"2,8 t Treibstoff."},
-  engVac: {name:"Triebwerk »Terrier«",       type:"engine", cat:"upper", mass:500,  thrust:60000, isp:345, w:10,h:9, tech:"advProp", info:"Sehr effizient im Vakuum (Isp 345 s)."},
-  engNuc: {name:"Atom-Triebwerk »Einstein«", type:"engine", cat:"upper", mass:1200, thrust:55000, isp:520, w:10,h:14, tech:"future", info:"Isp 520 s! Schwach, aber extrem sparsam – das Triebwerk für Minzi und darüber hinaus."},
-  engIon: {name:"Ionentriebwerk »Planck«",   type:"engine", cat:"sat", mass:250, thrust:6000, isp:1300, w:8,h:6, tech:"future", info:"Isp 1300 s!! Winziger Schub, gigantische Reichweite – für Sonden zu Kepler und Newton."},
-  tankXL: {name:"Treibstofftank XL",         type:"tank",   cat:"lower", mass:1600, fuel:11200, w:14,h:60, tech:"heavyPlus", info:"11,2 t Treibstoff – das Rückgrat interplanetarer Expeditionen."},
-  decoupler:{name:"Stufentrenner",           type:"decoupler", cat:"struct", mass:50, w:10,h:4, tech:"struct", info:"Trennt Stufen voneinander. [Leertaste]"},
-  interXS:{name:"Stufenadapter XS",          type:"inter", cat:"struct", mass:35,  w:8,  h:2.5, shroudH:10, tech:"fine",
+  tankM:  {name:"Treibstofftank M",          type:"tank", mass:450,  fuel:2800, w:10,h:28, tech:"advProp", info:"2,8 t Treibstoff."},
+  engVac: {name:"Triebwerk »Terrier«",       type:"engine", mass:500,  thrust:60000, isp:345, w:10,h:9, tech:"advProp", info:"Sehr effizient im Vakuum (Isp 345 s)."},
+  engNuc: {name:"Atom-Triebwerk »Einstein«", type:"engine", mass:1200, thrust:55000, isp:520, w:10,h:14, tech:"future", info:"Isp 520 s! Schwach, aber extrem sparsam – das Triebwerk für Minzi und darüber hinaus."},
+  engIon: {name:"Ionentriebwerk »Planck«",   type:"engine", mass:250, thrust:6000, isp:1300, w:8,h:6, tech:"future", info:"Isp 1300 s!! Winziger Schub, gigantische Reichweite – für Sonden zu Kepler und Newton."},
+  tankXL: {name:"Treibstofftank XL",         type:"tank", mass:1600, fuel:11200, w:14,h:60, tech:"heavyPlus", info:"11,2 t Treibstoff – das Rückgrat interplanetarer Expeditionen."},
+  decoupler:{name:"Stufentrenner",           type:"decoupler", mass:50, w:10,h:4, tech:"struct", info:"Trennt Stufen voneinander. [Leertaste]"},
+  interXS:{name:"Stufenadapter XS",          type:"inter", mass:35,  w:8,  h:2.5, shroudH:10, tech:"fine",
            info:"Offene Triebwerks-Verkleidung Ø 8 (»Floh«, Ionenantrieb): direkt UNTER den Stufentrenner bauen – sie umhüllt das Oberstufen-Triebwerk von unten und bleibt nach der Trennung auf der unteren Stufe (wie der Interstage der Falcon 9)."},
-  inter:  {name:"Stufenadapter S",           type:"inter", cat:"struct", mass:60,  w:10, h:3,   shroudH:16, tech:"struct",
+  inter:  {name:"Stufenadapter S",           type:"inter", mass:60,  w:10, h:3,   shroudH:16, tech:"struct",
            info:"Offene Triebwerks-Verkleidung Ø 10 (»Funke«, »Terrier«, Atomantrieb): direkt UNTER den Stufentrenner bauen – verkleidet das Oberstufen-Triebwerk und bleibt nach der Trennung als Interstage auf der unteren Stufe. Sieht stabil aus UND ist es!"},
-  interL: {name:"Stufenadapter L",           type:"inter", cat:"struct", mass:110, w:12, h:3,   shroudH:18, tech:"heavy",
+  interL: {name:"Stufenadapter L",           type:"inter", mass:110, w:12, h:3,   shroudH:18, tech:"heavy",
            info:"Offene Triebwerks-Verkleidung Ø 12 (»Hauptstufe«, Raptoren): direkt UNTER den Stufentrenner bauen – der Falcon-9-Look für schwere Raketen."},
-  legs:   {name:"Landebeine",                type:"legs",   cat:"struct", mass:120,  w:14,h:6, tech:"explore", info:"Werden SEITLICH an einen Tank gebaut (wie Flossen) und belegen keine Höhe. An den untersten Tank – direkt über dem Triebwerk – setzen: dann reichen sie am Triebwerk vorbei bis auf den Boden. Erlauben Landungen bis 12 m/s (sonst 8 m/s). Mit [Y] aus- und einfahrbar; eingefahren liegen sie am Tank an und passen unter eine Nutzlastverkleidung. Nur AUSGEFAHREN zählt der Bonus!"},
-  rcs:    {name:"RCS-Steuerdüsen",           type:"rcs",    cat:"struct", mass:70,   w:11,h:2.5, tech:"advProp",
+  legs:   {name:"Landebeine",                type:"legs", mass:120,  w:14,h:6, tech:"explore", info:"Werden SEITLICH an einen Tank gebaut (wie Flossen) und belegen keine Höhe. An den untersten Tank – direkt über dem Triebwerk – setzen: dann reichen sie am Triebwerk vorbei bis auf den Boden. Erlauben Landungen bis 12 m/s (sonst 8 m/s). Mit [Y] aus- und einfahrbar; eingefahren liegen sie am Tank an und passen unter eine Nutzlastverkleidung. Nur AUSGEFAHREN zählt der Bonus!"},
+  rcs:    {name:"RCS-Steuerdüsen",           type:"rcs", mass:70,   w:11,h:2.5, tech:"advProp",
            info:"Düsenring fürs schnelle Wenden im All – ohne RCS dreht das Schiff SEHR träge!"},
-  srb:    {name:"Feststoffbooster »Böller«", type:"srb",    cat:"lower", mass:450,  fuel:1700, thrust:230000, isp:220, w:10,h:24, tech:"basic", info:"Viel Schub, nicht drosselbar!"},
-  fin:    {name:"Stabilisierungsflosse",     type:"fin",    cat:"lower", mass:40,   w:14,h:6, tech:"basic", info:"Verringert den Luftwiderstand UND hält die Rakete ruhig – ohne Flossen taumelt sie im Fahrtwind!"},
-  gridfin:{name:"Gitterflossen »Falke«",     type:"gridfin",cat:"lower", mass:150,  w:12,h:3, tech:"reuse",
+  srb:    {name:"Feststoffbooster »Böller«", type:"srb", mass:450,  fuel:1700, thrust:230000, isp:220, w:10,h:24, tech:"basic", info:"Viel Schub, nicht drosselbar!"},
+  fin:    {name:"Stabilisierungsflosse",     type:"fin", mass:40,   w:14,h:6, tech:"basic", info:"Verringert den Luftwiderstand UND hält die Rakete ruhig – ohne Flossen taumelt sie im Fahrtwind!"},
+  gridfin:{name:"Gitterflossen »Falke«",     type:"gridfin", mass:150,  w:12,h:3, tech:"reuse",
            info:"Macht die ERSTE STUFE wiederverwendbar: Mit Restsprit abtrennen (orange Marke an der Tank-Anzeige!) – der Autopilot landet sie im Falcon-Stil und du bekommst ihr Geld zurück."},
-  tankL:  {name:"Treibstofftank L",          type:"tank",   cat:"lower", mass:800,  fuel:5600, w:12,h:42, tech:"heavy", info:"5,6 t Treibstoff – schwer, gehört nach unten."},
-  engMain:{name:"Triebwerk »Hauptstufe«",    type:"engine", cat:"lower", mass:1500, thrust:600000, isp:290, w:12,h:12, tech:"heavy", info:"600 kN Schub für schwere Raketen."},
-  srbL:   {name:"Feststoffbooster »Donner«", type:"srb",    cat:"lower", mass:900,  fuel:3800, thrust:480000, isp:230, w:12,h:34, tech:"heavyPlus", info:"Brachialer Startschub."},
-  sb2:    {name:"Seitenbooster ×2",          type:"sideboost", n:2, cat:"lower", mass:900,  fuel:3400, thrust:460000, isp:220, w:10,h:24, tech:"basic",
+  tankL:  {name:"Treibstofftank L",          type:"tank", mass:800,  fuel:5600, w:12,h:42, tech:"heavy", info:"5,6 t Treibstoff – schwer, gehört nach unten."},
+  engMain:{name:"Triebwerk »Hauptstufe«",    type:"engine", mass:1500, thrust:600000, isp:290, w:12,h:12, tech:"heavy", info:"600 kN Schub für schwere Raketen."},
+  srbL:   {name:"Feststoffbooster »Donner«", type:"srb", mass:900,  fuel:3800, thrust:480000, isp:230, w:12,h:34, tech:"heavyPlus", info:"Brachialer Startschub."},
+  sb2:    {name:"Seitenbooster ×2",          type:"sideboost", n:2, mass:900,  fuel:3400, thrust:460000, isp:220, w:10,h:24, tech:"basic",
            info:"Zwei radiale Feststoffbooster mit eigenem Tank – zünden mit Stufe 1 oder separat mit [R], Abwurf mit [J]!"},
-  sb4:    {name:"Seitenbooster ×4",          type:"sideboost", n:4, cat:"lower", mass:1800, fuel:6800, thrust:920000, isp:220, w:10,h:24, tech:"heavyPlus",
+  sb4:    {name:"Seitenbooster ×4",          type:"sideboost", n:4, mass:1800, fuel:6800, thrust:920000, isp:220, w:10,h:24, tech:"heavyPlus",
            info:"Vier radiale Feststoffbooster für Monster-Raketen. Zünden: Stufe 1 oder [R] · Abwurf: [J]"},
-  probe:  {name:"Sondenkern »Pixel«",        type:"probe",  cat:"sat", mass:150, w:8,h:6, tech:"payload", charge:80, info:"Unbemanntes Gehirn – braucht ständig Strom (0,25 ⚡/s)! Interne Batterie: 80 ⚡."},
-  solar:  {name:"Solarpanele (ausfahrbar)",  type:"solar",  cat:"sat", mass:60,  w:14,h:4, tech:"surv", info:"Mit [G] ausfahren: +3 ⚡/s. Nur im Vakuum – unter 50 km Höhe ist die Luft zu dicht, dort klappen sie von selbst ein."},
-  battery:{name:"Batterie",                  type:"battery",cat:"sat", mass:60,  w:8,h:5, tech:"payload", charge:500, info:"Speichert 500 ⚡ für Sonden, SAS und Experimente."},
-  bay:    {name:"Servicebucht M",            type:"bay",    cat:"sat", mass:80,  w:11,h:5, covers:2, tech:"payload",
+  probe:  {name:"Sondenkern »Pixel«",        type:"probe", mass:150, w:8,h:6, tech:"payload", charge:80, info:"Unbemanntes Gehirn – braucht ständig Strom (0,25 ⚡/s)! Interne Batterie: 80 ⚡."},
+  solar:  {name:"Solarpanele (ausfahrbar)",  type:"solar", mass:60,  w:14,h:4, tech:"surv", info:"Mit [G] ausfahren: +3 ⚡/s – aber nur im SONNENLICHT: auf der Schattenseite eines Planeten liefern sie nichts, dafür ist die Batterie da. Nur im Vakuum – unter 50 km Höhe ist die Luft zu dicht, dort klappen sie von selbst ein."},
+  battery:{name:"Batterie",                  type:"battery", mass:60,  w:8,h:5, tech:"payload", charge:500, info:"Speichert 500 ⚡ für Sonden, SAS und Experimente."},
+  bay:    {name:"Servicebucht M",            type:"bay", mass:80,  w:11,h:5, covers:2, tech:"payload",
            info:"Aerodynamischer Stauraum: verkleidet die ZWEI Bauteile DIREKT DARÜBER (z. B. Satellit + Batterie) und senkt den Luftwiderstand. Öffnen: [O]"},
-  bayS:   {name:"Servicebucht S",            type:"bay",    cat:"sat", mass:45,  w:9,h:2.5, covers:1, tech:"surv",
+  bayS:   {name:"Servicebucht S",            type:"bay", mass:45,  w:9,h:2.5, covers:1, tech:"surv",
            info:"Kompakte Bucht – verkleidet EIN Bauteil darüber, perfekt für Batterie oder Solarpanele. Öffnen: [O]"},
-  antenna:{name:"Antenne »Quassel«",         type:"antenna",cat:"sat", mass:40,  w:4,h:5, tech:"payload", info:"Funkt Daten nach Leibniz."},
-  satW:   {name:"Wettersatellit »Wolkengucker«", type:"sat", cat:"sat", mass:200, w:8,h:6, tech:"payload",
+  antenna:{name:"Antenne »Quassel«",         type:"antenna", mass:40,  w:4,h:5, tech:"payload", info:"Funkt Daten nach Leibniz."},
+  satW:   {name:"Wettersatellit »Wolkengucker«", type:"sat", mass:200, w:8,h:6, tech:"payload",
            info:"Kameras für Wolken & Stürme über Leibniz. In STABILEM Orbit aussetzen [N] – Karriere-Mission!"},
-  satR:   {name:"Forschungssatellit »Strahlenspäher«", type:"sat", cat:"sat", mass:280, w:8,h:7, tech:"fine",
+  satR:   {name:"Forschungssatellit »Strahlenspäher«", type:"sat", mass:280, w:8,h:7, tech:"fine",
            info:"Misst kosmische Strahlung – funktioniert nur im HOHEN Orbit (Periapsis > 250 km). Aussetzen: [N]"},
-  satS:   {name:"Spähsatellit »Adlerauge«",  type:"sat",    cat:"sat", mass:350, w:9,h:6, tech:"fine",
+  satS:   {name:"Spähsatellit »Adlerauge«",  type:"sat", mass:350, w:9,h:6, tech:"fine",
            info:"Streng geheim! Scharfe Fotos gelingen nur im TIEFEN Orbit (Pe > 70 km, Ap < 130 km). Aussetzen: [N]"},
-  satK:   {name:"Kommerz-Satellit »Werbefunk«", type:"sat", cat:"sat", mass:220, w:8,h:6, tech:"payload", com:true,
+  satK:   {name:"Kommerz-Satellit »Werbefunk«", type:"sat", mass:220, w:8,h:6, tech:"payload", com:true,
            info:"Für die 📡 Satelliten-Aufträge in der Missionszentrale: im GEFORDERTEN Orbit aussetzen [N] = Prämie kassieren. Funkt danach dauerhaft Werbung → 🪙 nach jedem Flug!"},
-  satT:   {name:"Weltraumteleskop »Weitblick«", type:"sat", cat:"sat", mass:520, w:10,h:11, tech:"fine",
+  satT:   {name:"Weltraumteleskop »Weitblick«", type:"sat", mass:520, w:10,h:11, tech:"fine",
            info:"Der große Spiegel – unser »Hubble«. Vom Boden aus verwackelt die Luft jedes Bild; erst ÜBER der Atmosphäre wird es scharf. In einem hohen Orbit aussetzen (Pe > 250 km) [N] – danach sind die fernen PLANETEN und ihre MONDE im Universum-Bildschirm keine ??? mehr! (Für die winzigen Kleinkörper reicht selbst dieser Spiegel nicht – dafür gibt es den »Rundumblick«.)"},
-  satD:   {name:"Durchmusterungs-Teleskop »Rundumblick«", type:"sat", cat:"sat", mass:460, w:10,h:10, tech:"fine",
+  satD:   {name:"Durchmusterungs-Teleskop »Rundumblick«", type:"sat", mass:460, w:10,h:10, tech:"fine",
            info:"Kein großer Spiegel, dafür ein RIESIGES Blickfeld: Diese Kamera fotografiert nicht EIN Ziel, sondern nach und nach den ganzen Himmel und vergleicht die Bilder – was sich zwischen den Sternen bewegt, ist ein Kleinkörper. Dafür muss sie über die POLE fliegen: In einem Polarorbit (Bahnneigung > 75°, Pe > 200 km) wandert der Streifen, den sie absucht, über die ganze Himmelskugel. Aussetzen: [N]"},
-  fairing:{name:"Nutzlast-Fairing",          type:"fairing",cat:"sat", mass:120, w:12,h:5, tech:"payload", info:"Halber Luftwiderstand. Mit [F] absprengen!"},
-  tankXS: {name:"Mini-Tank",                 type:"tank",   cat:"sat", mass:120, fuel:700, w:8,h:9, tech:"fine", info:"0,7 t für Satelliten-Manöver."},
-  engT:   {name:"Triebwerk »Floh«",          type:"engine", cat:"sat", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"fine", info:"Winziges Manövriertriebwerk (8 kN)."},
-  dock:   {name:"Docking-Port »Klette«",     type:"dock",   cat:"cmd", mass:80, w:10,h:3, tech:"payload",
+  fairing:{name:"Nutzlast-Fairing",          type:"fairing", mass:120, w:12,h:5, tech:"payload", info:"Halber Luftwiderstand. Mit [F] absprengen!"},
+  tankXS: {name:"Mini-Tank",                 type:"tank", mass:120, fuel:700, w:8,h:9, tech:"fine", info:"0,7 t für Satelliten-Manöver."},
+  engT:   {name:"Triebwerk »Floh«",          type:"engine", mass:80, thrust:8000, isp:320, w:8,h:5, tech:"fine", info:"Winziges Manövriertriebwerk (8 kN)."},
+  dock:   {name:"Docking-Port »Klette«",     type:"dock", mass:80, w:10,h:3, tech:"payload",
            info:"Koppelstutzen an die Spitze bauen! Langsam (< 3 m/s) und nah (< 30 m) an die Raumstation »Große Pause« heranfliegen – [L] dockt an und ab."},
-  engRapSL:{name:"Raptor »Meereshöhe«",      type:"engine", cat:"lower", mass:1600, thrust:750000, isp:330, w:12,h:10, tech:"raptorSL", raptor:true,
+  engRapSL:{name:"Raptor »Meereshöhe«",      type:"engine", mass:1600, thrust:750000, isp:330, w:12,h:10, tech:"raptorSL", raptor:true,
            info:"Vollstrom-Methantriebwerk: 750 kN bei Isp 330 s – Effizienz-Weltmeister für die erste Stufe."},
-  engRapVac:{name:"Raptor »Vakuum«",         type:"engine", cat:"upper", mass:1700, thrust:700000, isp:380, w:12,h:12, tech:"raptorVac", raptor:true,
+  engRapVac:{name:"Raptor »Vakuum«",         type:"engine", mass:1700, thrust:700000, isp:380, w:12,h:12, tech:"raptorVac", raptor:true,
            info:"Riesige Glocke, Isp 380 s im Vakuum – das effizienteste Oberstufen-Triebwerk überhaupt."},
-  superheavy:{name:"Superheavy-Booster",     type:"superheavy", cat:"lower", mass:3600, fuel:26000, thrust:4600000, isp:330, w:14,h:68, tech:"raptorSL", raptor:true,
+  superheavy:{name:"Superheavy-Booster",     type:"superheavy", mass:3600, fuel:26000, thrust:4600000, isp:330, w:14,h:68, tech:"raptorSL", raptor:true,
            info:"Riesentank + 33 Raptoren in EINEM Teil (26 t Treibstoff, 4600 kN). Mit Gitterflossen ausrüsten – dann landet ihn der Autopilot!"},
-  starship:{name:"Starship",                 type:"starship", cat:"cmd", mass:5200, fuel:9500, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:900, flaps:true, bay:2500, raptor:true,
+  starship:{name:"Starship",                 type:"starship", mass:5200, fuel:9500, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:900, flaps:true, bay:2500, raptor:true,
            info:"Das ultimative Schiff: 6 Crew ODER große Nutzlast, Hitzeschutz-Kacheln, Bellyflop-Landung mit [C] (mindestens 200 m Höhe!). Frachtraum: 2,5 t Satelliten (PEZ-Dispenser, seitlicher Auswurf mit [N])."},
-  starshipTank:{name:"Tanker-Starship",      type:"starship", cat:"cmd", mass:4400, fuel:16000, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:400, tanker:true, bay:0, raptor:true,
+  starshipTank:{name:"Tanker-Starship",      type:"starship", mass:4400, fuel:16000, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:400, tanker:true, bay:0, raptor:true,
            info:"Starship ohne Flaps, dafür voller Tanks: Im Orbit parken (Flug dort beenden) – dort heißt er dann »Tanker ⛽ #1«, »#2« … und ist mit [Z] bzw. [⇧Z] anwählbar. Jedes Schiff tankt bei ihm auf (< 60 m, < 4 m/s), und zwar genau so viel, wie er noch HAT – der Rest bleibt im Orbit stehen. Wer selbst einen Tanker fliegt, kann umgekehrt andere Tanker und geparkte Schiffe volltanken. Unbemannt, keine Bellyflop-Landung, KEIN Frachtraum – da sitzen die Tanks!"}
 };
 /* Radialteile (Flossen, Seitenbooster): hängen seitlich am Nachbartank
@@ -5662,27 +5711,6 @@ function buildFlagMesh(){
   return g;
 }
 /* =================================================================
-   WOLKEN – Impostor-Puffs mit volumetrischer Beleuchtung
-   (Ansatz wie github.com/leoawen/volumetric_cloud_atmosphere_scattering,
-   nur ohne Raymarching – dafür in EINEM Draw-Call und auf Schulrechnern
-   flüssig)
-
-   Statt eines echten 3D-Raymarch pro Pixel wird jede Wolke aus ~8 Puff-
-   Billboards zusammengesetzt (InstancedMesh, ein Draw-Call für ALLE).
-   Die eigentliche Optik steckt im Fragment-Shader und benutzt dieselbe
-   Physik wie die großen Volumen-Renderer:
-   · Beer-Lambert:  T = e^(−σ·d)  → Deckkraft aus der optischen Dicke
-   · Powder-Effekt: 1 − e^(−2σ·d) → dunkle Kerne, helle Ränder
-                    (in dünnen Randbereichen wird weniger MEHRFACH gestreut)
-   · Henyey-Greenstein-Phasenfunktion (g = 0,62) → starke Vorwärtsstreuung,
-     also der »Silberrand«, wenn man gegen die Sonne schaut
-   · Impostor-Normale: die Billboard-Scheibe wird als KUGEL interpretiert
-     (n_z = √(1−r²)) und mit dem Dichte-Gradienten aus der Textur
-     verbeult → Sonnen- und Schattenseite pro Pixel, Blumenkohl-Struktur.
-   Zusammen mit dem Sonnenstand der Spieluhr (s. groundSunDir) werden die
-   Wolken morgens/abends von der Seite golden angestrahlt.
-   ================================================================= */
-/* =================================================================
    HIMMEL: Rayleigh- + Mie-Streuung  (der rote Sonnenuntergang)
    -----------------------------------------------------------------
    Vorher war der Himmel EINE Farbe (`scene.background`), von Nachtschwarz
@@ -5818,132 +5846,16 @@ function skyRadiance(czV, cosG, czS, sunI, out){
   }
   return c.setRGB(ch[0], ch[1], ch[2]);
 }
-/* Puff-Textur: A = Dichte (radialer Abfall × Billow-Turbulenz),
-   RG = Dichte-Gradient für die Normalen-Verbeulung. */
-function makeCloudPuffTexture(){
-  const S = 128, rnd = seededRand(913);
-  // Wert-Rauschen in 4 Oktaven; "billow" = |2n−1| ergibt Blumenkohl-Wülste
-  const oct = [];
-  for(let o=0;o<4;o++){
-    const n = 4<<o, g = new Float32Array(n*n);
-    for(let i=0;i<n*n;i++) g[i] = rnd();
-    oct.push({n, g});
-  }
-  const smoothT = t=>t*t*(3-2*t);
-  const noise = (o, u, v)=>{
-    const n = o.n, x = u*n, y = v*n;
-    const x0 = Math.floor(x), y0 = Math.floor(y);
-    const fx = smoothT(x - x0), fy = smoothT(y - y0);
-    const i = (a,b)=>o.g[((b%n)+n)%n*n + ((a%n)+n)%n];
-    return (i(x0,y0)*(1-fx) + i(x0+1,y0)*fx)*(1-fy)
-         + (i(x0,y0+1)*(1-fx) + i(x0+1,y0+1)*fx)*fy;
-  };
-  const dens = (u,v)=>{
-    const r = Math.hypot(u-0.5, v-0.5)*2;                  // 0 Mitte … 1 Rand
-    let t = 0, amp = 0.5, sum = 0;
-    for(const o of oct){ t += amp*Math.abs(2*noise(o,u,v)-1); sum += amp; amp *= 0.5; }
-    t /= sum;
-    const s = Math.max(0, Math.min(1, (1.0 - r)/0.85));       // weicher Rand
-    const rad = s*s*(3 - 2*s);
-    return Math.max(0, Math.min(1, rad*(0.5 + 1.2*t)*1.25 - 0.13));
-  };
-  const img = new ImageData(S, S), d = img.data, e = 1/S;
-  for(let y=0;y<S;y++) for(let x=0;x<S;x++){
-    const u = (x+0.5)/S, v = (y+0.5)/S, o4 = (y*S+x)*4;
-    const gx = (dens(u+e,v) - dens(u-e,v))*2.2;
-    const gy = (dens(u,v+e) - dens(u,v-e))*2.2;
-    d[o4]   = Math.max(0, Math.min(255, 128 + gx*127));
-    d[o4+1] = Math.max(0, Math.min(255, 128 + gy*127));
-    d[o4+2] = 255;
-    d[o4+3] = dens(u,v)*255;
-  }
-  const c = document.createElement("canvas"); c.width = c.height = S;
-  c.getContext("2d").putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
-  return tex;
-}
-/* Wie "warm" ist das Sonnenlicht? Je tiefer die Sonne steht, desto länger
-   ist ihr Weg durch die Lufthülle und desto mehr Blau streut Rayleigh heraus
-   – übrig bleibt Orange. sunUp = Sinus der Sonnenhöhe (0 = Horizont). */
-function sunWarmth(sunUp){
-  const t = 1 - Math.max(0, Math.min(1, sunUp));
-  return t*t*t*0.8;
-}
-/* Objektraum der Wolken = der der Bodengruppe: x = Ost, y = HOCH, z = Süd */
-const CLOUD_VERT = `
-#include <common>
-attribute vec3 iPos;      // Puff-Mittelpunkt
-attribute vec3 iParam;    // x = Größe, y = UV-Drehung, z = Höhe in der Wolke
-attribute vec4 iCloud;    // xyz = Versatz zum WOLKEN-Mittelpunkt, w = Wolkenradius
-uniform vec3 uCamRight, uCamUp, uEye;
-varying vec2 vUv, vQ;
-varying vec3 vView;
-varying float vShade;
-varying vec3 vOfs;        // Lage des Puffs IN der Wolke (normiert)
-#include <logdepthbuf_pars_vertex>
-void main(){
-  vQ = position.xy;                                  // −0,5 … +0,5
-  float s = sin(iParam.y), c = cos(iParam.y);
-  vUv = vec2(vQ.x*c - vQ.y*s, vQ.x*s + vQ.y*c) + 0.5;   // gedrehte Textur = Vielfalt
-  vView  = normalize(uEye - iPos);
-  vShade = iParam.z;
-  vOfs   = iCloud.xyz/max(iCloud.w, 1.0);
-  vec3 wp = iPos + (uCamRight*vQ.x + uCamUp*vQ.y)*iParam.x;
-  gl_Position = projectionMatrix*modelViewMatrix*vec4(wp, 1.0);
-#include <logdepthbuf_vertex>
-}`;
-const CLOUD_FRAG = `
-#include <common>
-uniform sampler2D uPuff;
-uniform vec3  uCamRight, uCamUp, uSunDir, uSunCol, uSkyCol, uGroundCol;
-uniform float uSunI, uThick, uFade;
-varying vec2 vUv, vQ;
-varying vec3 vView;
-varying float vShade;
-varying vec3 vOfs;
-#include <logdepthbuf_pars_fragment>
-void main(){
-#include <logdepthbuf_fragment>
-  vec4 t = texture2D(uPuff, vUv);
-  float dens = t.a*uFade;
-  if(dens < 0.004) discard;
-  // Impostor: die Scheibe wird als Kugel gelesen, der Dichte-Gradient
-  // verbeult sie zur Blumenkohl-Struktur
-  float r2 = min(1.0, dot(vQ, vQ)*4.0);
-  vec3 nB = vec3(vQ*2.0 + (t.rg*2.0 - 1.0)*0.9, sqrt(1.0 - r2)*1.1);
-  vec3 N  = normalize(uCamRight*nB.x + uCamUp*nB.y + vView*nB.z);
-
-  float thick  = dens*uThick;
-  float alpha  = 1.0 - exp(-thick*2.2);              // Beer-Lambert
-  float powder = 1.0 - exp(-thick*5.0);              // dünne Ränder streuen weniger
-
-  // Weglänge des Sonnenlichts IM Puff (0 = Sonnenseite, 1 = Rückseite)
-  float lightD = 0.5 - 0.5*dot(N, uSunDir);
-  // ⚠️ Dazu die Weglänge durch die GANZE WOLKE: Ohne sie wird jeder Puff für
-  // sich beleuchtet, alle sehen gleich aus und die Wolke wirkt wie ein Haufen
-  // Wattebäusche. Wie tief ein Puff im Wolkenkörper sitzt, sagt seine Lage
-  // relativ zum Wolkenmittelpunkt: auf der Sonnenseite (Skalarprodukt > 0)
-  // steht er im Licht, dahinter im Schatten der Puffs vor ihm. Das ist die
-  // Licht-Marschierung eines Raymarchers, nur pro Puff statt pro Sample.
-  float deep = 0.5 - 0.5*dot(normalize(vOfs + uSunDir*0.001), uSunDir);
-  deep *= clamp(length(vOfs), 0.0, 1.0);
-  lightD = clamp(lightD*0.45 + deep*0.95, 0.0, 1.35);
-  // Extinktion nur MINIMAL wellenlängenabhängig – Wolkentropfen streuen
-  // fast farbneutral (Mie). Die Schattenseite wird trotzdem blau, weil dort
-  // das Himmelslicht überwiegt (uSkyCol-Term unten).
-  vec3 sunT = exp(-vec3(0.88, 0.92, 0.98)*lightD*uThick*0.95);
-  // Henyey-Greenstein: Vorwärtsstreuung = Silberrand gegen die Sonne
-  float mu = -dot(vView, uSunDir);
-  float g  = 0.62;
-  float hg = (1.0 - g*g)/pow(1.0 + g*g - 2.0*g*mu, 1.5)*0.0796;
-
-  vec3 col = uSunCol*uSunI*(1.05 + 1.7*hg)*sunT*mix(0.55, 1.0, powder)
-           + uSkyCol*(0.58 + 0.34*N.y)                 // Himmelslicht von oben
-           + uGroundCol*(0.10 - 0.10*N.y);             // Bodenlicht von unten
-  col *= mix(0.74, 1.05, vShade);                      // Wolkenboden dunkler
-  gl_FragColor = vec4(col, alpha);
-}`;
+/* Hier standen bis August 2026 die WOLKEN-IMPOSTOR-PUFFS: 40 Haufenwolken à
+   14 Billboard-Puffs in einem InstancedMesh, mit Beer-Lambert, Powder-Effekt
+   und Henyey-Greenstein im Fragment-Shader (makeCloudPuffTexture, CLOUD_VERT,
+   CLOUD_FRAG, Flight.cloudField/cloudGroup/updateClouds).
+   ⚠️ ENTFERNT und NICHT wieder einbauen: Seit die Wolkenschale des Planeten
+   (makeCloudTexture / cloudShellMaterial) im Shader nachgeschärft wird, decken
+   die beiden dasselbe ab – bodennah sah man dann BEIDE, und die Puffs verrieten
+   sich dabei als flache Scheiben, sobald man an ihnen vorbeiflog (Bug-Report
+   Simon). Was von den Wolken bleibt, ist die Schale; sie ist die bessere
+   Darstellung und kostet nichts extra. */
 
 /* ======================= WIEDEREINTRITTS-PLASMA ==========================
    Die alte Fassung war eine Kette runder Glow-Sprites hintereinander – aus
@@ -7886,6 +7798,129 @@ function padTextures(){
 /* =================================================================
    VAB (3D-Montagehalle)
    ================================================================= */
+/* =================================================================
+   3D-ICONS DER BAUTEILE (Klappliste der Montagehalle)
+   =================================================================
+   Die Teileliste war reiner Text. Ein Kind, das "Stufenadapter L" liest, weiß
+   damit immer noch nicht, wie das Ding aussieht oder wo es hingehört – in KSP
+   dreht sich an der Stelle das echte Bauteil. Genau das machen wir hier, und
+   zwar mit DEMSELBEN `buildPartMesh`, das auch die Rakete in der Halle baut:
+   Was im Icon zu sehen ist, ist garantiert das, was man bekommt.
+
+   ⚠️⚠️ EIN kleiner Offscreen-Renderer für ALLE Icons, das Ergebnis wandert per
+   `drawImage` in das 2D-Canvas der jeweiligen Karte. Ein eigener WebGL-Kontext
+   pro Kachel wäre nach ~16 Stück am Browser-Limit; ein einziger 72er-Puffer
+   kostet dagegen nichts. `preserveDrawingBuffer` ist Pflicht – ohne ihn darf
+   der Browser den Zeichenpuffer nach dem Render verwerfen, und drawImage
+   liefert (je nach Treiber) ein leeres Bild.
+
+   ⚠️⚠️ MATERIALIEN WERDEN GEKLONT. `buildPartMesh` verteilt die gemeinsamen
+   MAT.*-Singletons, die auch in der Hallenszene hängen. Würden wir denen hier
+   eine envMap verpassen, bekäme die Halle eine Umgebungskarte aus einem
+   FREMDEN WebGL-Kontext untergeschoben – das ist genau der Fall, den three.js
+   nicht abfangen kann. Klonen ist billig (Texturen bleiben geteilt) und die
+   Klone werden beim Kategoriewechsel wieder freigegeben.
+
+   ⚠️ Flammen (`name:"flame"/"bflame"`) fliegen RAUS, bevor die Bounding-Box
+   gemessen wird: In r128 zählt `Box3.setFromObject` auch unsichtbare Kinder
+   mit, und ein Triebwerk wäre mit seinem Abgasstrahl auf ein Zehntel
+   geschrumpft. */
+const PartIcons = {
+  size: 72,
+  renderer:null, scene:null, cam:null, pivot:null, env:null,
+  items:[], _last:0,
+  ensure(){
+    if(this.renderer) return true;
+    if(typeof THREE === "undefined") return false;
+    const S = this.size;
+    this.renderer = new THREE.WebGLRenderer({antialias:true, alpha:true,
+                                             preserveDrawingBuffer:true});
+    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio||1));
+    this.renderer.setSize(S, S, false);
+    this.renderer.setClearColor(0x000000, 0);
+    this.scene = new THREE.Scene();
+    this.cam = new THREE.PerspectiveCamera(30, 1, 0.05, 6000);
+    const key = new THREE.DirectionalLight(0xfff3e2, 1.5);  key.position.set(5,7,8);
+    const rim = new THREE.DirectionalLight(0x9fc4ff, 0.85); rim.position.set(-7,2,-6);
+    this.scene.add(key, rim, new THREE.AmbientLight(0x93a8cc, 0.55));
+    this.pivot = new THREE.Group(); this.scene.add(this.pivot);
+    this.env = EnvMap.build("particons", this.renderer, paintHallEnv);
+    return true;
+  },
+  /* Ein Icon-Canvas für ein Bauteil bauen und für die Drehung anmelden. */
+  make(id){
+    const S = this.size;
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = S; cv.className = "part-ico";
+    if(!this.ensure()) return cv;
+    let mesh;
+    try{
+      mesh = buildPartMesh(id);
+      // ⚠️ Sonderfall Fairing: `buildPartMesh` liefert nur den Montagering –
+      // die Hülle baut `buildFairingShell` erst beim Zusammensetzen der Rakete.
+      // Als Icon wäre das eine gelbe Scheibe, die niemand als Nutzlast-
+      // verkleidung erkennt. Also die Ogive fürs Bild dazustellen.
+      if(id==="fairing") mesh.add(buildFairingShell(PARTS[id].w/2, 26));
+    }catch(e){ return cv; }
+    const drop = [];
+    mesh.traverse(o=>{ if(o.name==="flame" || o.name==="bflame") drop.push(o); });
+    for(const o of drop) if(o.parent) o.parent.remove(o);
+    // Materialien klonen (s. o.) und die Hallen-Umgebung anlegen
+    mesh.traverse(o=>{
+      if(!o.material) return;
+      const one = m=>{
+        const c = m.clone();
+        if(c.isMeshStandardMaterial){ c.envMap = this.env; c.envMapIntensity = 0.9; }
+        return c;
+      };
+      o.material = Array.isArray(o.material) ? o.material.map(one) : one(o.material);
+    });
+    const box = new THREE.Box3().setFromObject(mesh);
+    const ctr = box.getCenter(new THREE.Vector3());
+    const rad = Math.max(0.3, box.getBoundingSphere(new THREE.Sphere()).radius);
+    mesh.position.sub(ctr);                       // Bauteilmitte in den Ursprung
+    const dist = rad / Math.sin(this.cam.fov*Math.PI/360) * 1.05;
+    this.items.push({cv, ctx:cv.getContext("2d"), mesh, dist,
+                     spin: 0.7 + this.items.length*0.4});
+    return cv;
+  },
+  /* Alles freigeben – läuft bei jedem Kategoriewechsel. */
+  clear(){
+    for(const it of this.items){
+      if(!it.mesh) continue;
+      it.mesh.traverse(o=>{
+        if(o.geometry) o.geometry.dispose();
+        // ⚠️ nur die KLONE freigeben; die Texturen darin gehören den
+        // Original-Materialien der Halle und bleiben in Benutzung.
+        if(o.material) (Array.isArray(o.material)?o.material:[o.material])
+          .forEach(m=>m.dispose());
+      });
+    }
+    this.items.length = 0;
+  },
+  /* Aus VAB.frame(): ~30 Bilder/s reichen für ein 72-px-Icon vollkommen. */
+  frame(){
+    if(!this.renderer || !this.items.length) return;
+    const now = performance.now();
+    if(now - this._last < 33) return;
+    const dt = Math.min(0.2, (now - this._last)/1000);
+    this._last = now;
+    const S = this.size, gl = this.renderer.domElement;
+    for(const it of this.items){
+      if(!it.mesh || it.cv.offsetParent === null) continue;   // Liste eingefahren
+      it.spin += dt*0.85;
+      while(this.pivot.children.length) this.pivot.remove(this.pivot.children[0]);
+      this.pivot.add(it.mesh);
+      this.pivot.rotation.y = it.spin;
+      this.cam.position.set(0, it.dist*0.309, it.dist*0.951);   // ~18° von oben
+      this.cam.lookAt(0,0,0);
+      this.renderer.render(this.scene, this.cam);
+      it.ctx.clearRect(0,0,S,S);
+      it.ctx.drawImage(gl, 0, 0, S, S);
+    }
+  }
+};
+
 const VAB = {
   stack: [...Game.design],
   renderer:null, scene:null, camera:null, rocket:null,
@@ -8199,35 +8234,85 @@ const VAB = {
     // Forschung & Missionen gehören zur Karriere – in der Sandbox ist eh alles frei
     document.getElementById("vabTechBtn").style.display = Game.sandbox ? "none" : "";
     document.getElementById("vabMisBtn").style.display = Game.sandbox ? "none" : "";
-    const list = document.getElementById("partList");
-    list.innerHTML = "";
-    for(const cat of CATS){
-      const h = document.createElement("h3");
-      h.innerHTML = cat.name+`<br><small style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">${cat.sub}</small>`;
-      list.appendChild(h);
-      for(const [id,p] of Object.entries(PARTS)){
-        if(p.cat!==cat.id) continue;
-        const un = isUnlocked(p.tech);
-        const b = document.createElement("button");
-        b.className = "part-btn"+(un?"":" locked");
-        let det = p.mass/1000+" t";
-        if(p.fuel) det += " · "+p.fuel/1000+" t Treibstoff";
-        if(p.thrust) det += " · "+p.thrust/1000+" kN";
-        if(!Game.sandbox && p.cost) det += " · 🪙 "+p.cost;
-        b.innerHTML = `<b>${p.name}</b><small>${det}</small><small>${p.info}</small>`;
-        if(un){
-          b.onclick = ()=>this.add(id);
-          b.draggable = true;
-          b.ondragstart = e=>{
-            e.dataTransfer.setData("text/plain", JSON.stringify({kind:"new", id}));
-            e.dataTransfer.effectAllowed = "copy";
-          };
-        } else b.title = "Noch nicht erforscht";
-        list.appendChild(b);
-      }
-    }
+    this.renderParts();
     this.renderInfo();
     this.rebuild();
+  },
+  /* ---------- Teileauswahl: Kategorien-Leiste + Klappliste (KSP-Stil) ----------
+     ⚠️ `refresh()` läuft bei JEDEM Anbauen, Löschen und Verschieben. Die Liste
+     mitsamt ihren 3D-Icons jedes Mal neu aufzubauen hieße: zehn Bauteil-Meshes
+     wegwerfen und neu bauen, nur weil ein Tank auf den Stapel gewandert ist.
+     Deshalb entscheidet ein Schlüssel aus Kategorie + Modus + Forschungsstand,
+     ob wirklich etwas neu zu zeichnen ist. */
+  openCat: "cmd",
+  renderParts(){
+    const rail = document.getElementById("partRail");
+    const list = document.getElementById("partList");
+    const key = this.openCat + "|" + (Game.sandbox?"s":"c") + "|" +
+                (Game.unlocked ? Game.unlocked.length : 0);
+    if(this._partsKey === key) return;
+    this._partsKey = key;
+    // --- Kategorien-Leiste ---
+    rail.innerHTML = "";
+    for(const cat of CATS){
+      const b = document.createElement("button");
+      b.className = "cat-btn" + (this.openCat===cat.id ? " on" : "");
+      b.innerHTML = `<span class="ci">${cat.icon}</span><span>${cat.short}</span>`;
+      b.title = cat.sub + "\n\n(Nochmal klicken = Liste einfahren, dann ist die Halle breiter.)";
+      // Klick auf die OFFENE Kategorie fährt die Liste ein – so bekommt man
+      // die große Hallenansicht, ohne irgendwo einen Extraknopf zu suchen.
+      b.onclick = ()=>{ this.openCat = (this.openCat===cat.id) ? null : cat.id;
+                        this.renderParts(); };
+      rail.appendChild(b);
+    }
+    // --- Klappliste ---
+    PartIcons.clear();
+    list.innerHTML = "";
+    const cat = CATS.find(c=>c.id===this.openCat);
+    list.style.display = cat ? "" : "none";
+    if(!cat) return;
+    const h = document.createElement("h3");
+    h.innerHTML = `${cat.icon} ${cat.name}<small>${cat.sub}</small>`;
+    list.appendChild(h);
+    for(const id of cat.ids){
+      const p = PARTS[id];
+      if(!p) continue;
+      const un = isUnlocked(p.tech);
+      const b = document.createElement("button");
+      b.className = "part-btn"+(un?"":" locked");
+      let det = (p.mass/1000)+" t";
+      if(p.fuel)   det += " · "+(p.fuel/1000)+" t Sprit";
+      if(p.thrust) det += " · "+(p.thrust/1000)+" kN";
+      const head = document.createElement("span");
+      head.className = "part-head";
+      head.appendChild(PartIcons.make(id));
+      const nm = document.createElement("span");
+      nm.className = "part-name";
+      nm.innerHTML = `<b>${p.name}</b><small class="part-stat">${det}</small>` +
+        (!Game.sandbox && p.cost ? `<small class="part-cost">🪙 ${p.cost}</small>` : "");
+      head.appendChild(nm);
+      b.appendChild(head);
+      const d = document.createElement("small");
+      d.className = "part-desc";
+      d.textContent = p.info || "";
+      b.appendChild(d);
+      if(un){
+        b.onclick = ()=>this.add(id);
+        b.draggable = true;
+        b.ondragstart = e=>{
+          e.dataTransfer.setData("text/plain", JSON.stringify({kind:"new", id}));
+          e.dataTransfer.effectAllowed = "copy";
+        };
+      } else {
+        const t = TECH.find(x=>x.id===p.tech);
+        const lk = document.createElement("small");
+        lk.className = "part-lock";
+        lk.textContent = "🔒 Erst erforschen: " + (t ? t.name : p.tech);
+        b.appendChild(lk);
+        b.title = "Noch nicht erforscht";
+      }
+      list.appendChild(b);
+    }
   },
   add(id){
     const p = PARTS[id];
@@ -9098,6 +9183,7 @@ const VAB = {
     this.camera.position.set(cx,cy,cz);
     this.camera.lookAt(0,th,0);
     this.renderer.render(this.scene, this.camera);
+    PartIcons.frame();     // die Bauteil-Icons in der Klappliste drehen
   }
 };
 
@@ -9124,7 +9210,7 @@ const Flight = {
   renderer:null, scene:null, camera:null,
   leibnizMesh:null, montiMesh:null, cloudShell:null, atmoShell:null,
   groundPlane:null, padGroup:null, rocketGroup:null, trajLine:null,
-  starField:null, cloudField:null,
+  starField:null,
   v:null, pos:V3(), vel:V3(), q:new THREE.Quaternion(),
   t:0, throttle:1, warpI:0, map:false,
   landed:true, crashed:false, ended:false, flew:false,
@@ -9438,79 +9524,6 @@ const Flight = {
       this.shipBlob.renderOrder = 1;
       this.shipBlob.visible = false;
       this.scene.add(this.shipBlob);
-    }
-    // --- Wolkenfeld: CLOUDS Haufenwolken à PUFFS Impostor-Puffs, alles in
-    // EINEM InstancedMesh (1 Draw-Call). Der Objektraum ist der der
-    // Bodengruppe (x = Ost, y = hoch, z = Süd), Beleuchtung s. CLOUD_FRAG.
-    {
-      // 14 statt 8 Puffs je Wolke: Die Silhouette entsteht erst durch das
-      // ÜBERLAPPEN vieler Kugeln – mit wenigen großen Puffs sieht man die
-      // einzelnen Scheiben. Kostet nichts extra (immer noch 1 Draw-Call).
-      const CLOUDS = 40, PUFFS = 14, N = CLOUDS*PUFFS;
-      const crnd = seededRand(55);
-      const geo = new THREE.InstancedBufferGeometry();
-      geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(
-        [-.5,-.5,0,  .5,-.5,0,  .5,.5,0,  -.5,.5,0]), 3));
-      geo.setIndex([0,1,2, 0,2,3]);
-      const iPos = new Float32Array(N*3), iPar = new Float32Array(N*3);
-      const iCld = new Float32Array(N*4);
-      let k = 0;
-      for(let c=0;c<CLOUDS;c++){
-        // 3 von 4 Wolken sind tiefe Haufenwolken (Startphase!), der Rest hoch
-        const low  = crnd() < 0.75;
-        const alt  = low ? 1300 + crnd()*1500 : 5500 + crnd()*3800;
-        const east = (crnd()-0.5)*46000, north = (crnd()-0.5)*46000;
-        const wide = low ? 420 + crnd()*620 : 900 + crnd()*900;
-        const tall = low ? 0.55 : 0.20;                 // Haufenwolke = hoch aufgetürmt
-        const base = low ? 620 + crnd()*380 : 520 + crnd()*320;
-        for(let p=0;p<PUFFS;p++){
-          // unten breit, oben schmaler und kleiner = Blumenkohl-Silhouette
-          const f = p/(PUFFS-1);
-          const rad = wide*(1 - 0.55*f)*Math.sqrt(crnd())*0.8;   // Puffs überlappen
-          const a   = crnd()*6.283;
-          const dx = Math.cos(a)*rad, dz = Math.sin(a)*rad*0.85;
-          const dy = wide*tall*(f*0.9 + (crnd()-0.5)*0.25);
-          iPos[k*3]   = east  + dx;
-          iPos[k*3+1] = alt   + dy;
-          iPos[k*3+2] = north + dz;
-          iPar[k*3]   = base*(1.15 - 0.4*f)*(0.8 + crnd()*0.45);
-          iPar[k*3+1] = crnd()*6.283;                   // UV-Drehung
-          iPar[k*3+2] = f;                              // Höhe in der Wolke (Boden dunkler)
-          // Versatz zum Wolkenmittelpunkt → Selbstbeschattung im Fragment.
-          // Die Höhe zählt gestaucht mit, sonst wären flache Wolken bei
-          // tiefer Sonne komplett "durchleuchtet".
-          iCld[k*4]   = dx;
-          iCld[k*4+1] = dy*0.6;
-          iCld[k*4+2] = dz;
-          iCld[k*4+3] = wide*0.8;
-          k++;
-        }
-      }
-      geo.setAttribute("iPos", new THREE.InstancedBufferAttribute(iPos, 3));
-      geo.setAttribute("iParam", new THREE.InstancedBufferAttribute(iPar, 3));
-      geo.setAttribute("iCloud", new THREE.InstancedBufferAttribute(iCld, 4));
-      // Die Grafikstufe kürzt die Wolkenzahl über `instanceCount` – der Puffer
-      // bleibt voll, gezeichnet wird nur der Anfang. So lässt sich die Stufe
-      // mitten im Spiel umschalten, ohne das Feld neu zu bauen.
-      geo.userData.puffs = PUFFS;
-      geo.instanceCount = Math.min(CLOUDS, Settings.q.clouds) * PUFFS;
-      geo.instanceCount = N;
-      this.cloudU = {
-        uPuff:{value:makeCloudPuffTexture()},
-        uCamRight:{value:new THREE.Vector3(1,0,0)}, uCamUp:{value:new THREE.Vector3(0,1,0)},
-        uEye:{value:new THREE.Vector3()}, uSunDir:{value:new THREE.Vector3(0,1,0)},
-        uSunCol:{value:new THREE.Color(0xfff3e2)}, uSkyCol:{value:new THREE.Color(0x87b6ea)},
-        uGroundCol:{value:new THREE.Color(0x5f7f6a)},
-        uSunI:{value:1}, uThick:{value:1.6}, uFade:{value:1}
-      };
-      this.cloudField = new THREE.Mesh(geo, new THREE.ShaderMaterial({
-        uniforms:this.cloudU, vertexShader:CLOUD_VERT, fragmentShader:CLOUD_FRAG,
-        transparent:true, depthWrite:false, side:THREE.DoubleSide}));
-      this.cloudField.frustumCulled = false;   // Billboards sprengen die Bounding-Box
-      this.cloudField.renderOrder = 2;
-      this.cloudGroup = new THREE.Group();
-      this.cloudGroup.add(this.cloudField);
-      this.world.add(this.cloudGroup);
     }
     // Partikel-Pool (Abgase, Explosionen)
     this.particles = [];
@@ -10354,6 +10367,7 @@ const Flight = {
     this.maxCharge = vessel.stack.reduce((a,id)=>a+(PARTS[id].charge||0), 0);
     this.charge = this.maxCharge;
     this.panelsOut = false; this.panelsBroken = false; this.powerDead = false;
+    this.solarLit = 1;
     this.legsOut = false; this.legsAnim = LEG_IN; this._legMsg = false;
     this._patchKey = null;   // Nahfeld-Kachel neu bestimmen (s. updateSurfPatch)
     this.bayOpen = false; this.bayAnim = 0;
@@ -10533,7 +10547,6 @@ const Flight = {
     const gQ = new THREE.Quaternion().setFromRotationMatrix(
       new THREE.Matrix4().makeBasis(east, up, north.clone().negate()));
     this.groundGroup.quaternion.copy(gQ);
-    this.cloudGroup.quaternion.copy(gQ);
     this._padQInv = gQ.clone().conjugate();     // Welt → Bodenraum (für uEye)
     const seaU = this.groundSea.material.uniforms, patU = this.seaPatch.material.uniforms;
     if(mode === "coast"){
@@ -13028,6 +13041,31 @@ const Flight = {
     return SUN;
   },
   body(){ return this.bodyAt(this.pos, this.t); },
+  /* ---------- Steht das Schiff in der Sonne? (0 = Kernschatten, 1 = voll) ----------
+     ⚠️ Vorher lud ein Solarpanel AUCH mitten im Planetenschatten weiter – damit
+     war die Batterie komplett überflüssig und die Nachtseite folgenlos
+     (Bug-Report Simon). Jetzt zwei Quellen, weil das Spiel zwei Sonnen kennt
+     (s. »Sonnenstand & Licht bodennah«):
+     · bodennah zählt die SPIELUHR über `dayLight` – sonst lädt ein Panel auf
+       der nachtschwarzen Rampe munter weiter, während der Bildschirm dunkel
+       ist. Im Orbit ist `dayLight` immer 1, dort stört der Faktor also nicht.
+     · draußen zählt die echte Geometrie: ZYLINDERschatten des dominanten
+       Körpers. Der Halbschatten ist bei diesen Größenverhältnissen nur ein
+       schmaler Saum, den ein Kegelmodell teurer, aber kaum anders macht.
+     Maßgeblich ist bewusst NUR der dominante Körper: In seiner Sphäre ist er
+     der einzige, der groß genug am Himmel steht, um wirklich zu verfinstern –
+     und die Prüfung läuft in JEDEM Substep. */
+  sunlit(){
+    const b = this.body();
+    if(b !== SUN){
+      const s = this.pos.clone().negate().normalize();     // Schiff → Sonne (Sonne im Ursprung)
+      const d = this.bodyCenter(b).sub(this.pos);          // Schiff → Körpermittelpunkt
+      const along = d.dot(s);
+      // Körper liegt zwischen Schiff und Sonne UND der Sehstrahl trifft ihn
+      if(along > 0 && d.addScaledVector(s, -along).length() < b.R) return 0;
+    }
+    return this.dayLight == null ? 1 : this.dayLight;
+  },
   bodyCenter(b,t){ return bodyPos(b, t===undefined?this.t:t); },
   accel(p,t){
     const a = V3(0,0,0);
@@ -13084,7 +13122,11 @@ const Flight = {
     } else {
       const hasPod = isCrewedStack(this.v.stack);
       const nSolar = this.v.stack.filter(id=>PARTS[id].type==="solar").length;
-      const gen = (this.panelsOut && !this.panelsBroken) ? 3*nSolar : 0;
+      // ⚠️ Solarstrom NUR im Sonnenlicht – im Planetenschatten liefern die
+      // Panele nichts, und genau dafür ist die Batterie da (s. sunlit()).
+      const lit = nSolar ? this.sunlit() : 0;
+      this.solarLit = lit;
+      const gen = (this.panelsOut && !this.panelsBroken) ? 3*nSolar*lit : 0;
       let use = 0;
       if(!hasPod && !this.landed) use += 0.25;       // Sondensteuerung
       if(this.sas!=="off") use += 0.3;               // SAS
@@ -14146,36 +14188,6 @@ const Flight = {
         m.material.uniforms.uEye.value.set(
           eye.x - m.position.x, -(eye.z - m.position.z), eye.y - m.position.y);
     }
-    if(this.cloudGroup.visible){
-      const U = this.cloudU, e = cam.matrixWorld.elements;
-      U.uEye.value.copy(cam.position)
-        .sub(this.world.position).sub(this.cloudGroup.position).applyQuaternion(qi);
-      U.uCamRight.value.set(e[0], e[1], e[2]).applyQuaternion(qi);
-      U.uCamUp.value.set(e[4], e[5], e[6]).applyQuaternion(qi);
-    }
-  },
-  /* ---------- Wolken-Uniforms (einmal pro Frame) ----------
-     Wie beim Meer läuft alles im OBJEKTRAUM der Bodengruppe (x=Ost,
-     y=hoch, z=Süd) – die ~1e10-Matrix des Floating Origin wäre im Shader
-     nicht darstellbar. uCamRight/uCamUp richten die Billboards aus. */
-  updateClouds(alt){
-    const U = this.cloudU;
-    if(!this._padQInv) return;
-    const sun = this.groundSunDir || this.pos.clone().negate().normalize();
-    U.uSunDir.value.set(sun.dot(this.gEast), sun.dot(this.gUp), -sun.dot(this.gNorth));
-    const dl = this.dayLight, sz = U.uSunDir.value.y;
-    // ⚠️ NICHT an `dayLight` koppeln! Wolken hängen 1,3–9 km hoch und stehen
-    // noch in voller Sonne, wenn es am Boden längst dämmert – GENAU deshalb
-    // glühen Wolken beim Sonnenuntergang orange, während der Boden dunkel
-    // ist. Mit dayLight (bei 0° Sonnenhöhe nur noch 0,12) waren sie
-    // stattdessen matschig braun. Also allein an der Sonnenhöhe festmachen.
-    U.uSunI.value = THREE.MathUtils.smoothstep(sz, -0.16, 0.02);
-    U.uSunCol.value.setHex(0xfffaf2).lerp(this.sunTintCol, 0.9);
-    U.uSkyCol.value.copy(this.skyZenith).multiplyScalar(0.72);
-    U.uGroundCol.value.setHex(this.pad && this.pad.id==="polar" ? 0x9fb4c4 : 0x5d7a58)
-      .multiplyScalar(0.25 + 0.75*dl);
-    // Über den Wolken ausblenden, statt sie hart verschwinden zu lassen
-    U.uFade.value = 1 - Math.max(0, Math.min(1, (alt - 22000)/12000));
   },
   /* ---------- Frame ---------- */
   frame(){
@@ -14255,7 +14267,6 @@ const Flight = {
         this.droneMesh.quaternion.setFromUnitVectors(V3(0,1,0), this.dsLocal.clone().normalize());
       } else this.droneMesh.visible = false;
     }
-    this.cloudGroup.position.copy(lp).add(this.groundLocal||V3(LEIBNIZ.R,0,0));
     for(const [m, ring] of this.moonRings) ring.position.copy(bodyPos(m.parent, this.t));
     // Sonnenlicht: Richtung wird weiter unten (Tag/Nacht-Block) gesetzt –
     // im Orbit die echte Geometrie, bodennah der Stand der Spieluhr.
@@ -14428,8 +14439,6 @@ const Flight = {
       const ss = this._cd*0.035;
       this.shipMarker.scale.set(ss, ss, 1);
     }
-    this.cloudGroup.visible = !this.map && alt<34000;
-    if(this.cloudGroup.visible) this.updateClouds(alt);
     // Rakete (am Ursprung, Welt bewegt sich drumherum)
     const s = this.activeSeg();
     const burning = s && s.ignited && warp<=2 &&
@@ -15245,7 +15254,7 @@ const Flight = {
       <small style="color:var(--muted)">W/S nicken · A/D gieren · Q/E rollen<br>
       ↑/↓ Schub · Z voll · X aus · T = SAS<br>⇧Z = Ziel wählen · Maus = Kamera · Rad = Zoom</small>
       ${this.sas!=="off"?'<br><b style="color:var(--green)">SAS: '+(this.sas==="pro"?"PROGRADE ▲":"RETROGRADE ▼")+'</b>':""}
-      <br>⚡ ${this.charge.toFixed(0)}/${this.maxCharge}${this.panelsOut?" ☀️":""}${this.powerDead?' <b style="color:var(--red)">STROM LEER</b>':""}
+      <br>⚡ ${this.charge.toFixed(0)}/${this.maxCharge}${this.panelsOut?(this.solarLit>0.05?" ☀️":' <span style="color:var(--muted)">🌑 Schatten</span>'):""}${this.powerDead?' <b style="color:var(--red)">STROM LEER</b>':""}
       ${this.infinite?'<br><b style="color:var(--green)">∞ Endlos-Treibstoff</b>':""}
       ${this.sats.length?'<br>📡 Satelliten: '+this.sats.length:""}
       ${(()=>{ // ☄️ Anflughilfe: nächster noch ungescannter Kleinkörper
