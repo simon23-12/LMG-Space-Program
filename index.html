@@ -5290,6 +5290,15 @@ function planetMaterial(b, opt){
        ist – im Shader macht das die Rauheit (plus, aus der Nähe, uSeaBump). */
     uSeaRough:{value:0.47}, uSeaBump:{value:0.13},
     uHaze:{value:new THREE.Color(0x5b93d8)}, uHazeI:{value:1},
+    /* Luftperspektive der BODENSZENE, auf die Kugel übertragen (s. Flight.frame).
+       ⚠️ Das ist der Kitt an der Nahtstelle: Unter 16 km liegt die Geländescheibe
+       (r 40 km) über der Kugel, dahinter geht es auf der Kugel weiter. Ohne
+       gemeinsamen Dunst endet am Scheibenrand eine gedunstete Landschaft und es
+       beginnt übergangslos eine gestochen scharfe – der »gewellte Horizont«, den
+       man in Wahrheit als KANTE sieht (Bug-Report Simon). Mit demselben
+       Dunstwert und derselben Horizontfarbe verschwindet der Rand im Dunst.
+       uGHazeK = 0 schaltet alles ab (Kugel aus dem Orbit, alle anderen Körper). */
+    uGHaze:{value:new THREE.Color(0xbfe6f5)}, uGHazeK:{value:0},
     uCloudTex:{value:null}, uCloudRot:{value:0}, uCloudI:{value:0},
     uCloudH:{value:b.R*0.006}
   };
@@ -5315,7 +5324,8 @@ function planetMaterial(b, opt){
         "uniform vec2 uWarp, uBump;\n" +
         "uniform float uMott, uPx, uSeaRough, uSeaBump, uHazeI, uCloudRot, uCloudI, uCloudH;\n" +
         "uniform vec3 uCam, uSun;\n" +
-        "uniform vec3 uDeep, uShallow, uHaze;\n" +
+        "uniform vec3 uDeep, uShallow, uHaze, uGHaze;\n" +
+        "uniform float uGHazeK;\n" +
         "uniform mat3 normalMatrix;\n" + PLANET_GLSL + "\nvoid main() {")
       /* ---- Farbe: Warping, Ozean, Küstenkante, Wolkenschatten ---- */
       .replace("#include <map_fragment>", `
@@ -5409,7 +5419,15 @@ function planetMaterial(b, opt){
     float pAlt = smoothstep(uR*0.06, uR*0.22, length(uCam) - uR);
     totalEmissiveRadiance += uHaze*(pRim*pSu*pAlt*uHazeI*0.55);
   }
-  #endif`);
+  #endif`)
+      /* ---- Luftperspektive: exakt dieselbe Formel wie in der Bodenszene ----
+         (dort per onBeforeCompile am Gelände-Material, s. Flight.groundHaze).
+         Muss NACH der fertigen Farbe laufen, deshalb an <tonemapping_fragment>
+         und nicht im Normalen-Chunk. */
+      .replace("#include <tonemapping_fragment>",
+        "if(uGHazeK > 0.0) gl_FragColor.rgb = mix(gl_FragColor.rgb, uGHaze,\n" +
+        "    1.0 - exp(-distance(vObj, uCam)*uGHazeK));\n" +
+        "#include <tonemapping_fragment>");
   };
   return mat;
 }
@@ -6394,6 +6412,9 @@ function buildShoreTable(key, up, east, north){
    ⚠️ Die HÖHEN setzt `reanchorGround`, nicht diese Funktion – sie hängen am
    jeweiligen Ankerpunkt auf der Kugel. */
 const GROUND_R = 40000;
+/* Dunst-Grundwerte am MEERESSPIEGEL – mit der Höhe skaliert sie Flight.hazeScale. */
+const HAZE_K_LAND = 1/70000;
+const HAZE_K_SEA  = 6.5e-5;
 function terrainGeometry(){
   const SEG = 128, RINGS = 44;
   const pos = [], uv = [], idx = [];
@@ -9382,7 +9403,7 @@ const Flight = {
     // ⚠️ Entfernung zur KAMERA, nicht zum Anker: sonst liegt beim Blick aus
     // 5 km Höhe auch der Boden direkt unter dem Schiff im vollen Dunst der
     // 40-km-Scheibe und die ganze Landschaft wird ein milchiger Fleck.
-    this.groundHaze = {col:{value:new THREE.Color(0xbfe6f5)}, k:{value:1/70000}};
+    this.groundHaze = {col:{value:new THREE.Color(0xbfe6f5)}, k:{value:HAZE_K_LAND}};
     groundMat.onBeforeCompile = sh=>{
       sh.uniforms.uHazeCol = this.groundHaze.col;
       sh.uniforms.uHazeK   = this.groundHaze.k;
@@ -9454,7 +9475,7 @@ const Flight = {
       uFoamCol:   {value:new THREE.Color(0xeff7ff)},
       uAmb:       {value:0.34},
       uPixel:     {value:0.0013},   // Winkelgröße eines Pixels (Wellen-LOD)
-      uHaze:      {value:6.5e-5},   // Luftperspektive zum Horizont
+      uHaze:      {value:HAZE_K_SEA}, // Luftperspektive zum Horizont (höhenabhängig, s. hazeScale)
       uChop:      {value:1.0},
       uAmpSum:    {value:1},        // Σ Wellenamplituden (normiert Schaum & SSS)
       uShore:     {value:null},     // Küsten-Tabelle des Ankers (aus reanchorGround)
@@ -10581,7 +10602,14 @@ const Flight = {
         this.groundSea.position.set(0, 4, 0);  seaU.uOrigin.value.set(0, 0);
         this.seaPatch.position.set(0, 4, 0);   patU.uOrigin.value.set(0, 0);
       }
-      this.groundPlane.visible = this.groundBeach.visible = (mode === "inland");
+      this.groundPlane.visible = (mode === "inland");
+      // ⚠️ Der Strand gehört AUSSCHLIESSLICH zur Küste. Er hing hier mit an
+      // `mode === "inland"` – und damit lag im Binnenland die komplette
+      // 40-km-Sandscheibe (aus dem letzten Küsten-Anker, flach auf y = 2, und
+      // ohne `beachClipU` auch ungeschnitten) über der Wiese: eine riesige
+      // gelbe Wüste mit ausgefranstem Rand, wo das Relief durchstach
+      // (Bug-Report Simon, Starship-Hop). Ohne Uferlinie gibt es keinen Strand.
+      this.groundBeach.visible = false;
       this.treeTrunks.visible = this.treeCrowns.visible = (mode === "inland");
       this.groundSea.visible = this.seaPatch.visible = (mode === "opensea");
     }
@@ -13058,7 +13086,15 @@ const Flight = {
   sunlit(){
     const b = this.body();
     if(b !== SUN){
-      const s = this.pos.clone().negate().normalize();     // Schiff → Sonne (Sonne im Ursprung)
+      // ⚠️⚠️ Gerechnet wird gegen `groundSunDir` – die Sonne, die das Spiel
+      // WIRKLICH ZEIGT. Mit der echten Geometrie (−pos) war die Prüfung im
+      // Leibniz-Raum spiegelverkehrt: Unter 2000 km Höhe steht am Himmel die
+      // SPIELUHR-Sonne, und die weicht von der echten um bis zu 180° ab
+      // (s. »Sonnenstand & Licht bodennah«). Folge im 200-km-Orbit: Das
+      // Schiff stand sichtbar in der Sonne und entlud trotzdem, im
+      // Planetenschatten lud es (Bug-Report Simon). Erst weit draußen fällt
+      // `groundSunDir` auf die echte Richtung zurück – dort stimmt beides.
+      const s = this.groundSunDir || this.pos.clone().negate().normalize();
       const d = this.bodyCenter(b).sub(this.pos);          // Schiff → Körpermittelpunkt
       const along = d.dot(s);
       // Körper liegt zwischen Schiff und Sonne UND der Sehstrahl trifft ihn
@@ -14117,7 +14153,26 @@ const Flight = {
      farben aus dem Tag/Nacht-Zyklus und die Pixel-Winkelgröße fürs
      Wellen-LOD. ⚠️ Die Kamera wird CPU-seitig in Float64 umgerechnet –
      im Shader wäre die ~1e10-Matrix des Floating Origin nicht darstellbar. */
-  updateOcean(sky){
+  /* ⚠️ `alt` (Höhe des Schiffs über der Kugel) ist PFLICHT: Die Luft-
+     perspektive muss mit der Höhe dünner werden. Beide Dunst-Konstanten waren
+     fest verdrahtet (Land 1/70 km, Meer 6,5e-5) – also genau so stark wie am
+     Boden. Aus 12 km Höhe ersoff die ganze Landschaft dadurch in weißem Brei,
+     obwohl dort 88 % der Atmosphäre schon UNTER dem Schiff liegen
+     (Bug-Report Simon, Starship-Hop: »die Landschaft sieht merkwürdig aus«).
+     Das war zugleich die halbe Miete beim 16-km-Umschalten auf die Kugel: Die
+     Bodenszene war weiß, die Kugel darunter farbig – der Sprung sprang vor
+     allem in der FARBE, nicht in der Auflösung.
+     Gerechnet wird der MITTLERE Dichtefaktor entlang eines Sehstrahls von der
+     Kamerahöhe h bis zum Meeresspiegel: (H/h)·(1−e^(−h/H)) mit Skalenhöhe
+     H = LEIBNIZ.scaleH. Am Boden ist er 1 (die alte Optik bleibt also exakt
+     erhalten), bei 5 km 0,66, bei 12 km 0,41, bei 16 km 0,33. Die Untergrenze
+     von 0,10 lässt auch ganz oben noch etwas Tiefenstaffelung stehen –
+     ein völlig dunstfreier 40-km-Blick wirkt wie ein Kulissenmodell. */
+  hazeScale(alt){
+    const H = LEIBNIZ.scaleH, h = Math.max(1, alt);
+    return Math.min(1, Math.max(0.10, (H/h)*(1 - Math.exp(-h/H))));
+  },
+  updateOcean(sky, alt){
     const U = this.oceanU;
     U.uTime.value = ((this.t % OCEAN_T) + OCEAN_T) % OCEAN_T;   // exakt periodisch
     // Sonnenrichtung (bodennah = Spieluhr, s. frame()) in Ost/Nord/Hoch zerlegt
@@ -14136,8 +14191,12 @@ const Flight = {
     // Glitzern bei Sonnenuntergang jede Zeichnung im Grün/Blau.
     U.uSunCol.value.setHex(0xfff2df).lerp(this.sunTintCol, 0.85);
     // Luftperspektive des Geländes: dieselbe Horizontfarbe wie das Meer, damit
-    // ferne Berge und ferne See im selben Dunst verschwinden.
+    // ferne Berge und ferne See im selben Dunst verschwinden – und dieselbe
+    // Höhenabhängigkeit, sonst reißt der Dunst zwischen Land und See auf.
     this.groundHaze.col.value.copy(U.uHorizonCol.value);
+    const hz = this.hazeScale(alt === undefined ? 0 : alt);
+    this.groundHaze.k.value = HAZE_K_LAND * hz;
+    U.uHaze.value           = HAZE_K_SEA  * hz;
   },
   /* ---------- Kamera-abhängige Uniforms von Meer & Wolken ----------
      ⚠️ MUSS direkt vor JEDEM render() mit der jeweils benutzten Kamera
@@ -14430,7 +14489,24 @@ const Flight = {
     for(const neb of this.nebulae)
       neb.material.opacity = (this.map ? 1 : 1-fEff) * neb.userData.base;
     this.groundGroup.visible = !this.map && alt<16000;
-    if(this.groundGroup.visible) this.updateOcean(sky);
+    if(this.groundGroup.visible) this.updateOcean(sky, alt);
+    /* ⚠️ Die Kugel bekommt bodennah DENSELBEN Dunst wie die Geländescheibe –
+       sonst sieht man am Scheibenrand (40 km) eine harte Kante zwischen
+       gedunsteter Nah- und scharfer Fernlandschaft. Der Wert läuft über
+       16 → 34 km auf 0 aus: Der Übergang auf die »Orbit-Optik« verteilt sich
+       damit auf 18 km Steigflug statt auf einen einzigen Frame, und aus dem
+       Orbit ist die Kugel wieder völlig klar. `updateOcean` liefert die
+       Horizontfarbe, `hazeScale` die Höhenabhängigkeit. */
+    if(this.leibnizMesh){
+      const gp = this.leibnizMesh.material.userData.pU;
+      const fade = 1 - THREE.MathUtils.smoothstep(alt, 16000, 34000);
+      gp.uGHazeK.value = (this.map || alt > 34000) ? 0
+                       : HAZE_K_LAND*this.hazeScale(alt)*fade;
+      // Farbe IMMER frisch: `updateOcean` (die andere Quelle) läuft nur unter
+      // 16 km, oberhalb würde der Dunst sonst in der Farbe von damals einfrieren.
+      if(gp.uGHazeK.value > 0)
+        gp.uGHaze.value.copy(this.skyHorizon).lerp(this.seaHorizonBase, 0.30*this.dayLight);
+    }
     this.padGroup.visible = !this.map && alt<25000;
     if(this.padGroup.visible) this.updatePad(alt, 1/60);
     for(const [,ring] of this.moonRings) ring.visible = this.map;

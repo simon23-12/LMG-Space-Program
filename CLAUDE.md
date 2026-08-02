@@ -192,6 +192,31 @@ Damit ist der Strand vor der Rampe wirklich derselbe Kontinentrand wie aus dem O
 `terrainGeometry()` = Ringscheibe r 40 km, **Ringradien quadratisch** (innen ~90 m, außen ~2,4 km Abstand) = LOD ohne Extraaufwand; 128×44 ≈ 11 000 Dreiecke. `Flight.shapeTerrain(up,east,north)` (in `reanchorGround`) hebt die Scheitel auf `terrainH` und schreibt die Scheitelfarben; ~2 ms.
 - ⚠️ **Höhe RELATIV ZUM ANKER** (`h − h0`): der Anker liegt immer unter dem Schiff, gelandet wird bei `|pos| = R`. Ohne das schwebt die Rakete überm Tal oder steckt im Hang.
 - ⚠️ Zusätzlich blendet `smoothstep(dist, 900, 4200)` das Relief im Nahbereich aus → die Landefläche ist immer eben. An der Küste kostet das nichts, weil `terrainH` dort ohnehin gegen 0 geht.
+- ⚠️⚠️ **Die Luftperspektive muss mit der HÖHE dünner werden** (`Flight.hazeScale(alt)`,
+  skaliert `groundHaze.k` UND `oceanU.uHaze`). Beide Konstanten waren fest verdrahtet, also
+  so stark wie am Meeresspiegel – aus 12 km Höhe ersoff damit die ganze Landschaft in
+  weißem Brei, obwohl dort 88 % der Atmosphäre schon UNTER dem Schiff liegen. Gerechnet
+  wird der MITTLERE Dichtefaktor entlang eines Sehstrahls von der Kamerahöhe h bis zum
+  Meeresspiegel: `(H/h)·(1−e^(−h/H))` mit `H = LEIBNIZ.scaleH` (5600 m). Am Boden exakt 1
+  (die alte Optik bleibt unangetastet), 5 km 0,66 · 13 km 0,39 · 16 km 0,33; Untergrenze
+  0,10, damit auch oben noch Tiefenstaffelung bleibt (ein völlig dunstfreier 40-km-Blick
+  wirkt wie ein Kulissenmodell).
+- ⚠️⚠️ **Denselben Dunst bekommt auch die PLANETENKUGEL** (`uGHaze`/`uGHazeK` in
+  `planetMaterial`, gesetzt in `frame()`). Das ist der Kitt an der Nahtstelle: Unter 16 km
+  liegt die Geländescheibe (r 40 km) über der Kugel, dahinter geht es auf der Kugel weiter.
+  Ohne gemeinsamen Dunst endete am Scheibenrand eine gedunstete Nah- und begann übergangslos
+  eine gestochen scharfe Fernlandschaft – **das ist der »gewellte Horizont«, den man in
+  Wahrheit als KANTE sieht.** `uGHazeK` läuft über 16 → 34 km auf 0 aus, der Wechsel auf die
+  »Orbit-Optik« verteilt sich damit auf 18 km Steigflug; aus dem Orbit ist die Kugel wieder
+  völlig klar (`uGHazeK = 0` schaltet den Term ganz ab, alle anderen Körper haben ihn nie).
+  Gemessener Bildsprung an der 16-km-Grenze: **18,5 → 10,2** von 255 – und damit kleiner als
+  die 14,3, um die sich das Bild beim normalen Weiterfliegen (14 → 15,9 km) ohnehin ändert.
+- ⚠️ **Eine echte Überblendung der Bodenszene wurde PROBIERT und wieder verworfen.** Sobald
+  Wiese/Sand/Meer `transparent` werden, wandern sie in three.js' sortierten Durchgang und die
+  Szene zeichnet sich intern anders zusammen – gemessen: schon bei Deckkraft 0,99 änderte
+  sich das Bild um Mittel 71 von 255 (gegen 14,2 für den KOMPLETTEN Wechsel auf die Kugel).
+  Explizites `renderOrder` hat es nicht geheilt. Wer es nochmal versucht, braucht einen
+  eigenen Blend-Pass, keine `transparent`-Flags.
 - **Luftperspektive** (`Flight.groundHaze`, via `onBeforeCompile` NUR in dieses Material injiziert – `scene.fog` wäre fatal, die Szene reicht über 1e10 m): ohne sie hat ein Gipfel in 30 km dieselbe Farbe wie die Wiese vor den Füßen und die Landschaft wirkt flach, obwohl die Geometrie stimmt. ⚠️ Entfernung zur KAMERA (`length(mvPosition.xyz)`), nicht zum Anker – sonst liegt beim Blick aus 5 km Höhe auch der Boden direkt unter dem Schiff im vollen 40-km-Dunst. Farbe = `uHorizonCol` des Meeres, damit ferne Berge und ferne See im selben Dunst verschwinden.
 - **Bäume** setzt jetzt `Flight.placeTrees` bei jedem Verankern neu (max. 420 Instanzen, `count` kappen!): Position nur wo `forestMask ≥ 0,30`, Höhe = Geländehöhe. Damit stehen an der **Polarstation 0 Bäume** – das fällt aus dem Terrainmodell, ist kein Sonderfall. Die Polar-Tönung des Bodens kommt ebenfalls aus den Scheitelfarben (Breitengrad des ANKERS), nicht mehr aus der Rampen-ID.
 
@@ -516,6 +541,14 @@ Plattform 8×8 und Crawlerway 30×3), `makeScorchTex` (Brandfleck), `makePadWall
   - `"coast"` – Küste in ±26 km: Layout wie an der Rampe. ⚠️ Die Basis wird so gedreht, dass **Osten seewärts** zeigt (aus dem Terrain-Gradienten) – nur dann ist die Uferlinie eine Funktion von Nord und die Tabellen-Parametrisierung überhaupt gültig. An der Rampe (`key` beginnt mit `"pad:"`) bleibt die geografische Basis stehen, das garantiert schon die Längengrad-Suche.
   - `"opensea"` – offener Ozean: `groundSea` wird zur schlichten 85-km-Scheibe **um den Anker**, `seaPatch` mittig unters Schiff, `uOrigin` = (0,0), Uniform `uOpenSea = 1` (dShore konstant 20 km → keine Brandung, kein Flachwasser). Wiese/Strand/Bäume aus.
   - `"inland"` – Binnenland: nur Wiese, Meer aus.
+    - ⚠️⚠️ **Der Sandstrand gehört AUSSCHLIESSLICH zur Küste.** Er hing bis August 2026 mit
+      an derselben Zeile wie die Wiese (`groundPlane.visible = groundBeach.visible = (mode
+      === "inland")`). Folge: Im Binnenland lag die komplette 40-km-Sandscheibe – noch aus
+      dem letzten Küsten-Anker, flach auf y = 2 und ohne `beachClipU` ungeschnitten – über
+      der Wiese. Das ergab eine **riesige gelbe Wüste mit ausgefranstem Rand** überall dort,
+      wo das Relief durch den flachen Sand stach, dazu einen zackigen »Horizont« aus deren
+      Rand (Bug-Report Simon mit Screenshots, Starship-Hop: »gelbe Riesen-Sandlandschaft«,
+      »der Horizont ist gewellt«). Ohne Uferlinie gibt es keinen Strand – Punkt.
   - Kosten gemessen: offener Ozean **0–2 ms** (keine Küstentabelle – das ist der häufige Fall beim Abstieg), Küste 38–71 ms (dort ist man beim Landen langsam).
   - ⚠️ **Pad-Frame und Boden-Frame sind getrennt:** `padEastV/padNorthV/padUpV/padLocal` bleiben an der RAMPE (Landing Zone, Mechazilla, Startfenster, Booster-Autopilot), `gEast/gNorth/gUp/groundLocal` gehören zum Anker (Ozean- und Wolken-Uniforms, `groundSunDir`, `fillLight`, `_padQInv`).
   - ⚠️ Das Booster-Wasser-Urteil und die Droneship-Position nutzen deshalb **`landH` direkt statt `shoreDist`** – die Küstentabelle gehört zum Anker, der beim Booster-Abstieg längst dem Schiff hinterhergewandert sein kann.
@@ -1060,15 +1093,22 @@ Reaktionsräder und darf nicht pusten (verifiziert: 0 Partikel, Zischen 0).
 - ⚠️⚠️ **Solarstrom gibt es NUR im Sonnenlicht** (`Flight.sunlit()`, Faktor 0…1 auf die
   3 ⚡/s je Panel). Vorher lud ein Panel auch mitten im Planetenschatten weiter – damit war
   die Batterie komplett überflüssig und die Nachtseite folgenlos (Bug-Report Simon).
-  `sunlit()` fragt ZWEI Dinge ab, weil das Spiel zwei Sonnen kennt (s. »Sonnenstand & Licht
-  bodennah«): bodennah zählt die SPIELUHR über `dayLight` (sonst lädt ein Panel auf der
-  nachtschwarzen Rampe munter weiter – im Orbit ist `dayLight` immer 1, dort stört der
-  Faktor nicht), draußen die echte Geometrie als **Zylinderschatten des dominanten Körpers**
-  (Halbschatten ist bei diesen Größenverhältnissen nur ein schmaler Saum). Bewusst nur der
-  dominante Körper: In seiner Sphäre ist er der einzige, der groß genug am Himmel steht –
-  und die Prüfung läuft in JEDEM Substep. Verifiziert: 200-km-Orbit Tagseite +2,75 ⚡/s,
-  Nachtseite −0,25 ⚡/s (nur Verbrauch); hinter Monti 0, davor 1. `Flight.solarLit` treibt
-  zugleich die HUD-Anzeige (☀️ ↔ 🌑 Schatten), Reset in `start()`.
+  Der Schatten ist der **Zylinderschatten des dominanten Körpers** (Halbschatten ist bei
+  diesen Größenverhältnissen nur ein schmaler Saum), dazu bodennah der Faktor `dayLight` –
+  sonst lädt ein Panel auf der nachtschwarzen Rampe munter weiter (im Orbit ist `dayLight`
+  immer 1, dort stört er nicht). Bewusst nur der dominante Körper: In seiner Sphäre ist er
+  der einzige, der groß genug am Himmel steht – und die Prüfung läuft in JEDEM Substep.
+  - ⚠️⚠️ **Gerechnet wird gegen `groundSunDir`, NICHT gegen die echte Richtung (`−pos`).**
+    Das Spiel kennt zwei Sonnen (s. »Sonnenstand & Licht bodennah«), und unter 2000 km
+    Höhe steht am Himmel die SPIELUHR-Sonne – die von der echten um bis zu 180° abweicht.
+    Mit der echten Geometrie war die Prüfung im ganzen Leibniz-Raum spiegelverkehrt: Im
+    200-km-Orbit entlud das Schiff, während die Sonne sichtbar im Bild stand, und lud
+    ausgerechnet im Planetenschatten (Bug-Report Simon, Screenshot mit Lens-Flare +
+    »🌑 Schatten«). Erst weit draußen fällt `groundSunDir` auf die echte Richtung zurück.
+  - Verifiziert über einen ganzen 200-km-Umlauf: `lit` kippt exakt am sichtbaren
+    Terminator (Sonnenhöhe −0,66 = Rand der Kugel aus 200 km), Tagseite +2,75 ⚡/s,
+    Nachtseite −0,25 ⚡/s. `Flight.solarLit` treibt zugleich die HUD-Anzeige
+    (☀️ ↔ 🌑 Schatten), Reset in `start()`.
 - **Solarpanele nur im Vakuum** (`PANEL_SAFE_ALT` = 50 km über Leibniz): `togglePanels` verweigert
   das Ausfahren darunter, `step()` klappt sie beim Sinkflug automatisch ein. Der alte
   Abriss-Mechanismus (`panelsBroken` bei `rho·v² > 12000`, greift ~35–40 km) bleibt als letzte
