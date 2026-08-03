@@ -136,11 +136,13 @@ button{cursor:pointer;font-family:inherit;}
 #navball{position:absolute;bottom:118px;left:50%;transform:translateX(-50%);
   border-radius:50%;border:3px solid var(--blue-dark);background:#0a0e1a;z-index:3;}
 #hudControls.hidden{display:none !important;}
-.node-row{display:flex;align-items:center;gap:3px;margin:3px 0;}
-.node-row span{flex:1;color:var(--muted);}
-.node-row b{min-width:30px;text-align:center;color:var(--green);}
+.node-row{display:flex;align-items:center;gap:2px;margin:3px 0;}
+.node-row span{flex:1;min-width:56px;color:var(--muted);}
+.node-row b{min-width:34px;text-align:center;color:var(--green);}
+/* ⚠️ Die Reihen tragen seit den ±100-Knöpfen SECHS Knöpfe – mit dem alten
+   Innenabstand (5 px) und 268 px Panelbreite lief der letzte aus dem Bild. */
 .node-row button{background:var(--panel2);color:var(--text);border:1px solid #2a3a64;
-  border-radius:4px;padding:2px 5px;font-size:11px;}
+  border-radius:4px;padding:2px 3px;font-size:10.5px;white-space:nowrap;}
 .node-row button:hover{border-color:var(--orange);}
 #tech,#missions,#universe,#tutorial,#options{flex-direction:column;background:radial-gradient(ellipse at 50% -20%, #16335e 0%, #0a0e1a 60%);
   padding:30px;overflow-y:auto;align-items:center;}
@@ -295,24 +297,36 @@ input[type=file]{display:none;}
       <button class="btn orange" id="tutOvNext" style="padding:4px 14px;font-size:12px;" onclick="Tut.next()">Weiter →</button>
     </div>
   </div>
-  <div id="nodeUI" class="hud" style="display:none;right:12px;bottom:12px;width:230px;font-size:13px;">
+  <div id="nodeUI" class="hud" style="display:none;right:12px;bottom:12px;width:292px;font-size:13px;">
     <b style="color:var(--green)">◆ Manöverknoten</b>
     <div id="nodeStats" style="margin:6px 0;color:var(--muted);"></div>
+    <!-- ⚠️ Die ±100-Knöpfe sind PFLICHT für interplanetare Reisen: Ein
+         Transfer zu Minzi braucht ~1000 m/s – in 10er-Schritten wären das
+         100 Klicks. Dasselbe gilt für die Stunden-Schritte beim Zeitpunkt:
+         der Zündpunkt liegt irgendwo im Parkorbit (Umlauf ~40 min). -->
     <div class="node-row"><span>Prograde</span>
-      <button onclick="Flight.nodeAdj('pro',-10)">−10</button><button onclick="Flight.nodeAdj('pro',-1)">−1</button>
+      <button onclick="Flight.nodeAdj('pro',-100)">−100</button><button onclick="Flight.nodeAdj('pro',-10)">−10</button><button onclick="Flight.nodeAdj('pro',-1)">−1</button>
       <b id="nodePro">0</b>
-      <button onclick="Flight.nodeAdj('pro',1)">+1</button><button onclick="Flight.nodeAdj('pro',10)">+10</button></div>
+      <button onclick="Flight.nodeAdj('pro',1)">+1</button><button onclick="Flight.nodeAdj('pro',10)">+10</button><button onclick="Flight.nodeAdj('pro',100)">+100</button></div>
     <div class="node-row"><span>Normal</span>
-      <button onclick="Flight.nodeAdj('nor',-10)">−10</button><button onclick="Flight.nodeAdj('nor',-1)">−1</button>
+      <button onclick="Flight.nodeAdj('nor',-100)">−100</button><button onclick="Flight.nodeAdj('nor',-10)">−10</button><button onclick="Flight.nodeAdj('nor',-1)">−1</button>
       <b id="nodeNor">0</b>
-      <button onclick="Flight.nodeAdj('nor',1)">+1</button><button onclick="Flight.nodeAdj('nor',10)">+10</button></div>
+      <button onclick="Flight.nodeAdj('nor',1)">+1</button><button onclick="Flight.nodeAdj('nor',10)">+10</button><button onclick="Flight.nodeAdj('nor',100)">+100</button></div>
     <div class="node-row"><span>Radial</span>
-      <button onclick="Flight.nodeAdj('rad',-10)">−10</button><button onclick="Flight.nodeAdj('rad',-1)">−1</button>
+      <button onclick="Flight.nodeAdj('rad',-100)">−100</button><button onclick="Flight.nodeAdj('rad',-10)">−10</button><button onclick="Flight.nodeAdj('rad',-1)">−1</button>
       <b id="nodeRad">0</b>
-      <button onclick="Flight.nodeAdj('rad',1)">+1</button><button onclick="Flight.nodeAdj('rad',10)">+10</button></div>
+      <button onclick="Flight.nodeAdj('rad',1)">+1</button><button onclick="Flight.nodeAdj('rad',10)">+10</button><button onclick="Flight.nodeAdj('rad',100)">+100</button></div>
     <div class="node-row"><span>Zeitpunkt</span>
       <button onclick="Flight.nodeShift(-60)">−60s</button><button onclick="Flight.nodeShift(-10)">−10s</button>
       <button onclick="Flight.nodeShift(10)">+10s</button><button onclick="Flight.nodeShift(60)">+60s</button></div>
+    <div class="node-row"><span></span>
+      <button onclick="Flight.nodeShift(-3600)">−1h</button><button onclick="Flight.nodeShift(-600)">−10m</button>
+      <button onclick="Flight.nodeShift(600)">+10m</button><button onclick="Flight.nodeShift(3600)">+1h</button></div>
+    <!-- Tage-Schritte: für die Bahnkorrektur auf halbem Weg zu einem anderen
+         Planeten (die Reise zu Minzi dauert 75 Tage). -->
+    <div class="node-row"><span></span>
+      <button onclick="Flight.nodeShift(-864000)">−10d</button><button onclick="Flight.nodeShift(-86400)">−1d</button>
+      <button onclick="Flight.nodeShift(86400)">+1d</button><button onclick="Flight.nodeShift(864000)">+10d</button></div>
     <button class="btn" style="width:100%;margin-top:6px;padding:6px;font-size:12px;"
       onclick="Flight.removeNode()">Knoten löschen</button>
   </div>
@@ -350,7 +364,7 @@ input[type=file]{display:none;}
     <button class="btn" id="btnEva" onclick="Flight.toggleEVA()">🧑‍🚀 EVA [V]</button>
     <button class="btn" id="btnFlag" onclick="Flight.plantFlag()">🚩 Flagge [F]</button>
     <button class="btn" id="btnBelly" onclick="Flight.toggleBellyflop()">🤸 Bellyflop [C]</button>
-    <button class="btn" id="btnTarget" onclick="Flight.cycleTarget()">🎯 Ziel [⇧Z]</button>
+    <button class="btn" id="btnTarget" onclick="Flight.cycleTarget()">🎯 Ziel [Z]</button>
     <button class="btn" id="btnDock" onclick="Flight.toggleDock()">🔗 Docken [L]</button>
     <button class="btn" id="btnModul" onclick="Flight.installModule()">🏗 Modul [I]</button>
     <button class="btn" id="btnBay" onclick="Flight.toggleBays()">📦 Bucht [O]</button>
@@ -1040,7 +1054,7 @@ const CATS = [
    ids:["fin","gridfin","fairing","chute","chute3","shield","legs"]},
   {id:"elec", short:"Elektrik", icon:"⚡", name:"Elektrik",
    sub:"Strom und Steuerdüsen – ohne Saft reagiert eine Sonde nicht mehr.",
-   ids:["battery","solar","rcs"]},
+   ids:["battery","solar","rcs","nav"]},
   {id:"pay", short:"Nutzlast", icon:"🛰️", name:"Nutzlast",
    sub:"Was die Rakete eigentlich ins All bringen soll.",
    ids:["bay","bayS","antenna","lab","satW","satK","satR","satS","satT","satD"]}
@@ -1092,6 +1106,8 @@ const PARTS = {
   probe:  {name:"Sondenkern »Pixel«",        type:"probe", mass:150, w:8,h:6, tech:"payload", charge:80, info:"Unbemanntes Gehirn – braucht ständig Strom (0,25 ⚡/s)! Interne Batterie: 80 ⚡."},
   solar:  {name:"Solarpanele (ausfahrbar)",  type:"solar", mass:60,  w:14,h:4, tech:"surv", info:"Mit [G] ausfahren: +3 ⚡/s – aber nur im SONNENLICHT: auf der Schattenseite eines Planeten liefern sie nichts, dafür ist die Batterie da. Nur im Vakuum – unter 50 km Höhe ist die Luft zu dicht, dort klappen sie von selbst ein."},
   battery:{name:"Batterie",                  type:"battery", mass:60,  w:8,h:5, tech:"payload", charge:500, info:"Speichert 500 ⚡ für Sonden, SAS und Experimente."},
+  nav:    {name:"Bordcomputer »Rechenknecht«", type:"computer", mass:110, w:8,h:4, tech:"navcomp", navcomp:true,
+           info:"Der Rechner für BAHNMECHANIK: Erst mit ihm an Bord kannst du im Flug einen Planeten oder Mond als Ziel wählen [Z] und bekommst Transferfenster, Zündpunkt, Δv und die dichteste Annäherung ausgerechnet. Ohne ihn fliegst du weiter ganz normal – zur »Großen Pause«, zu Tankern und in jeden Leibniz-Orbit. Ein Starship hat ihn schon eingebaut."},
   bay:    {name:"Servicebucht M",            type:"bay", mass:80,  w:11,h:5, covers:2, tech:"payload",
            info:"Aerodynamischer Stauraum: verkleidet die ZWEI Bauteile DIREKT DARÜBER (z. B. Satellit + Batterie) und senkt den Luftwiderstand. Öffnen: [O]"},
   bayS:   {name:"Servicebucht S",            type:"bay", mass:45,  w:9,h:2.5, covers:1, tech:"surv",
@@ -1120,10 +1136,10 @@ const PARTS = {
            info:"Riesige Glocke, Isp 380 s im Vakuum – das effizienteste Oberstufen-Triebwerk überhaupt."},
   superheavy:{name:"Superheavy-Booster",     type:"superheavy", mass:3600, fuel:26000, thrust:4600000, isp:330, w:14,h:68, tech:"raptorSL", raptor:true,
            info:"Riesentank + 33 Raptoren in EINEM Teil (26 t Treibstoff, 4600 kN). Mit Gitterflossen ausrüsten – dann landet ihn der Autopilot!"},
-  starship:{name:"Starship",                 type:"starship", mass:5200, fuel:9500, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:900, flaps:true, bay:2500, raptor:true,
-           info:"Das ultimative Schiff: 6 Crew ODER große Nutzlast, Hitzeschutz-Kacheln, Bellyflop-Landung mit [C] (mindestens 200 m Höhe!). Frachtraum: 2,5 t Satelliten (PEZ-Dispenser, seitlicher Auswurf mit [N])."},
-  starshipTank:{name:"Tanker-Starship",      type:"starship", mass:4400, fuel:16000, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:400, tanker:true, bay:0, raptor:true,
-           info:"Starship ohne Flaps, dafür voller Tanks: Im Orbit parken (Flug dort beenden) – dort heißt er dann »Tanker ⛽ #1«, »#2« … und ist mit [Z] bzw. [⇧Z] anwählbar. Jedes Schiff tankt bei ihm auf (< 60 m, < 4 m/s), und zwar genau so viel, wie er noch HAT – der Rest bleibt im Orbit stehen. Wer selbst einen Tanker fliegt, kann umgekehrt andere Tanker und geparkte Schiffe volltanken. Unbemannt, keine Bellyflop-Landung, KEIN Frachtraum – da sitzen die Tanks!"}
+  starship:{name:"Starship",                 type:"starship", mass:5200, fuel:9500, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:900, flaps:true, bay:2500, raptor:true, navcomp:true,
+           info:"Das ultimative Schiff: 6 Crew ODER große Nutzlast, Hitzeschutz-Kacheln, Bellyflop-Landung mit [C] (mindestens 200 m Höhe!). Frachtraum: 2,5 t Satelliten (PEZ-Dispenser, seitlicher Auswurf mit [N]). Bordcomputer für Planeten-Transfers ist eingebaut."},
+  starshipTank:{name:"Tanker-Starship",      type:"starship", mass:4400, fuel:16000, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:400, tanker:true, bay:0, raptor:true, navcomp:true,
+           info:"Starship ohne Flaps, dafür voller Tanks: Im Orbit parken (Flug dort beenden) – dort heißt er dann »Tanker ⛽ #1«, »#2« … und ist mit [Z] anwählbar. Jedes Schiff tankt bei ihm auf (< 60 m, < 4 m/s), und zwar genau so viel, wie er noch HAT – der Rest bleibt im Orbit stehen. Wer selbst einen Tanker fliegt, kann umgekehrt andere Tanker und geparkte Schiffe volltanken. Unbemannt, keine Bellyflop-Landung, KEIN Frachtraum – da sitzen die Tanks!"}
 };
 /* Radialteile (Flossen, Seitenbooster): hängen seitlich am Nachbartank
    und belegen KEINE eigene Höhe im Stack – wie in echt. */
@@ -1181,7 +1197,7 @@ const PART_COSTS = {
   probePod:350, probeS:250, pod:700, chute:60, chute3:220, lab:380, shield:140,
   tankS:100, engS:220, engStd:300, tankM:180, engVac:420, engNuc:1400, engIon:900, tankXL:700,
   decoupler:40, interXS:30, inter:50, interL:90, legs:90, rcs:130, srb:150, fin:25, gridfin:240, tankL:350, engMain:650, srbL:300,
-  sb2:260, sb4:500, probe:180, solar:70, battery:50, bay:80, bayS:50, antenna:60,
+  sb2:260, sb4:500, probe:180, solar:70, battery:50, nav:260, bay:80, bayS:50, antenna:60,
   satW:320, satR:420, satS:550, satK:380, satT:780, satD:700, fairing:80, tankXS:70, engT:120, dock:100,
   engRapSL:900, engRapVac:1100, superheavy:2600, starship:4200, starshipTank:3200
 };
@@ -1546,6 +1562,23 @@ function asteroidScanned(id){ return (Game.asteroidsScanned||[]).includes(id); }
    Nachbar Minzi.
    ⚠️ Sandbox & Tutorials sind IMMER offen – dort geht es ums Ausprobieren. */
 const FAR_BODIES = [KEPLER, HUYGENS, NEWTON, ...HUYGENS_MOONS];
+/* Entfernungen und Zeiten über den GANZEN Größenbereich des Systems: Ein
+   Andockmanöver misst 40 m, die Reise zu Minzi 6,9 Mio. km und 75 Tage –
+   dieselbe HUD-Zeile muss beides lesbar zeigen. */
+function fmtBig(m){
+  if(!isFinite(m)) return "–";
+  const a = Math.abs(m);
+  if(a >= 1e9) return (m/1e9).toLocaleString("de-DE",{maximumFractionDigits:2})+" Mio. km";
+  if(a >= 1e4) return (m/1000).toLocaleString("de-DE",{maximumFractionDigits:0})+" km";
+  return m.toFixed(0)+" m";
+}
+function fmtDur(s){
+  if(!isFinite(s)) return "–";
+  if(s >= 172800) return (s/86400).toLocaleString("de-DE",{maximumFractionDigits:1})+" Tage";
+  if(s >= 3600) return Math.floor(s/3600)+" h "+Math.round(s%3600/60)+" min";
+  if(s >= 60) return Math.floor(s/60)+" min "+Math.round(s%60)+" s";
+  return Math.round(s)+" s";
+}
 function telescopeUp(){ return Game.sandbox || !!Game.telescope; }
 function surveyUp(){ return Game.sandbox || !!Game.survey; }
 function bodyKnown(b){ return telescopeUp() || !FAR_BODIES.includes(b); }
@@ -1608,6 +1641,7 @@ const TECH = [
   {id:"heavy",     name:"Schwerlast-Raketen",     cost:60,  req:["advProp"],            desc:"Große Tanks, großes Triebwerk – große Ziele."},
   {id:"heavyPlus", name:"Schwerlast II",          cost:80,  req:["heavy"],              desc:"Der monströse »Donner«-Booster."},
   {id:"explore",   name:"Erkundung",              cost:90,  req:["surv","advProp"],     desc:"Landebeine für fremde Welten."},
+  {id:"navcomp",   name:"Bordcomputer",           cost:55,  req:["advProp","mission2"], desc:"Bahnmechanik an Bord: Mit dem »Rechenknecht« im Stack kannst du im Flug einen PLANETEN oder MOND als Ziel wählen [Z] – das Spiel rechnet dir Transferfenster, Zündpunkt, Δv und die dichteste Annäherung aus. Ohne ihn bleibt alles beim Alten: Leibniz-Orbits, »Große Pause« und Tanker gehen weiterhin ohne."},
   {id:"future",    name:"Zukunftstechnik",        cost:140, req:["heavy","payload"],    desc:"Atomantrieb – interplanetare Reisen werden komfortabel."},
   {id:"reuse",     name:"Wiederverwendbarkeit",   cost:50,  req:["heavy"],              desc:"Gitterflossen + Landeautopilot: Die erste Stufe landet wie eine Falcon 9 – und bringt ihr Geld zurück! (Ohne Landeplatz wassert sie im Ozean: 50 % Bergungswert.)"},
   {id:"landZone",  name:"Landing Zone",           cost:40,  req:["reuse"],              desc:"Betonierte Landeplattform »LZ-1« neben JEDER Startrampe: Der Booster fliegt per Boostback-Burn zurück zum Startplatz (RTLS) – Punktlandung = 100 % Bergungswert!"},
@@ -2197,7 +2231,7 @@ const TUTORIALS_LEGACY = [   // alt & ungenutzt – die interaktiven Tutorials l
      insgesamt aufbringen kann. <b>TWR</b> muss über 1 sein, sonst hebt sie nicht ab!<br><br>
      Drücke <b>START</b>, wenn du bereit bist.`,
     `Auf der Rampe: <b>[Leertaste]</b> zündet die erste Stufe. Die Rakete steigt senkrecht.
-     Mit <b>↑/↓</b> regelst du den Schub, <b>Z</b> = Vollgas, <b>X</b> = aus.<br><br>
+     Mit <b>↑/↓</b> regelst du den Schub, <b>⇧X</b> = Vollgas, <b>X</b> = aus.<br><br>
      Beobachte links die Höhe – bei 5 km wartet deine erste Mission! 🏆`,
     `Wenn der Tank leer ist, fällt die Rakete zurück. Drücke rechtzeitig <b>[P]</b> für den
      Fallschirm (unter 30 km, am besten beim Fallen). Unter 8 m/s Aufprall = sichere Landung!<br><br>
@@ -2213,7 +2247,7 @@ const TUTORIALS_LEGACY = [   // alt & ungenutzt – die interaktiven Tutorials l
     `Öffne die Karte mit <b>[M]</b>. Der blaue <b>Ap</b>-Marker zeigt den höchsten Punkt deiner
      Bahn. Brenne, bis Ap über <b>75 km</b> liegt – dann Triebwerk aus mit <b>X</b>.`,
     `Jetzt der Trick: Warte (Zeitraffer <b>[.]</b>), bis du fast am Ap bist. Dann drücke
-     <b>[T]</b> für SAS PROGRADE und gib Vollgas <b>Z</b>.<br><br>
+     <b>[T]</b> für SAS PROGRADE und gib Vollgas <b>⇧X</b>.<br><br>
      Die Periapsis (Pe) steigt. Sobald <b>Pe über 70 km</b> ist: Triebwerk aus. DU BIST IM ORBIT! 🎉`,
     `Du fliegst jetzt für immer im Kreis, ganz ohne Treibstoff. Zum Heimkehren: SAS auf
      <b>RETROGRADE</b> ([T] mehrmals), brennen bis Pe unter ~35 km, dann bremst dich die
@@ -3785,6 +3819,22 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       add(new THREE.Mesh(new THREE.BoxGeometry(p.w*0.87,h*0.3,p.w*0.87),
         new THREE.MeshStandardMaterial({color:0xe8c540, roughness:.5})), h*0.5);
       break;
+    case "computer":{
+      // Flacher Geräteträger mit Kühlrippen und Statuslämpchen – ein Rechner
+      // ist kein Tank, er soll auch nicht wie einer aussehen.
+      add(cylinder(r*0.96, r*0.96, h, MAT.gray), h/2);
+      const rack = new THREE.Mesh(new THREE.BoxGeometry(p.w*0.72, h*0.66, p.w*0.72), MAT.dark);
+      rack.position.y = h/2; g.add(rack);
+      for(let k=0;k<4;k++){                       // Kühlrippen
+        const fin2 = new THREE.Mesh(new THREE.BoxGeometry(p.w*0.78, h*0.12, 0.5), MAT.gray);
+        fin2.position.set(0, h*(0.22+k*0.18), 0);
+        fin2.rotation.y = k*0.35;
+        g.add(fin2);
+      }
+      const led = new THREE.Mesh(new THREE.BoxGeometry(p.w*0.16, h*0.12, 0.4),
+        new THREE.MeshStandardMaterial({color:0x5fc46a, emissive:0x2f6d38, roughness:.4}));
+      led.position.set(p.w*0.3, h*0.62, p.w*0.34); g.add(led);
+      break;}
     case "antenna":{
       add(cylinder(0.12,0.18,h,MAT.gray,6), h/2);
       const ball = new THREE.Mesh(new THREE.SphereGeometry(r*0.18,8,8), MAT.orange);
@@ -3924,7 +3974,7 @@ function deployWings(g){
    (covers = Anzahl Bauteile DIREKT DARÜBER; Radialteile zählen nicht.)
    Nur KLEINE Nutzlast-Teile passen hinein – Triebwerke, Tanks & Co. würden
    sonst optisch "verschluckt" (z. B. Bucht unter der Oberstufe). */
-const BAY_FITS = new Set(["battery","solar","probe","antenna","lab","sat"]);
+const BAY_FITS = new Set(["battery","solar","probe","antenna","lab","sat","computer"]);
 function bayCoverage(stack){
   const map = new Map();   // Bucht-Index -> [verdeckte Indizes, oberstes zuletzt]
   stack.forEach((id,i)=>{
@@ -9603,6 +9653,20 @@ const Flight = {
       if(a.tail){ fx = buildCometFx(); this.world.add(fx); }
       return {a, mesh, marker, ring, fx};
     });
+    /* Kartenmarker für Sonne, Planeten und Monde.
+       ⚠️ Ohne sie zeigt die Karte von einem Planeten nur die BAHNLINIE – wo
+       der Körper darauf gerade steht, sieht man bei 1e10 m Zoom nicht (seine
+       Kugel ist dort ein Zehntelpixel). Genau damit lässt sich aber kein Flug
+       timen: »wann steht Minzi richtig?« ist die Kernfrage jeder
+       interplanetaren Reise (Bug-Report Simon).
+       ⚠️ Gezeigt wird nur, was auch ENTDECKT ist (bodyKnown) – der ???-Nebel
+       der Karriere gilt hier genauso wie im Universum-Bildschirm. */
+    this.bodyMarkers = [SUN, ...ORBIT_BODIES].map(b=>({
+      b, marker: mkMarker((BODY_ICON[b.name]||"•")+" "+b.name,
+        b===SUN ? "#ffd479" : (b.shade2D ? b.shade2D[0] : "#cfe0ff"))
+    }));
+    // Dichteste Annäherung an das gewählte Ziel (s. traceOrbit/predict)
+    this.encMarker = mkMarker("Begegnung", "#39ffd0");
     // Raumstation »Große Pause« – wächst mit jedem gelieferten Modul
     this.stationMesh = null;
     this.rebuildStation();
@@ -9699,16 +9763,17 @@ const Flight = {
       if(e.key==="y"||e.key==="Y") this.toggleLegs();
       if(e.key==="l"||e.key==="L") this.toggleDock();
       if(e.key==="i"||e.key==="I") this.installModule();
-      if((e.key==="x"||e.key==="X") && !this.eva && !this.commDead) this.throttle=0;
-      if((e.key==="z"||e.key==="Z") && !this.eva && !this.commDead){
-        // Auf der Startrampe: [Z] wählt Orbit-Ziele (Station, Tanker …) fürs
-        // Startfenster. Im Flug bleibt [Z] Vollgas (Partner von [X]) – dort
-        // wechselt [⇧ Z] das Ziel, denn mit mehreren geparkten Tankern muss man
-        // die Peilung auch OBEN noch umstellen können.
-        if(this.landed && !this.flew) this.cycleTarget();
-        else if(e.shiftKey) this.cycleTarget();
-        else this.throttle=1;
-      }
+      /* ⚠️⚠️ SCHUB liegt komplett auf [X]: X = aus, ⇧X = Vollgas. [Z] ist
+         ÜBERALL die Zielwahl – auf der Rampe die Startfenster-Peilung, im Flug
+         Station/Tanker/Planeten. Vorher war [Z] im Flug Vollgas und die
+         Zielwahl brauchte ⇧Z: »zu umständlich und verwirrend« (Simon), weil
+         dieselbe Taste je nach Flugzustand etwas völlig anderes tat.
+         Ein freier Buchstabe für Vollgas existiert nicht – alle 26 sind
+         belegt –, deshalb wandert es als Umschalt-Variante auf seinen
+         natürlichen Partner [X]. */
+      if((e.key==="x"||e.key==="X") && !this.eva && !this.commDead)
+        this.throttle = e.shiftKey ? 1 : 0;
+      if((e.key==="z"||e.key==="Z") && !this.eva && !this.commDead) this.cycleTarget();
       if(e.key==="Escape"){
         this.paused = !this.paused;
         this.showMsg(this.paused ? "⏸ PAUSE – weiter mit [Esc]" : "▶ Weiter geht's!", this.paused?999:1.5);
@@ -10365,6 +10430,7 @@ const Flight = {
     document.getElementById("boosterCam").style.display = "none";
     this.docked = false; this.dockOffset = null;
     this.autoDock = null; this.target = null; this.launchWindowMiss = undefined;
+    this.encounter = null; this._encStart = null; this._encAt = 0; this._soiBody = null;
     this.fromAsset = false;   // startFromAsset() setzt das direkt nach start() auf true
     this.stagedOnce = false;
     this.chuteTorn = false;
@@ -10797,7 +10863,7 @@ const Flight = {
     const s = this.activeSeg(); if(!s) return;
     if(!s.ignited && (s.thrust||s.srbThrust)){
       // Fürs Startfenster-Tutorial: Wie genau wurde das Fenster getroffen?
-      if(this.landed && this.target && this.launchWindowMiss===undefined){
+      if(this.landed && this.target && this.target.w && this.launchWindowMiss===undefined){
         const per = 2*Math.PI/this.target.w;
         const tw = this.nextLaunchWindow(this.target) - this.t;
         this.launchWindowMiss = Math.min(tw, per - tw);
@@ -11897,7 +11963,13 @@ const Flight = {
       this.showMsg("🤖→🔗 AUTOPILOT-DOCKING GESCHAFFT! Port an Port an der »Großen Pause«! 🎉",5);
     }
   },
-  /* ---------- Orbit-Ziele: [Z] auf der Startrampe wählt sie aus ---------- */
+  /* ---------- Ziele: [Z] wählt sie durch ---------- */
+  /* Hat die Rakete einen Bordcomputer? Entweder das Teil `nav` oder ein
+     Starship (dort ist er ab Werk drin). Entscheidet allein darüber, ob
+     Planeten/Monde als Ziel wählbar sind – s. targetList. */
+  hasNavComp(){
+    return !!(this.v && this.v.stack.some(id=>PARTS[id] && PARTS[id].navcomp));
+  },
   /* Anwählbare Orbit-Ziele: Station + jeder geparkte Tanker.
      ⚠️ Alle laufen ON RAILS auf KREISBAHNEN (assetPos/stationPos kennen nichts
      anderes) – Ap und Pe sind deshalb gleich, und die Anzeige sagt das auch so,
@@ -11923,6 +11995,24 @@ const Flight = {
         phase0:d.phase, w,
         pos:t=>this.assetPos(d,t), vel:t=>this.assetVel(d,t)});
     }
+    /* Planeten & Monde als REISEZIEL (nur im Flug – auf der Rampe geht es bei
+       [Z] ums Startfenster zur Station). Damit hängen an this.target zwei
+       Dinge, die eine interplanetare Reise überhaupt erst planbar machen:
+       das Transferfenster (transferWindow) und die dichteste Annäherung in
+       der Karte (traceOrbit). Der Körper, in dessen Sphäre wir gerade sind,
+       steht nicht in der Liste – dahin muss man nicht mehr fliegen.
+       ⚠️ Nur mit BORDCOMPUTER an Bord (`nav`-Teil oder Starship): Bahnmechanik
+       für fremde Welten ist Rechenarbeit, die eine Rakete mitfliegen muss.
+       Station, Tanker und jeder Leibniz-Orbit brauchen ihn NICHT – wer zur
+       »Großen Pause« will, soll nicht an einer Technologie hängen. */
+    if(!this.landed && this.hasNavComp()){
+      const cur = this.body();
+      for(const b of ORBIT_BODIES){
+        if(b === cur || !bodyKnown(b)) continue;
+        list.push({kind:"body", name:b.name, body:b,
+          pos:t=>bodyPos(b,t), vel:t=>bodyVel(b,t)});
+      }
+    }
     return list;
   },
   /* Kurzsteckbrief eines Ziels: Bahn + (beim Tanker) Restsprit.
@@ -11931,6 +12021,11 @@ const Flight = {
      die alte Menge an. */
   targetInfo(tg){
     if(!tg) return "";
+    if(tg.kind==="body"){
+      const b = tg.body;
+      return (b.parent===SUN ? "Sonnenbahn " : "Bahn um "+b.parent.name+" ")+
+        fmtBig(b.orbitR)+" · Ø "+fmtBig(2*b.R)+" · Einflusssphäre "+fmtBig(b.soi);
+    }
     let s = "Ap "+Math.round(tg.ap/1000)+" km · Pe "+Math.round(tg.pe/1000)+" km (Kreisbahn)";
     if(tg.kind==="tanker"){
       const a = (Game.assets||[]).find(x=>x.kind==="tanker" && x.name===tg.name);
@@ -11939,8 +12034,7 @@ const Flight = {
     }
     return s;
   },
-  /* [Z] auf der Rampe, [⇧Z] im Flug. ⚠️ Im Flug bleibt das blanke [Z] Vollgas –
-     das ist Muskelgedächtnis mitten im Brennvorgang und der Partner von [X]. */
+  /* [Z] – überall und immer die Zielwahl (Vollgas liegt auf ⇧X, s. Tastenblock). */
   cycleTarget(){
     // Startfenster-Peilung nur am Äquator: von geneigten Rampen stimmt die
     // Bahnebene nicht mit der Station überein – ein Fenster gäbe es nicht.
@@ -11953,8 +12047,23 @@ const Flight = {
     const list = this.targetList();
     const i = this.target ? list.findIndex(x=>x.name===this.target.name) : -1;
     this.target = (i+1 < list.length) ? list[i+1] : null;
-    if(!this.target){ this.showMsg("🎯 Ziel abgewählt – freier Flug.",2); return; }
-    if(this.landed && !this.flew){
+    if(!this.target){
+      // Am Ende der Liste: Wer keinen Bordcomputer dabei hat, soll wenigstens
+      // ERFAHREN, dass es Planeten-Ziele gibt und woran es hängt.
+      this.showMsg("🎯 Ziel abgewählt – freier Flug."+
+        (!this.landed && !this.hasNavComp()
+          ? " (Für Planeten & Monde als Ziel fehlt der 🖥 Bordcomputer »Rechenknecht« im Stack!)" : ""),
+        this.hasNavComp()||this.landed ? 2 : 5);
+      return;
+    }
+    if(this.target.kind==="body"){
+      const tw = this.transferWindow(this.target.body);
+      const d = this.pos.distanceTo(this.target.pos(this.t));
+      this.showMsg("🎯 Ziel: "+this.target.name+" – Entfernung "+fmtBig(d)+
+        (tw ? " – Transferfenster in "+fmtDur(tw.wait)+", Δv ≈ "+Math.round(tw.dv)+" m/s"
+            : " – von hier aus gibt es kein Transferfenster.")+
+        " Details im HUD rechts.",6);
+    } else if(this.landed && !this.flew){
       const tw = this.nextLaunchWindow(this.target);
       this.showMsg("🎯 Ziel: "+this.target.name+" – "+this.targetInfo(this.target)+
         " – Startfenster um "+this.clockStr(tw)+" Uhr. Mit [.] vorspulen!",5);
@@ -11976,6 +12085,157 @@ const Flight = {
     let dtw = ((want - tg.phase0 - tg.w*this.t) % (2*Math.PI) + 2*Math.PI) % (2*Math.PI) / tg.w;
     if(dtw < 5) dtw += per;                              // gerade verpasst → nächster Umlauf
     return this.t + dtw;
+  },
+  /* ---------- Interplanetares Transferfenster (Hohmann) ----------
+     Das GANZE Problem einer Reise zu Minzi ist die ZEIT: Wer den Orbit um
+     Leibniz einfach immer weiter aufbläht, erreicht irgendwann die
+     Fluchtgeschwindigkeit und landet auf einer Sonnenbahn, die Minzi nie
+     trifft – der Planet ist dann längst woanders (Bug-Report Simon). Genau
+     dafür rechnet KSP nichts vor, und genau deshalb benutzen KSP-Spieler
+     Phasenwinkel-Tabellen. Hier macht es das Spiel selbst.
+
+     Der Hohmann-Transfer geht die halbe Ellipse zwischen beiden Bahnen:
+       a = (r1+r2)/2, Flugzeit tT = π·√(a³/µ)
+     Das Ziel muss beim Start also genau so weit VORAUS stehen, dass es in tT
+     am Treffpunkt ankommt:  θ_soll = π − ω_Ziel·tT.
+
+     Drei Fälle, EINE Formel – Unterschied ist nur, WER abfliegt:
+       a) Ziel umkreist den Körper, in dessen Sphäre wir sind (Leibniz→Monti)
+          oder wir sind schon im Sonnenraum: das SCHIFF selbst ist der
+          Abflugkörper, θ zählt ab der eigenen Position.
+       b) Ziel ist ein Geschwister unseres Körpers (Leibniz→Minzi): Abflug-
+          körper ist LEIBNIZ, das Schiff muss zusätzlich aus dessen Sphäre
+          heraus – deshalb kommt die Fluchtgeschwindigkeit ins Δv.
+     Rückgabe: null, wenn es von hier aus keinen sinnvollen Hohmann gibt
+     (z. B. aus Montis Sphäre heraus – erst zurück in den Leibniz-Orbit). */
+  transferWindow(tb){
+    const cur = this.body();
+    if(!tb || tb === cur) return null;
+    const ang = p => Math.atan2(p.z, p.x);        // Bahnwinkel in der Ekliptik
+    let ref, r1, w1, ang1, dep = null;
+    if(tb.parent === cur){
+      // a) Ziel umkreist unseren Körper – das Schiff ist der Abflugkörper
+      ref = cur;
+      const rel = this.pos.clone().sub(bodyPos(ref, this.t));
+      const vr  = this.vel.clone().sub(bodyVel(ref, this.t));
+      r1 = rel.length();
+      // Signierte Winkelrate der PROJIZIERTEN Bahn – so stimmt auch die
+      // Laufrichtung (ein retrograder Orbit hat w1 < 0).
+      const den = rel.x*rel.x + rel.z*rel.z;
+      w1 = den > 1 ? (rel.x*vr.z - rel.z*vr.x)/den : 0;
+      ang1 = ang(rel);
+    } else if(tb.parent === cur.parent && cur.parent){
+      // b) Nachbarplanet – wir starten aus der Sphäre unseres Körpers
+      ref = cur.parent; dep = cur;
+      r1 = cur.orbitR; w1 = 2*Math.PI/cur.period;
+      ang1 = ang(bodyPos(cur, this.t).sub(bodyPos(ref, this.t)));
+    } else return null;
+    const mu = ref.mu, r2 = tb.orbitR, w2 = 2*Math.PI/tb.period;
+    const a = (r1 + r2)/2;
+    const tT = Math.PI*Math.sqrt(a*a*a/mu);
+    const ang2 = ang(bodyPos(tb, this.t).sub(bodyPos(ref, this.t)));
+    const wrap = x => ((x % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+    const want = wrap(Math.PI - w2*tT);
+    const rel = w2 - w1;                          // relative Winkelgeschwindigkeit
+    if(Math.abs(rel) < 1e-12) return null;
+    const syn = 2*Math.PI/Math.abs(rel);          // synodische Periode
+    let wait = (want - wrap(ang2 - ang1))/rel;
+    wait = ((wait % syn) + syn) % syn;
+    // Δv: erst der Schub auf die Transferellipse …
+    const v1 = Math.sqrt(mu/r1);
+    const vT = Math.sqrt(mu*(2/r1 - 1/a));
+    const vInf = vT - v1;                         // < 0 bei Reisen nach INNEN
+    let dv = Math.abs(vInf), rp = 0;
+    if(dep){
+      // … und bei b) muss das Schiff dieses vInf am Rand der Sphäre ÜBRIG
+      // haben: aus dem Parkorbit heraus ist das die Hyperbel-Rechnung
+      // v_peri = √(v∞² + v_flucht²) (Oberth – deshalb ist es viel weniger
+      // als vInf + Fluchtgeschwindigkeit).
+      rp = this.pos.distanceTo(this.bodyCenter(dep, this.t));
+      dv = Math.sqrt(vInf*vInf + 2*dep.mu/rp) - Math.sqrt(dep.mu/rp);
+    }
+    return {wait, dv, tT, syn, ref, dep, r1, r2, vInf, rp,
+            phase: wrap(ang2 - ang1), want,
+            // Winkel-Toleranz ±2,5°: Was hier daneben liegt, holt eine
+            // kleine Bahnkorrektur unterwegs locker wieder rein.
+            open: wait > syn - 2.5/360*syn || wait < 2.5/360*syn};
+  },
+  /* Wo im Parkorbit muss gezündet werden? (»Ejection Angle« der KSP-Foren)
+     Auf einer Fluchthyperbel dreht das Schiff zwischen Zündpunkt und
+     Sphärenrand noch um die wahre Anomalie ν∞ = arccos(−1/e) weiter. Damit
+     es am Ende WIRKLICH in Bahnrichtung des Planeten davonfliegt, muss die
+     Zündung also um ν∞ VOR dieser Richtung liegen (bei einer Reise nach
+     innen: vor der Gegenrichtung). Ohne das zeigt der schönste 1000-m/s-Burn
+     in die falsche Ecke des Sonnensystems.
+     Rückgabe: Sekunden bis zum nächsten Zündpunkt (0, wenn das Schiff selbst
+     der Abflugkörper ist – dann wird einfach am Fenster gezündet). */
+  ejectionWait(tw, tRef){
+    if(!tw || !tw.dep) return 0;
+    const dep = tw.dep, t0 = tRef===undefined ? this.t : tRef;
+    const rel = this.pos.clone().sub(this.bodyCenter(dep, this.t));
+    const vr  = this.vel.clone().sub(bodyVel(dep, this.t));
+    const den = rel.x*rel.x + rel.z*rel.z;
+    if(den < 1) return 0;
+    const w = (rel.x*vr.z - rel.z*vr.x)/den;      // Winkelrate im Parkorbit
+    if(Math.abs(w) < 1e-9) return 0;
+    // Bahnrichtung des Abflugkörpers (bzw. Gegenrichtung bei Reisen nach innen)
+    const vd = bodyVel(dep, t0).sub(bodyVel(dep.parent, t0));
+    let angV = Math.atan2(vd.z, vd.x);
+    if(tw.vInf < 0) angV += Math.PI;
+    const e = 1 + tw.rp*tw.vInf*tw.vInf/dep.mu;
+    const nuInf = Math.acos(Math.max(-1, Math.min(1, -1/e)));
+    const angBurn = angV - Math.sign(w)*nuInf;
+    // Winkel des Schiffs zum Zeitpunkt t0 (Parkorbit als Kreisbahn gerechnet)
+    const angShip = Math.atan2(rel.z, rel.x) + w*(t0 - this.t);
+    const wrap = x => ((x % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+    return wrap((angBurn - angShip)*Math.sign(w))/Math.abs(w);
+  },
+  /* HUD-Block »Reiseplaner« für ein Planeten-/Mondziel: Transferfenster,
+     Zündpunkt, Δv und die dichteste Annäherung. Das ist die komplette
+     Antwort auf »wie komme ich nach Minzi?« – zusammen mit dem Knoten-Panel
+     und der Karte braucht es nichts weiter. */
+  travelPanel(tb){
+    const d = this.pos.distanceTo(bodyPos(tb, this.t));
+    let out = '<br>🎯 Ziel: <b>'+(BODY_ICON[tb.name]||"")+' '+tb.name+'</b> <small>[Z] wechseln</small>'+
+      '<br>Entfernung: <b>'+fmtBig(d)+'</b>'+
+      '<br><small style="color:var(--muted)">'+this.targetInfo(this.target)+'</small>';
+    const tw = this.transferWindow(tb);
+    if(!tw){
+      out += '<br><small style="color:var(--muted)">💡 Von hier aus gibt es kein Transferfenster – '+
+        'erst zurück in einen Orbit um '+(tb.parent===SUN ? "Leibniz" : tb.parent.name)+'.</small>';
+    } else {
+      const eject = this.ejectionWait(tw, this.t + tw.wait);
+      const tBurn = tw.wait + eject;
+      const deg = x => (x*180/Math.PI).toFixed(0)+"°";
+      out += '<br>'+(tBurn < 60
+          ? '<b style="color:var(--green)">🚀 JETZT ZÜNDEN – prograde!</b>'
+          : (tBurn < 3600
+             ? '<b style="color:var(--orange)">🔥 Zündung in '+fmtDur(tBurn)+'</b>'
+             : '⏳ Zündung in <b>'+fmtDur(tBurn)+'</b> <small>([.] vorspulen)</small>'))+
+        '<br>Δv ≈ <b>'+Math.round(tw.dv)+' m/s</b> '+(tw.vInf<0?"retrograde":"prograde")+
+        ' · Flugzeit <b>'+fmtDur(tw.tT)+'</b>'+
+        '<br><small style="color:var(--muted)">Phasenwinkel jetzt '+deg(tw.phase)+
+        ', gebraucht '+deg(tw.want)+'</small>';
+    }
+    // Dichteste Annäherung: die eigentliche Zielhilfe (nur in der Karte, dort
+    // rechnet predict() sie – s. updateEncounter).
+    if(!this.map){
+      out += '<br><small style="color:var(--muted)">💡 Karte [M] zeigt die Begegnung + Knoten [K] zum Feinjustieren</small>';
+    } else if(this.encounter){
+      const e = this.encounter, hit = e.d < tb.soi;
+      const enRoute = this.body() === tb.parent;   // schon unterwegs im Sonnenraum?
+      out += '<br>'+(hit?'<b style="color:var(--green)">✔ Begegnung: ':'◇ Dichteste Annäherung: ')+
+        fmtBig(e.d)+(hit?'</b>':'')+' <small>in '+fmtDur(e.t-this.t)+'</small>'+
+        '<br><small style="color:var(--muted)">'+(hit
+          ? 'Innerhalb der Einflusssphäre ('+fmtBig(tb.soi)+') – am Ziel retrograde bremsen!'
+          : (enRoute
+             ? 'Ziel: unter '+fmtBig(tb.soi)+' (Einflusssphäre). Bahnkorrektur: Knoten [K] mit den '+
+               'Tage-Knöpfen etwa in die MITTE der Reise legen, dann NORMAL drehen – die Zahl zeigt dir die Richtung.'
+             : 'Ziel: unter '+fmtBig(tb.soi)+' (Einflusssphäre). Knoten [K] auf den Zündpunkt legen und '+
+               'Prograde hochdrehen; den Rest holt eine Korrektur unterwegs.'))+
+        '</small>';
+    }
+    return out;
   },
   /* Bahnneigung zum Äquator (0° = äquatorial, 90° = polar; Richtung egal) */
   orbitInc(){
@@ -12331,6 +12591,7 @@ const Flight = {
   },
   removeNode(){
     this.node = null; this.nodeDir = null; this.nodeSnap = null;
+    this._encStart = null; this._encAt = 0;
     this.nodeRelY = this.nodePlannedInc = undefined;
     if(this.sas==="node") this.sas = "off";
     this.nodeTrajLine.visible = this.nodeTrajLine2.visible = false;
@@ -12340,11 +12601,13 @@ const Flight = {
   nodeAdj(axis, amount){
     if(!this.node) return;
     this.node[axis] += amount;
+    this._encAt = 0;                 // Begegnung sofort neu rechnen
     this.updateNodeUI();
   },
   nodeShift(sec){
     if(!this.node) return;
     this.node.t = Math.max(this.t+10, this.node.t+sec);
+    this._encAt = 0;
     this.updateNodeUI();
   },
   nodeDvTotal(){
@@ -13081,6 +13344,7 @@ const Flight = {
     if(!this.map){
       this.trajLine2.visible = this.nodeTrajLine2.visible = false;
       this.ghostMesh.visible = this.ghostRing.visible = false;
+      this.encMarker.visible = false;
     }
     this.camDist = this.map ? LEIBNIZ.R*3.2 : Math.max(35, this.height()*2.2);
   },
@@ -13612,8 +13876,35 @@ const Flight = {
       const eL = this.vel.clone().sub(bodyVel(LEIBNIZ,this.t)).lengthSq()/2 - LEIBNIZ.mu/rL;
       if(eL >= 0 && !this._escWarned && !this.landed){
         this._escWarned = true;
-        this.showMsg("⚠️ FLUCHTGESCHWINDIGKEIT! Du verlässt Leibniz Richtung Sonnenorbit – RETROGRADE bremsen!",5);
+        // Mit gewähltem Reiseziel ist das kein Unfall, sondern der Plan –
+        // dann keine Bremsansage, sondern die Kursmeldung.
+        const tb = this.target && this.target.kind==="body" ? this.target.body : null;
+        this.showMsg(tb
+          ? "🚀 FLUCHTGESCHWINDIGKEIT – du verlässt Leibniz auf Sonnenbahn. Kurs auf "+tb.name+
+            ": Karte [M] öffnen und die Begegnung feinjustieren!"
+          : "⚠️ FLUCHTGESCHWINDIGKEIT! Du verlässt Leibniz Richtung Sonnenorbit – RETROGRADE bremsen!",5);
       } else if(eL < -1e4) this._escWarned = false;
+    }
+    /* SOI-Wechsel: Zeitraffer drosseln.
+       ⚠️ Bei 100 000× vergehen pro Bildschirm-Sekunde 28 Stunden – ein
+       Vorbeiflug an Minzi (Durchflugzeit durch die Sphäre ~3,6 h) wäre in
+       drei Frames vorbei, das Einfangbrennen verpasst man garantiert. KSP
+       macht an dieser Stelle dasselbe. */
+    {
+      const bNow = this.body();
+      if(this._soiBody && bNow !== this._soiBody && !this.landed){
+        // ⚠️ Gebremst wird nur beim ANKOMMEN an einem Körper. Wer nach außen
+        // ins freie Sonnenfeld fliegt, hat danach Wochen Reise vor sich – ihm
+        // den Zeitraffer wegzunehmen wäre reine Schikane.
+        const iMax = WARPS.indexOf(100);
+        const braked = bNow !== SUN && this.warpI > iMax;
+        if(braked) this.warpI = iMax;
+        this.showMsg(bNow === SUN
+          ? "🌐 Leibniz' Einflussbereich verlassen – du fliegst jetzt frei um die Sonne!"
+          : "🌐 Einflusssphäre von "+bNow.name+" erreicht!"+
+            (braked ? " Zeitraffer auf 100× gedrosselt." : ""), 5);
+      }
+      this._soiBody = bNow;
     }
     const oAlt = rL - LEIBNIZ.R;
     if(oAlt > this.statMaxAlt) this.statMaxAlt = oAlt;
@@ -14057,6 +14348,62 @@ const Flight = {
     lineB.visible = cB > 1 && this.map;
     return {ghost, pMin, pMax};
   },
+  /* ---------- Dichteste Annäherung ans Ziel (»Closest Approach«) ----------
+     DAS ist das Werkzeug, mit dem man einen interplanetaren Kurs überhaupt
+     treffen kann: Prograde am Knoten hochdrehen und zusehen, wie die Zahl
+     fällt. Ohne sie fliegt man ins Schwarze – Minzis Einflusssphäre ist
+     6 060 km groß, die Bahn 6,9 Mio. km lang.
+
+     ⚠️⚠️ Bewusst eine EIGENE Integration statt eines Nebenprodukts von
+     traceOrbit: Die gezeichnete Linie muss den Parkorbit fein auflösen
+     (600 Punkte auf einen 40-Minuten-Umlauf), die Suche dagegen 75 TAGE
+     überblicken. Beides zusammen geht mit fester Schrittweite nicht. Hier
+     wächst die Schrittweite deshalb mit dem örtlichen Zweikörper-Umlauf
+     (wie `maxDt` in frame()): am Planeten fein, im Sonnenraum grob.
+     ⚠️ Läuft gedrosselt (s. predict) – 4 ms pro Frame wären zu teuer. */
+  findEncounter(p0, v0, t0, tb, horizon){
+    let p = p0.clone(), v = v0.clone(), t = t0;
+    let d = Infinity, bt = 0, bp = null, prev = null, best = null;
+    const tEnd = t0 + horizon;
+    /* Schrittweiten-Deckel: klein genug, dass die Sonnenbahn über Monate
+       nicht wegdriftet (der Fehler von RK2 wächst mit dt²), groß genug, dass
+       4200 Schritte bis zum Ziel reichen. */
+    const capDt = Math.min(12000, Math.max(600, horizon/1200));
+    for(let i=0;i<4200 && t<tEnd;i++){
+      const b = this.bodyAt(p, t);
+      const r = Math.max(1e3, p.distanceTo(bodyPos(b, t)));
+      const localT = 2*Math.PI*Math.sqrt(r*r*r/b.mu);
+      const dt = Math.max(2, Math.min(capDt, localT/400, tEnd-t));
+      const st = {p:p.clone(), v:v.clone(), t};
+      const a1 = this.accel(p, t);
+      const pm = p.clone().addScaledVector(v, dt/2);
+      const a2 = this.accel(pm, t+dt/2);
+      p.addScaledVector(v, dt).addScaledVector(a1, dt*dt/2);
+      v.addScaledVector(a2, dt); t += dt;
+      const dd = p.distanceTo(bodyPos(tb, t));
+      if(dd < d){ d = dd; bt = t; bp = p.clone(); prev = st; best = dt; }
+      if(p.length() < SUN.R) break;
+      if(MOONS.some(m=>p.distanceTo(bodyPos(m,t)) < m.R*0.98)) break;
+    }
+    /* Feinsuche um das grobe Minimum: Im Sonnenraum liegen zwei Schritte
+       ~60 000 s auseinander, das Schiff legt dazwischen 600 000 km zurück –
+       ohne Nachrechnen meldet die Anzeige »weit daneben«, obwohl der Kurs
+       mitten durch die Sphäre führt. */
+    if(prev){
+      let p2 = prev.p.clone(), v2 = prev.v.clone(), t2 = prev.t;
+      const nf = 200, d2 = 2*best/nf;
+      for(let i=0;i<nf;i++){
+        const a1 = this.accel(p2, t2);
+        const pm = p2.clone().addScaledVector(v2, d2/2);
+        const a2 = this.accel(pm, t2+d2/2);
+        p2.addScaledVector(v2, d2).addScaledVector(a1, d2*d2/2);
+        v2.addScaledVector(a2, d2); t2 += d2;
+        const dd = p2.distanceTo(bodyPos(tb, t2));
+        if(dd < d){ d = dd; bt = t2; bp = p2.clone(); }
+      }
+    }
+    return bp ? {body:tb, d, t:bt, pos:bp} : null;
+  },
   /* Geisterkörper an der Begegnungsstelle einblenden (nur Kartenansicht). */
   showGhost(g){
     const on = !!g && this.map;
@@ -14111,8 +14458,19 @@ const Flight = {
           nt = nSrc?nSrc.t:this.t;
       const span = this.node.t - nt;
       const ndt = Math.max(0.5, span/400);
-      while(nt < this.node.t){
-        const d = Math.min(ndt, this.node.t-nt);
+      /* ⚠️ Seit es Tage-Schritte am Knoten gibt (Bahnkorrektur unterwegs),
+         kann `span` Wochen betragen. Mit span/400 wären das 8000-s-Schritte –
+         steht das Schiff dabei noch in einem 40-Minuten-Parkorbit, ist die
+         Vorhersage danach reine Fantasie. Deshalb zusätzlich an den ÖRTLICHEN
+         Umlauf gekoppelt, aber mit einer Untergrenze, damit die Schleife nie
+         mehr als ~2200 Schritte pro Frame läuft. */
+      const nMin = span/2200;
+      let guard = 0;
+      while(nt < this.node.t && guard++ < 2400){
+        const nb = this.bodyAt(np, nt);
+        const nr = Math.max(1e3, np.distanceTo(bodyPos(nb, nt)));
+        const nloc = 2*Math.PI*Math.sqrt(nr*nr*nr/nb.mu);
+        const d = Math.min(this.node.t-nt, Math.max(nMin, Math.min(ndt, nloc/150)));
         const a1 = this.accel(np,nt);
         const pm2 = np.clone().addScaledVector(nv, d/2);
         const a2 = this.accel(pm2, nt+d/2);
@@ -14183,16 +14541,56 @@ const Flight = {
       // Auch die GEPLANTE Bahn läuft über traceOrbit – gleiche Patch-Logik,
       // gleicher Geister-Anker. Ein eigener Geist wird nur gezeigt, wenn die
       // ORANGE Bahn keinen liefert (sonst stünden zwei Monde übereinander).
+      // Die Begegnungs-Suche startet NACH dem geplanten Brennvorgang – sonst
+      // sucht sie den Kurs, den man gerade verlassen will.
+      this._encStart = {p:pp.clone(), v:pv.clone(), t:pt};
       const tr2 = this.traceOrbit(this.nodeTrajLine, this.nodeTrajLine2, pp, pv, pt, tot2, n2, false);
       if(tr2.ghost && !tr.ghost) this.showGhost(tr2.ghost);
       this.nodeTrajLine.visible = true;
       this.updateNodeUI();
     } else if(this.node){
-      // Knotenzeit überschritten: Richtung beibehalten, Vorschau einfrieren
+      // Knotenzeit überschritten: Richtung beibehalten, Vorschau einfrieren.
+      // ⚠️ Der Startpunkt der Begegnungs-Suche muss trotzdem weg – sonst
+      // sucht sie weiter von einem Brennvorgang aus, den es nie gab.
+      this._encStart = null;
       this.updateNodeUI();
     } else {
+      this._encStart = null;
       this.nodeMarker.visible = false;
       this.nodeTrajLine.visible = this.nodeTrajLine2.visible = false;
+    }
+    this.updateEncounter();
+  },
+  /* Begegnungs-Marker in der Karte + `this.encounter` fürs HUD.
+     ⚠️ GEDROSSELT auf 5×/s: Die Suche integriert bis zu 4200 Schritte
+     (~4 ms) – jeden Frame wäre das ein Viertel des Bildbudgets, obwohl sich
+     in 200 ms nichts Sichtbares ändert. `nodeAdj`/`nodeShift` setzen den
+     Zeitstempel zurück, damit ein Klick am Knoten sofort wirkt. */
+  updateEncounter(){
+    const tb = this.target && this.target.kind==="body" ? this.target.body : null;
+    if(!tb || !this.map || this.body() === tb){
+      this.encounter = null; this.encMarker.visible = false; return;
+    }
+    const now = performance.now();
+    if(now - (this._encAt||0) > 200){
+      this._encAt = now;
+      const src = this._encStart || {p:this.pos, v:this.vel, t:this.t};
+      const tw = this.transferWindow(tb);
+      // Horizont: gut die anderthalbfache Hohmann-Flugzeit – so weit MUSS
+      // die Suche schauen, sonst findet sie die Begegnung nie.
+      const hor = Math.min(6e7, Math.max(6*3600, (tw ? tw.tT : 1.2e7)*1.6));
+      this.encounter = this.findEncounter(src.p, src.v, src.t, tb, hor);
+    }
+    const e = this.encounter;
+    // Vom Weltpunkt in den GEZEICHNETEN Rahmen (gleiche Anker-Logik wie in
+    // traceOrbit: Patch um den Mutterkörper an seiner echten Stelle,
+    // Abstieg in einen Mond an der Geisterstelle).
+    const show = !!e && this.map;
+    this.encMarker.visible = show;
+    if(show){
+      const fb = this.bodyAt(e.pos, e.t);
+      this.encMarker.position.copy(e.pos).sub(bodyPos(fb, e.t)).add(this.anchorFor(fb, e.t));
+      this.scaleMarker(this.encMarker, this.camDist*0.045);
     }
   },
   /* ---------- Ozean-Uniforms (einmal pro Frame, ~20 Zuweisungen) ----------
@@ -14870,6 +15268,26 @@ const Flight = {
         this.scaleMarker(ao.marker, ams);
       }
     }
+    /* Sonne, Planeten & Monde: Kartenmarker.
+       ⚠️ ENTKLUMPEN: Ein Mond, der aus dieser Entfernung optisch auf seinem
+       Planeten sitzt, bekommt keinen eigenen Marker – sonst kleben in der
+       Gesamtsystem-Ansicht »Huygens«, »Cassini«, »Herschel« und »Ada« als
+       vier Beschriftungen auf demselben Punkt. Die Schwelle ist der Marker
+       selbst (Sprite-Höhe = ms/2): Wer weiter als ~2,5 Markerhöhen von
+       seinem Planeten weg steht, kriegt eine eigene Fahne. Beim Ranzoomen
+       tauchen die Monde damit von allein auf. */
+    if(this.bodyMarkers){
+      const bms = (this._cd||this.camDist)*0.042;
+      for(const bm of this.bodyMarkers){
+        const b = bm.b;
+        let show = this.map && (b===SUN || bodyKnown(b));
+        const bp = b===SUN ? V3(0,0,0) : bodyPos(b, this.t);
+        if(show && b.parent && b.parent!==SUN)
+          show = bp.distanceTo(bodyPos(b.parent, this.t)) > bms*1.3;
+        bm.marker.visible = show;
+        if(show){ bm.marker.position.copy(bp); this.scaleMarker(bm.marker, bms); }
+      }
+    }
     // Missions-Zielorbits (blau/grün) aktualisieren
     this.updateGoalRings(this.orbit());
     if(this.eva){
@@ -14926,6 +15344,7 @@ const Flight = {
     else {
       this.apMarker.visible = this.peMarker.visible = false;
       this.nodeMarker.visible = false;
+      this.encMarker.visible = false;
       this.nodeTrajLine.visible = this.nodeTrajLine2.visible = false;
     }
     // Kamera (relativ zum Ursprung, mit sanfter Zoom-Glättung)
@@ -15290,10 +15709,13 @@ const Flight = {
     // ⚠️ NICHT targetList() aufrufen – updateButtons läuft pro Frame und würde
     // sonst pro Ziel zwei Closures wegwerfen. Zählen reicht.
     const onPad = this.landed && !this.flew;
+    // 🎯 Ziel: bei Tankern in der Nähe – und im Flug immer, sobald ein
+    // Bordcomputer an Bord ist (dann gibt es Planeten-Ziele zu wählen).
     show("btnTarget", !evaGround && !this.docked &&
-      (!!this.tutTanker || (Game.assets||[]).some(a=>a.kind==="tanker" && a.body==="LEIBNIZ")));
+      (!!this.tutTanker || (!this.landed && this.hasNavComp()) ||
+       (Game.assets||[]).some(a=>a.kind==="tanker" && a.body==="LEIBNIZ")));
     const bt = document.getElementById("btnTarget");
-    if(bt){ const lbl = onPad ? "🎯 Ziel [Z]" : "🎯 Ziel [⇧Z]"; if(bt.textContent!==lbl) bt.textContent = lbl; }
+    if(bt && bt.textContent!=="🎯 Ziel [Z]") bt.textContent = "🎯 Ziel [Z]";
     show("btnModul", !Game.sandbox && has("dock"));
     show("btnBay", has("bay"));
     show("btnExp", has("lab"));
@@ -15376,7 +15798,7 @@ const Flight = {
     document.getElementById("hudRight").innerHTML = `
       <b style="color:var(--orange)">⏩ Zeitraffer: ${WARPS[this.warpI]}×</b><br>
       <small style="color:var(--muted)">W/S nicken · A/D gieren · Q/E rollen<br>
-      ↑/↓ Schub · Z voll · X aus · T = SAS<br>⇧Z = Ziel wählen · Maus = Kamera · Rad = Zoom</small>
+      ↑/↓ Schub · ⇧X voll · X aus · T = SAS<br>Z = Ziel wählen · Maus = Kamera · Rad = Zoom</small>
       ${this.sas!=="off"?'<br><b style="color:var(--green)">SAS: '+(this.sas==="pro"?"PROGRADE ▲":"RETROGRADE ▼")+'</b>':""}
       <br>⚡ ${this.charge.toFixed(0)}/${this.maxCharge}${this.panelsOut?(this.solarLit>0.05?" ☀️":' <span style="color:var(--muted)">🌑 Schatten</span>'):""}${this.powerDead?' <b style="color:var(--red)">STROM LEER</b>':""}
       ${this.infinite?'<br><b style="color:var(--green)">∞ Endlos-Treibstoff</b>':""}
@@ -15410,13 +15832,15 @@ const Flight = {
               (hot ? '<b style="color:var(--green)">🚀 STARTFENSTER OFFEN – JETZT STARTEN!</b>'
                    : '⏰ Startfenster um <b>'+this.clockStr(tw)+'</b> Uhr <small>(in '+Math.round(wait)+' s · [.] vorspulen)</small>');
           } else out += '<br><small style="color:var(--muted)">[Z] = Orbit-Ziel wählen → Startfenster-Ansage</small>';
+        } else if(this.target && this.target.kind==="body"){
+          out += this.travelPanel(this.target.body);
         } else if(this.target && !this.docked){
           const tp = this.target.pos(this.t), tv = this.target.vel(this.t);
           const d = this.pos.distanceTo(tp), rv = this.vel.distanceTo(tv);
           out += '<br>🎯 '+this.target.name+': <b>'+(d>=10000?(d/1000).toFixed(1)+" km":d.toFixed(0)+" m")+
             '</b> · rel. <b>'+rv.toFixed(1)+' m/s</b>'+
             '<br><small style="color:var(--muted)">'+this.targetInfo(this.target)+
-            ' <span style="opacity:.8">· [⇧Z] Ziel wechseln</span></small>';
+            ' <span style="opacity:.8">· [Z] Ziel wechseln</span></small>';
           let tip = "";
           if(d < 200) tip = '<b style="color:var(--green)">[L] – der Docking-Autopilot übernimmt!</b>';
           else if(d < 20000) tip = "Nase aufs ROSA ✛ halten + Schub geben – es führt dich automatisch hin";

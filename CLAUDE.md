@@ -488,7 +488,85 @@ alle Meshes standen in der Szene. Jetzt:
 
 ## Raumstation »Große Pause«
 `STATION` + `stationPos(t)`/`stationVel(t)`: exakter 100-km-Kreisorbit um Leibniz (on rails), immer da (Karriere/Sandbox/Tutorial). Docking: Part `dock`, Taste **[L]**: < 30 m & < 3 m/s = sofort; **30–200 m (rel < 25 m/s) = Docking-Autopilot** `autoDock`/`updateAutoDock` (RCS-Magie: Sollgeschw. min(3, d/25) auf die Station zu, dockt < 26 m via `dockNow()`; [L] bricht ab; übersteuert Handsteuerung, Warp≤2, Abbruch > 500 m). Angedockt = `Flight.docked`: Schiff folgt Station on rails (`dockOffset`). SAS-Modus `"tgt"` (ZIEL-BREMSE, < 50 km) bremst relativ zum **gewählten Ziel** (sonst Station). Türkiser ◆-Navball-Marker < 50 km (folgt `Flight.target`), HUD-Zielzeile < 400 km, Kartenmarker »Große Pause«. **Rosa ✛ = Anflug-Assistent** (drawNavball, 40 m–50 km): optimale Brennrichtung `norm(dirZiel·vWant − relVel)` mit `vWant=clamp(d/60, 2, 45)` – Nase draufhalten + Schub = automatisch lenkendes UND bremsendes Rendezvous ohne Vorbeischießen (getestet: 3 km→190 m in ~3,5 min, Ankunft 3,5 m/s). Rendezvous-Tutorial nutzt NUR noch das ✛ (keine ZIEL-BREMSE-Choreografie mehr).
-- **Orbit-Ziele & Startfenster:** Auf der Rampe wählt **[Z]** Ziele durch (NUR auf der Äquator-Rampe "eq" – sonst Guard in `cycleTarget` + HUD-Hinweis; `Flight.target` via `targetList()` = Station + geparkte LEIBNIZ-Tanker; im Flug bleibt Z=Vollgas!). `nextLaunchWindow(tg)`: Rampe ist inertial fix, Fenster = Ziel bei **2π−0.52 + `padStationAngle(pad)`** (≈30° hinter der Rampe; seit der prozeduralen Küstensuche liegt die Rampe nicht mehr bei Länge 0! Verifiziert: Ziel steht beim Start auf 330,2°). `clockStr(t)` = Spieluhr ab 08:00 (HUD "Uhrzeit"). `launchWindowMiss` wird in **`stage()`** gesetzt (NICHT im step-landed-Zweig – stage() setzt landed/flew selbst!). HUD rechts: Pad = Countdown/"FENSTER OFFEN", Flug = Phasenwinkel-Tipps (voraus→niedriger fliegen, hinten→höher). `canWarp`: auf der Rampe (landed) voller Warp. Tutorial id "launchwindow" (Start→Fenster→Orbit→Phase→Autopilot-Docking).
+- **Orbit-Ziele & Startfenster:** Auf der Rampe wählt **[Z]** Ziele durch (NUR auf der Äquator-Rampe "eq" – sonst Guard in `cycleTarget` + HUD-Hinweis; `Flight.target` via `targetList()` = Station + geparkte LEIBNIZ-Tanker, im Flug dazu Planeten/Monde mit Bordcomputer). `nextLaunchWindow(tg)`: Rampe ist inertial fix, Fenster = Ziel bei **2π−0.52 + `padStationAngle(pad)`** (≈30° hinter der Rampe; seit der prozeduralen Küstensuche liegt die Rampe nicht mehr bei Länge 0! Verifiziert: Ziel steht beim Start auf 330,2°). `clockStr(t)` = Spieluhr ab 08:00 (HUD "Uhrzeit"). `launchWindowMiss` wird in **`stage()`** gesetzt (NICHT im step-landed-Zweig – stage() setzt landed/flew selbst!). HUD rechts: Pad = Countdown/"FENSTER OFFEN", Flug = Phasenwinkel-Tipps (voraus→niedriger fliegen, hinten→höher). `canWarp`: auf der Rampe (landed) voller Warp. Tutorial id "launchwindow" (Start→Fenster→Orbit→Phase→Autopilot-Docking).
+
+## Interplanetare Reisen (`transferWindow` / `ejectionWait` / `findEncounter` / `travelPanel`)
+### Bordcomputer »Rechenknecht« (Teil `nav`, Tech `navcomp`, Flag `navcomp`)
+Die Transferrechnerei ist **an ein Bauteil gebunden**: `Flight.hasNavComp()` prüft, ob im
+Stack ein Teil mit `navcomp:true` steckt (`nav` – oder ein **Starship**, dort ist er ab Werk
+drin). Nur dann liefert `targetList()` überhaupt `kind:"body"`-Einträge, und nur dann gibt es
+Transferfenster, Zündpunkt und Begegnungsanzeige.
+- ⚠️ **Bewusst NICHT für Station/Tanker/Leibniz-Orbit.** Wer zur »Großen Pause« will, soll
+  nicht an einer Technologie hängen – das ist der Kern des frühen Spiels. Der Computer
+  schaltet ausschließlich die *fremden Welten* frei (auch Monti; braucht man dort selten,
+  aber die Regel bleibt so einfacher erklärbar).
+- Tech `navcomp` (55 🧪, req `advProp`+`mission2`) liegt damit in **Spalte 4**, derselben wie
+  »Erkundung« (Spalte = Abhängigkeitstiefe, s. `renderTech`). ⚠️ Der Nebenverdienst
+  `jobBlueprints` hängt an der festen id-Liste crewed+payload+heavy+explore – der neue Knoten
+  ändert daran nichts (Beschreibung dort meint diese vier, nicht »alles in der Spalte«).
+- ⚠️ `type:"computer"` gehört in **`BAY_FITS`** (passt in Servicebuchten) und in
+  `CATS`→`elec`. Gegenprobe nach jeder Teile-Änderung: Summe der `CATS[].ids` muss
+  `Object.keys(PARTS)` sein (getestet: 51/51). `bluntOf` braucht keinen Eintrag – der
+  Standard 0,95 (flache Stirn) stimmt; in einer Bucht wird daraus ohnehin `bayCap`.
+- Wer ohne Computer [Z] bis ans Listenende durchdrückt, bekommt den Hinweis, dass es
+  Planeten-Ziele gibt und woran es fehlt – sonst wäre die Sperre unsichtbar.
+
+»Ich wollte nach Minzi, blähe den Leibniz-Orbit auf, erreiche Fluchtgeschwindigkeit – und
+lande in einem Sonnenorbit, der Minzi nie trifft« (Bug-Report Simon). Das war kein Physik-
+Fehler: Der Weg war da, es fehlte jedes WERKZEUG, ihn zu treffen. Vier Bausteine, zusammen
+die Antwort auf »wie macht KSP das?«:
+1. **Planeten & Monde sind ZIELE** (`targetList()` liefert `kind:"body"`, nur im Flug, nur
+   `bodyKnown` und nur mit **Bordcomputer** an Bord; der Körper, in dessen Sphäre man steckt,
+   fehlt bewusst). Taste [Z].
+2. **`transferWindow(tb)`** – Hohmann: `a=(r1+r2)/2`, Flugzeit `tT=π√(a³/µ)`, Sollphase
+   `θ=π−ω_Ziel·tT`, Wartezeit aus der relativen Winkelgeschwindigkeit. Zwei Fälle, EINE
+   Formel: Ziel umkreist unseren Körper (Leibniz→Monti, das SCHIFF ist Abflugkörper) bzw.
+   Nachbarplanet (Leibniz→Minzi, dann kommt über `√(v∞²+v_flucht²)` die Fluchthyperbel
+   dazu). Verifiziert Leibniz→Minzi: Δv 1002 m/s, v∞ 896 m/s, Flugzeit 74,8 d, synodisch
+   231,8 d – von Hand nachgerechnet identisch.
+3. **`ejectionWait`** – der »Ejection Angle« der KSP-Foren: Zwischen Zündpunkt und
+   Sphärenrand dreht das Schiff auf der Hyperbel noch um `ν∞=arccos(−1/e)` weiter, der Burn
+   muss also um ν∞ VOR der Bahnrichtung des Planeten liegen. ⚠️ Ohne das zeigt der schönste
+   1000-m/s-Burn in die falsche Ecke des Sonnensystems. HUD zeigt daraus EINE Zahl:
+   »Zündung in …« (Fenster + Zündpunkt zusammengerechnet).
+4. **`findEncounter`** – dichteste Annäherung ans Ziel, türkiser Marker »Begegnung« + HUD.
+   Das ist das Werkzeug zum Treffen: Knotenwert drehen, Zahl fallen sehen.
+
+⚠️⚠️ **Ein reiner Hohmann trifft Minzi NICHT – und das ist Physik, kein Bug.** Minzis Bahn
+ist 3° geneigt; bei der Ankunft steht der Planet ~950 000 km neben der Ekliptik, das Schiff
+aber bei y≈0. Gegenprobe: Ein Normal-Δv beim ABFLUG bringt fast nichts (gemessen 977 000 →
+922 000 km), denn nach genau einem halben Umlauf ist die Bahnebenen-Auslenkung wieder null –
+Abflug- und Ankunftspunkt liegen beide auf der Knotenlinie. Lösung ist die **Bahnkorrektur
+unterwegs** (echte Raumfahrt macht es genauso, »broken plane maneuver«): Knoten auf halbem
+Weg, ~430 m/s NORMAL. Nachgemessen über die echte Spiel-Schleife (Knoten + `predict()` +
+`this.encounter`, 84 »Klicks« Koordinatenabstieg): 950 606 km → **1 713 km**, also klar
+innerhalb der 6 066-km-Sphäre. Budget der Testrakete: 1002 (Ejection) + 405 (Korrektur) +
+~800 (Einfang) gegen 3721 m/s Δv.
+- Deshalb im HUD zwei verschiedene Tipps, je nachdem ob man noch im Parkorbit sitzt oder
+  schon im Sonnenraum unterwegs ist (`travelPanel`, `enRoute`).
+- ⚠️ **Dazu gehören die neuen Knopf-Reihen im Knoten-Panel**: **±100 m/s** (1000 m/s in
+  10er-Schritten wären 100 Klicks) und **Zeitpunkt ±10 min/±1 h/±1 d/±10 d** – ohne
+  Tage-Schritte ist ein Knoten in der Mitte einer 75-Tage-Reise unerreichbar. Panelbreite
+  dafür 230 → 268 px.
+- ⚠️ `predict()` propagiert bis zum Knoten jetzt mit **an den örtlichen Umlauf gekoppelter**
+  Schrittweite (`nloc/150`, Untergrenze `span/2200`): Mit dem alten festen `span/400` wären
+  das bei einem Knoten in 37 Tagen 8000-s-Schritte – im 40-Minuten-Parkorbit ist die
+  Vorhersage damit reine Fantasie.
+- ⚠️⚠️ **`findEncounter` ist bewusst eine EIGENE Integration, kein Nebenprodukt von
+  `traceOrbit`.** Die gezeichnete Linie muss den Parkorbit fein auflösen (600 Punkte auf
+  40 Minuten), die Suche dagegen 75 TAGE überblicken – mit fester Schrittweite geht beides
+  nicht zusammen. Hier wächst die Schrittweite mit dem örtlichen Zweikörper-Umlauf
+  (`localT/400`, Deckel `horizon/1200`, max 12 000 s), plus **Feinsuche** (200 Schritte um
+  das grobe Minimum): Im Sonnenraum liegen zwei grobe Punkte 200 000 km auseinander, die
+  Sphäre ist 6 066 km groß – ohne Nachrechnen meldet die Anzeige »weit daneben«, obwohl der
+  Kurs mitten hindurchführt. Gedrosselt auf 5×/s (`_encAt`; `nodeAdj`/`nodeShift` setzen den
+  Zeitstempel zurück, damit ein Klick sofort wirkt). Gemessen 14 ms pro Suche.
+- **SOI-Wechsel bremst den Zeitraffer** auf 100× und meldet sich. ⚠️ Nur beim ANKOMMEN an
+  einem Körper – wer nach außen ins freie Sonnenfeld fliegt, hat Wochen Reise vor sich und
+  bekommt nur die Meldung. Bei 100 000× vergehen sonst 28 h pro Bildschirmsekunde und der
+  Vorbeiflug (Durchflugzeit durch Minzis Sphäre ~3,6 h) ist in drei Frames vorbei.
+- Die Fluchtgeschwindigkeits-Warnung sagt mit gewähltem Reiseziel nicht mehr »RETROGRADE
+  bremsen!«, sondern meldet den Kurs – dort ist das Verlassen ja der Plan.
 
 ## Sandbox-Direktstart im Orbit (`Game.startMode` / `Flight.spawnInOrbit`)
 Wähler »Startart« ganz oben im VAB-Info-Panel, **nur im Sandbox-Modus** sichtbar
@@ -662,9 +740,8 @@ näher an die Kamera holen), nicht ein zweites System danebenstellen.
 ### Orbitale Tankstellen (`checkTanker` / `pumpFromAsset` / `pumpToAsset`)
 Ein geparkter Tanker heißt **»Tanker ⛽ #1«, »#2« …** (`nextTankerName()` vergibt die
 KLEINSTE freie Nummer, ein verbrauchter gibt seine Nummer wieder her) und ist wie die
-Station über `targetList()` anwählbar: **[Z] auf der Rampe, [⇧Z] im Flug** (plain [Z] bleibt
-im Flug Vollgas – Muskelgedächtnis mitten im Brennvorgang und Partner von [X]); dazu der
-Knopf »🎯 Ziel«. `targetInfo(tg)` liefert Ap/Pe (⚠️ alles läuft on rails auf KREISBAHNEN,
+Station über `targetList()` anwählbar: **[Z]** (überall – Vollgas liegt seit August 2026 auf
+⇧X, s. Tastenkürzel); dazu der Knopf »🎯 Ziel«. `targetInfo(tg)` liefert Ap/Pe (⚠️ alles läuft on rails auf KREISBAHNEN,
 Ap = Pe – die Zeile sagt das auch so) und beim Tanker den **Restsprit, live aus
 `Game.assets`** statt aus dem targetList-Schnappschuss.
 - ⚠️⚠️ **Umgepumpt wird, was wirklich da ist.** Vorher machte JEDER Tanker die Tanks
@@ -760,6 +837,18 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
     Auto-Cutoff bei exakt 600 von 600 m/s · 90° daneben friert korrekt NICHT ein.
     ⚠️ `nodeDir` kann null sein, wenn nie eine Karte offen war – Guard nicht entfernen.
 - **Kartenmarker:** `mkMarker(txt,color)` legt den farbigen Punkt EXAKT ins Sprite-Zentrum (= Objektposition), Label rechts daneben; Breite dynamisch (`userData.aspect`), skalieren NUR über `Flight.scaleMarker(m,ms)`. Stationsmarker heißt »Große Pause« (nicht mehr "ISS").
+- ⚠️ **Sonne, Planeten und Monde haben eigene Marker** (`Flight.bodyMarkers`, Farbe aus
+  `shade2D[0]`, Faktor `cd*0.042`). Vorher zeigte die Karte von einem Planeten nur die
+  BAHNLINIE – wo er darauf gerade steht, ist bei 1e11 Zoom nicht zu sehen (seine Kugel ist
+  ein Zehntelpixel). Damit ließ sich kein Flug timen, und genau das ist die Kernfrage jeder
+  interplanetaren Reise (Bug-Report Simon). Gezeigt wird nur, was auch ENTDECKT ist
+  (`bodyKnown`) – der ???-Nebel gilt hier wie im Universum-Bildschirm; die Bahnlinien
+  (`moonRings`) bleiben bewusst unverändert sichtbar, sonst verschwände die Anflughilfe der
+  Kleinkörper-Missionen.
+  ⚠️ **Entklumpen:** Ein Mond, der aus der aktuellen Entfernung optisch auf seinem Planeten
+  sitzt (Abstand < 1,3 Markerhöhen), bekommt KEINEN eigenen Marker – sonst kleben in der
+  Gesamtsystem-Ansicht »Huygens«, »Cassini«, »Herschel« und »Ada« auf einem Punkt. Beim
+  Ranzoomen tauchen sie von allein auf.
 
 ## Bauteile & Stack
 `PARTS` (Reihenfolge im Stack: Index 0 = SPITZE; die Zuordnung zu den Rubriken der Teileliste steht in `CATS[].ids`, NICHT mehr als `cat`-Feld am Teil – s. »Teileauswahl im KSP-Stil«). **Radialteile** (`isRadial`: fin, sb2/sb4, gridfin, **legs**) belegen KEINE Stack-Höhe (`stackHeight()` statt Summe!) und werden in `buildRocketGroup` an den benachbarten Tank montiert (`radialHost`: erst darunter, dann darüber; `buildPartMesh(id, {r,h})`). **Sidebooster = Pool PRO STUFE** (`seg.boost` in buildVessel, kein globales v.boost mehr!): zünden mit IHRER Stufe (Zündung/Stufentrennung setzt `n.boost.ignited`) oder [R] (aktive Stufe), [J] wirft NUR die Booster der aktiven Stufe ab (nächstes [J] nach der Trennung = nächste Stufe); abgeworfene Stufen nehmen ihren Pool automatisch mit (hängt am Segment). Physik/HUD/Gauge/Flammen lesen `activeSeg().boost`; Flammen von Oberstufen-Boostern via `bflame.userData.upper` aus (gesetzt in buildRocketGroup, wenn Decoupler darunter). Trümmer-Mesh = `buildStrapOnMesh(strapOnHeight(stack,i))` – NICHT das srb-Mesh (Formwechsel-Bug). Servicebuchten (`bayCoverage()`): `bay` = »M« verkleidet 2 Teile darüber, `bayS` 1 (`PARTS[..].covers`) – aber NUR Typen aus `BAY_FITS` (battery/solar/probe/antenna/lab), sonst "verschluckt" die Bucht z. B. Oberstufen-Triebwerke; geschlossene Bucht schützt Solarpanele vor Fahrtwind, [G] öffnet sie automatisch mit. Oberstufen-Triebwerke (Decoupler darunter) kriegen `flame.userData.idle` – `setFlames` lässt sie aus, bis sie unterste Stufe sind. VAB-Info: Seitenbooster zählen zu Gesamtmasse + TWR IHRER Stufe (nicht Δv, `segBoost[]`); jede Stufe zeigt Leergewicht, **Kosten (🪙 + Anteil an der Rakete, plus Notiz »mit Gitterflossen bergbar«)** und Δv/TWR, Rakete gesamt »Leergewicht (Tanks leer)«. Die Stufenkosten sind die entscheidende Zahl für Reusability-Builds: Erstattet wird immer nur der gelandete Reststack (`settleCrewAndAssets`) bzw. der geborgene Booster (`b.value = stackCost(debrisStack)`). Solarflügel (`name:"wing"`) starten eingefahren (scale.x 0.1) – für Orbit-Sats `deployWings()`. Fairing verkleidet alles darüber.
@@ -1180,7 +1269,14 @@ innerhalb der Atmosphäre. Auf dem Boden: W/A/S/D laufen (kamerarelativ, 3,5 m/s
   nie). `updateButtons` blendet `btnFlag`/`btnFairing` gegenseitig aus.
 
 ## Tastenkürzel
-Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · K Knoten · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp · WASD/QE drehen · ↑↓ Schub · **Z auf Rampe = Orbit-Ziel wählen (nur Äquator-Rampe)**, im Flug Vollgas · **⇧Z im Flug = Orbit-Ziel wechseln (Station/Tanker, ohne Rampen-Guard)** · X Schub aus
+Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · K Knoten · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
+- ⚠️⚠️ **[Z] war bis August 2026 im Flug VOLLGAS und die Zielwahl brauchte ⇧Z** – »zu
+  umständlich und verwirrend« (Simon), weil dieselbe Taste je nach Flugzustand etwas völlig
+  anderes tat. Jetzt liegt der Schub komplett auf **[X]** (aus / ⇧ voll) und [Z] ist überall
+  die Zielwahl. Ein freier Buchstabe für Vollgas existiert nicht – **alle 26 sind belegt** –,
+  deshalb die Umschalt-Variante auf dem natürlichen Partner. Wer das nochmal anfasst: Die
+  Tastenhinweise stehen in `hudRight`, am `btnTarget`, in den INTRO/HINT-Texten von
+  index.html UND in tutorials.js (dort 7 Stellen »Vollgas«).
 
 ## Test-Workflow (immer so!)
 1. Preview: `preview_start` mit `lmg-space-program` (Port 8642).
