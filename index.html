@@ -8437,7 +8437,60 @@ const VAB = {
      Seitenbooster max. 1 Paket pro Stufe, Feststoffbooster (srb) max. 1 pro
      Stufe, Superheavy max. 1 pro Stufe (ein Booster IST eine ganze Stufe – zwei
      übereinander in EINEM Segment wären 52 t Gratis-Treibstoff). */
+  /* ---------- Δv einer Stufe MIT Seitenboostern ---------------------------
+     ⚠️⚠️ EIN Ziolkowski über alles wäre FALSCH, und die Booster wegzulassen
+     erst recht: Sie tragen Treibstoff UND schieben, also liefern sie sehr wohl
+     Δv (Bug-Report Simon – die Anzeige war mit und ohne Booster identisch).
+     Parallelstufung sind ZWEI Abschnitte:
+       1. Booster + Kern brennen gemeinsam. Gerechnet wird mit dem
+          GESAMTSCHUB und dem gemeinsamen Massenstrom, also mit einem
+          effektiven Isp – nicht mit dem Mittelwert der Isp-Werte, denn ein
+          220-s-Feststoffbooster verbraucht bei gleichem Schub deutlich mehr
+          Masse als ein 345-s-Vakuumtriebwerk.
+       2. Die leeren Booster werden ABGEWORFEN (ihre Leermasse fliegt mit weg,
+          genau das ist der Sinn der Sache) und der Kern brennt allein weiter.
+     Wessen Tank zuerst leer ist, entscheidet die Rechnung selbst; brennen die
+     Booster länger als der Kern, schieben sie den Rest allein.
+     Reine Zahlen als Argumente, damit Bauplan (VAB) und Restbestand im Flug
+     durch dieselbe Funktion laufen. */
+  stageDeltaV(o){
+    const mEnd = o.mEnd;
+    if(!(mEnd > 0)) return 0;
+    const mdotC = o.coreIsp > 0 ? o.coreThrust/(o.coreIsp*G0) : 0;
+    const mdotB = o.bIsp   > 0 ? o.bThrust  /(o.bIsp  *G0) : 0;
+    const tC = mdotC > 0 ? o.coreFuel/mdotC : 0;
+    const tB = mdotB > 0 ? o.bFuel   /mdotB : 0;
+    let m = mEnd + o.coreFuel + o.bDry + o.bFuel, dv = 0;
+    const burn = (dm, isp)=>{
+      if(!(dm > 0) || !(isp > 0) || dm >= m-1e-9) return;
+      dv += isp*G0*Math.log(m/(m-dm)); m -= dm;
+    };
+    const both = Math.min(tB, tC);
+    if(both > 0 && (mdotB+mdotC) > 0)
+      burn((mdotB+mdotC)*both, (o.bThrust+o.coreThrust)/((mdotB+mdotC)*G0));
+    if(tB > both){
+      burn(mdotB*(tB-both), o.bIsp);         // Kern leer, Booster schieben weiter
+      m -= o.bDry;                            // Abwurf
+    } else {
+      m -= o.bDry;                            // Booster leer & abgeworfen
+      if(tC > both) burn(mdotC*(tC-both), o.coreIsp);
+    }
+    return dv;
+  },
   capError(stack){
+    /* ⚠️ Zwei Triebwerke übereinander gibt es an keiner Rakete – die obere
+       Düse säße mitten im Tank der unteren, und `buildRocketGroup` malt genau
+       das auch so (Bug-Report Simon). Ein Triebwerks-Teil IST hier immer schon
+       das komplette Antriebspaket einer Stufe; Schub addieren geht über
+       größere Triebwerke, Booster oder eine echte zweite Stufe. */
+    if(this.segments(stack).some(sg=>sg.filter(x=>PARTS[x].type==="engine").length > 1))
+      return "Nur EIN Triebwerk pro STUFE! 🔥\n\n" +
+             "Zwei Triebwerke übereinander gibt es an keiner echten Rakete – die obere Düse " +
+             "säße mitten im Tank der unteren. Ein Triebwerk ist hier immer schon der " +
+             "komplette Antrieb einer Stufe.\n\n" +
+             "Mehr Schub: ein größeres Triebwerk nehmen, Seitenbooster oder einen " +
+             "Feststoffbooster anbauen – oder mit einem Stufentrenner eine echte zweite " +
+             "Stufe darüber bauen.";
     if(this.boostCapViolated(stack))
       return "Nur EIN Seitenbooster-Paket pro STUFE! 🚀\n\n" +
              "Ein Paket ist schon der ganze Kranz: »×2« sind zwei Booster, »×4« sind vier – " +
@@ -8701,11 +8754,13 @@ const VAB = {
       let boost = null;
       const bIds = s.filter(id=>PARTS[id].type==="sideboost");
       if(bIds.length){
-        boost = {dry:0, fuel:0, thrust:0, attached:true, ignited:false};
+        boost = {dry:0, fuel:0, thrust:0, isp:0, attached:true, ignited:false};
         for(const id of bIds){
           const p = PARTS[id];
           boost.dry += p.mass; boost.fuel += p.fuel; boost.thrust += p.thrust;
+          boost.isp += p.isp;            // gemittelt (max. EIN Paket pro Stufe)
         }
+        boost.isp /= bIds.length;
         boost.fuelLeft = boost.fuel;
       }
       return {parts:[...s], ...st, fuelLeft:st.fuel, srbLeft:st.srbFuel, ignited:false, boost};
@@ -8784,9 +8839,13 @@ const VAB = {
     // zählen voll zu Gesamtmasse und zum TWR IHRER Stufe
     const segBoost = segs.map(sg=>{
       const ids = sg.filter(id=>PARTS[id].type==="sideboost");
+      const sum = f => ids.reduce((a,id)=>a+f(PARTS[id]), 0);
       return {n: ids.length,
-        mass:   ids.reduce((a,id)=>a+PARTS[id].mass+PARTS[id].fuel,0),
-        thrust: ids.reduce((a,id)=>a+PARTS[id].thrust,0)};
+        dry:    sum(p=>p.mass),
+        fuel:   sum(p=>p.fuel),
+        mass:   sum(p=>p.mass+p.fuel),
+        thrust: sum(p=>p.thrust),
+        isp:    ids.length ? sum(p=>p.isp)/ids.length : 0};
     });
     const partsCost = stackCost(this.stack);   // ohne Startgebühren – Basis der Stufen-Prozente
     const bMass = segBoost.reduce((a,b)=>a+b.mass,0);
@@ -8907,11 +8966,13 @@ const VAB = {
       const st = statsArr[i], sb = segBoost[i];
       let upper=0;
       for(let j=i+1;j<segs.length;j++) upper += massOf(statsArr[j]) + segBoost[j].mass;
-      const m0 = upper+massOf(st), m1 = upper+st.dry;
-      // Δv ohne Booster (eigener Pool), aber TWR der Stufe MIT ihren eigenen
-      // Boosterschub + -masse – die zünden ja simultan mit der Stufe
+      const m0 = upper+massOf(st);
+      // Δv und TWR der Stufe MIT ihren eigenen Boostern – die zünden ja
+      // simultan mit der Stufe (s. stageDeltaV: zwei Abschnitte + Abwurf).
       const totalThrust = st.thrust+st.srbThrust + sb.thrust;
-      const dv = st.isp&&m0>m1 ? st.isp*G0*Math.log(m0/m1) : 0;
+      const dv = this.stageDeltaV({mEnd: upper+st.dry,
+        coreFuel: st.fuel+st.srbFuel, coreThrust: st.thrust+st.srbThrust, coreIsp: st.isp,
+        bDry: sb.dry, bFuel: sb.fuel, bThrust: sb.thrust, bIsp: sb.isp});
       const twr = totalThrust/((m0+sb.mass)*G0);
       // Kosten JE STUFE: Für Wiederverwendbarkeits-Builds ist das die
       // entscheidende Zahl – zurück kommt immer nur der gelandete Reststack
@@ -8919,7 +8980,8 @@ const VAB = {
       const segCost = stackCost(segs[i]);
       html += `<div class="stage-box"><b>Stufe ${i+1}</b> – ${(massOf(st)/1000).toFixed(2)} t
         <small style="color:var(--muted)">(leer ${(st.dry/1000).toFixed(2)} t)</small><br>
-        Δv ≈ ${dv.toFixed(0)} m/s · TWR ${twr.toFixed(2)}${sb.n?" (mit Boostern)":""}
+        Δv ≈ ${dv.toFixed(0)} m/s · TWR ${twr.toFixed(2)}${sb.n?
+          ' <small style="color:var(--muted)">(beides inkl. Seitenbooster)</small>':""}
         ${Game.sandbox?"":`<br>💰 <b>🪙 ${segCost}</b> <small style="color:var(--muted)">(${
           partsCost?Math.round(segCost/partsCost*100):0} % der Rakete${
           segs[i].some(id=>PARTS[id].type==="gridfin")?" · mit Gitterflossen bergbar":""})</small>`}
@@ -16255,12 +16317,18 @@ const Flight = {
     // eine eigene Zeile/Gauge – sonst sieht es aus, als würde der Tank bei
     // Schub 0 "leerlaufen", obwohl nur die (nicht drosselbaren!) SRBs brennen
     const fuelPct = s ? (s.fuelLeft/Math.max(1,s.fuel)*100) : 0;
-    // Rest-Δv der aktiven Stufe (Ziolkowski)
+    /* Rest-Δv der aktiven Stufe (Ziolkowski). ⚠️ Noch hängende Seitenbooster
+       gehen MIT ein – dieselbe Zwei-Abschnitt-Rechnung wie im VAB
+       (VAB.stageDeltaV), sonst zeigt die Halle eine andere Zahl als das HUD. */
     const mNow = this.mass();
     let dvLeft = 0;
     if(s && s.isp){
-      const mDry = mNow - (s.fuelLeft + s.srbLeft);
-      if(mDry>0 && mNow>mDry) dvLeft = s.isp*G0*Math.log(mNow/mDry);
+      const b = (s.boost && s.boost.attached) ? s.boost : null;
+      const mDry = mNow - (s.fuelLeft + s.srbLeft) - (b ? b.dry + b.fuelLeft : 0);
+      if(mDry > 0) dvLeft = VAB.stageDeltaV({mEnd: mDry,
+        coreFuel: s.fuelLeft + s.srbLeft, coreThrust: s.thrust + s.srbThrust, coreIsp: s.isp,
+        bDry: b ? b.dry : 0, bFuel: b ? b.fuelLeft : 0,
+        bThrust: b ? b.thrust : 0, bIsp: b ? b.isp : 0});
     }
     // Bremsweg-Anzeige beim Sinkflug ohne Atmosphäre (Landehilfe)
     let brakeRow = "";
