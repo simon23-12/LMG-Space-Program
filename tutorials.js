@@ -47,7 +47,7 @@ const TUTORIALS = [
      check:o=>o.ap>75000},
     {text:`Perfekt! Jetzt der entscheidende Trick:<br><br>
       ⏩ Mit <b>[.]</b> Zeit raffen, bis du kurz vor dem Ap bist (Höhe ≈ Apoapsis).<br>
-      Dann <b>[T]</b> für SAS PROGRADE und Vollgas <b>[Z]</b> –
+      Dann <b>[T]</b> für SAS PROGRADE und Vollgas <b>[⇧X]</b> –
       brenne, bis die <b>Periapsis über 70 km</b> steigt!`,
      check:o=>o.pe>70000},
    ],
@@ -70,7 +70,7 @@ const TUTORIALS = [
     {text:`Die grüne Bahn kreuzt Montis Orbit – aber trifft sie Monti? Verschiebe den
       <b>Zeitpunkt</b> (±60s-Buttons), bis die grüne Bahn nahe an Monti vorbeiführt.<br><br>
       Dann: <b>[T]</b> mehrmals, bis "SAS: auf Manöverknoten" – und zünde bei
-      <b>T minus halbe Brenndauer</b> (steht im Panel) mit <b>[Z]</b>.
+      <b>T minus halbe Brenndauer</b> (steht im Panel) mit <b>[⇧X]</b>.
       Brenne ungefähr die angegebene Dauer, bis deine echte Bahn (orange) der grünen entspricht
       (Ap > 11.000 km).`,
      check:o=>o.ap<0 || o.ap>1.1e7},
@@ -82,7 +82,7 @@ const TUTORIALS = [
       nur ein <b>Vorbeiflug</b> – Monti lässt dich wieder ziehen!<br><br>
       Zum <b>EINFANGEN</b> bremst du am tiefsten Punkt (Oberth-Trick – dort wirkt jeder
       m/s am stärksten): Raffe die Zeit bis kurz vor die <b>Periapsis</b> (oranger
-      Pe-Marker in der Karte), dann <b>[T]</b> auf SAS RETROGRADE und Vollgas <b>[Z]</b>,
+      Pe-Marker in der Karte), dann <b>[T]</b> auf SAS RETROGRADE und Vollgas <b>[⇧X]</b>,
       bis die <b>Apoapsis unter 2000 km</b> fällt – deine Bahn wird zur Ellipse um Monti!`,
      check:o=>o.body && o.body.name==="Monti" && o.ap>0 && o.ap<2e6},
    ],
@@ -118,7 +118,7 @@ const TUTORIALS = [
       für den Start <b>eingefahren</b>! Drücke <b>[Y]</b>, dann klappen sie aus und verzeihen
       dir bis 12 m/s statt nur 8.<br><br>
       Monti hat außerdem <b>keine Atmosphäre</b>: kein Fallschirm, nur Triebwerksbremsen.
-      Schalte SAS mit <b>[T]</b> auf <b>RETROGRADE</b> und brenne mit <b>[Z]</b>,
+      Schalte SAS mit <b>[T]</b> auf <b>RETROGRADE</b> und brenne mit <b>[⇧X]</b>,
       bis die Periapsis <b>unter 0</b> fällt (Bahn zeigt in den Boden).`,
      check:o=>o.pe<0},
     {text:`Du fällst jetzt auf Monti zu. Lass SAS auf Retrograde – so bremst du immer genau
@@ -173,7 +173,7 @@ const TUTORIALS = [
       Drücke <b>[T]</b>, bis SAS: PROGRADE aktiv ist.`,
      check:(o,F)=>F.sas==="pro"},
     {text:`Das SAS hält die Nase jetzt automatisch auf Prograde. 🎯<br><br>
-      Gib Vollgas <b>[Z]</b> und beobachte links die <b>Apoapsis</b>:
+      Gib Vollgas <b>[⇧X]</b> und beobachte links die <b>Apoapsis</b>:
       Sie wächst – aber nicht hier, sondern auf der GEGENSEITE deiner Bahn!
       (Karte [M] zeigt es live.)<br><br>
       Brenne, bis <b>Ap über 200 km</b> liegt, dann Triebwerk aus [X].`,
@@ -182,7 +182,7 @@ const TUTORIALS = [
       = langsamer werden = <b>Bahn wird KLEINER</b>.<br><br>
       Drücke <b>[T]</b>, bis SAS: RETROGRADE aktiv ist – die Rakete dreht sich um 180°.`,
      check:(o,F)=>F.sas==="retro"},
-    {text:`Vollgas <b>[Z]</b> – und sieh zu, wie die Apoapsis wieder schrumpft!<br><br>
+    {text:`Vollgas <b>[⇧X]</b> – und sieh zu, wie die Apoapsis wieder schrumpft!<br><br>
       Brenne, bis <b>Ap wieder unter 130 km</b> liegt, dann [X].<br><br>
       💡 So funktioniert ALLES in der Raumfahrt: höher = prograde, runter = retrograde,
       immer am richtigen Punkt der Bahn.`,
@@ -230,7 +230,7 @@ const TUTORIALS = [
       automatisch aufs <b style="color:#ff6ad5">rosa ✛</b> auf dem Navball (dein
       Brennrichtungs-Zeiger).<br><br>
       Warte mit Zeitraffer <b>[.]</b> bis <b>T minus halbe Brenndauer</b> (steht im
-      Panel) und gib dann Vollgas <b>[Z]</b> – das Triebwerk stoppt automatisch,
+      Panel) und gib dann Vollgas <b>[⇧X]</b> – das Triebwerk stoppt automatisch,
       wenn das Δv verbrannt ist. Bring die <b>Inklination unter 5°</b>!`,
      check:(o,F)=>F.orbitInc()<5 && o.pe>70000 && o.ap>0},
    ],

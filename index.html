@@ -341,7 +341,12 @@ input[type=file]{display:none;}
     <div class="gauge" id="boostGauge" style="display:none"><div class="bar"><div id="boostFill" class="fill" style="background:linear-gradient(180deg,#f7941d,#a85f10);"></div></div><label>Booster</label></div>
     <div class="gauge"><div class="bar"><div id="powerFill" class="fill" style="background:linear-gradient(180deg,#e8c540,#a8861a);"></div></div><label>⚡</label></div>
   </div>
-  <canvas id="crewCam" width="180" height="92" style="position:absolute;right:12px;top:150px;
+  <!-- Crew-Porträts: UNTEN RECHTS und klein. Oben rechts standen sie über dem
+       Reiseplaner (Transferfenster, Δv, Begegnung) – auf einem 13"-Laptop war
+       davon nichts mehr zu lesen (Bug-Report Simon). Unten rechts ist im
+       Flugbild frei: #nodeUI sitzt dort zwar auch, ist aber NUR in der Karte
+       sichtbar, und dort sind die Porträts ausgeblendet (s. drawCrew). -->
+  <canvas id="crewCam" width="120" height="58" style="position:absolute;right:12px;bottom:12px;
     background:rgba(10,16,32,.82);border:1px solid var(--blue-dark);border-radius:8px;display:none;"></canvas>
   <!-- Booster-Autopilot: Beobachtungsfenster für die Falcon-Landung der 1. Stufe -->
   <div id="boosterCam" style="display:none;position:absolute;right:12px;top:255px;width:380px;z-index:6;
@@ -370,6 +375,8 @@ input[type=file]{display:none;}
     <button class="btn" id="btnBay" onclick="Flight.toggleBays()">📦 Bucht [O]</button>
     <button class="btn" id="infBtn" style="display:none" onclick="Flight.toggleInfinite()">∞ Tank [U]</button>
     <button class="btn" onclick="Flight.addNode()">Manöver [K]</button>
+    <!-- Nur mit Bordcomputer UND Planeten-/Mondziel sichtbar (s. updateButtons) -->
+    <button class="btn" id="btnPlanNode" onclick="Flight.planTransferNode()">🧭 Auto-Knoten [⇧K]</button>
     <button class="btn" id="btnExp" onclick="Flight.runExperiment()">Experiment [B]</button>
     <!-- ↩ Neustart gibt es NUR im Training/Tutorial (s. updateButtons): in der
          Karriere war er ein Freifahrtschein – Rakete verloren? Neustart drücken,
@@ -1574,9 +1581,17 @@ function fmtBig(m){
 }
 function fmtDur(s){
   if(!isFinite(s)) return "–";
+  /* ⚠️ »Jahre« sind hier bewusst 365 ERD-Tage, nicht ein Leibniz-Jahr
+     (9,2e6 s ≈ 107 Tage): Die Spieluhr zählt 24-Stunden-Tage, und wer eine
+     Reise zu Newton plant, soll die Größenordnung an einer Einheit ablesen,
+     die er kennt. Greift erst ab 2 Jahren – darunter sind Tage genauer. */
+  if(s >= 2*365*86400) return (s/(365*86400)).toLocaleString("de-DE",{maximumFractionDigits:1})+" Jahre";
   if(s >= 172800) return (s/86400).toLocaleString("de-DE",{maximumFractionDigits:1})+" Tage";
-  if(s >= 3600) return Math.floor(s/3600)+" h "+Math.round(s%3600/60)+" min";
-  if(s >= 60) return Math.floor(s/60)+" min "+Math.round(s%60)+" s";
+  /* ⚠️ ERST auf die kleinste angezeigte Einheit runden, DANN zerlegen: aus
+     599,9 s wurde sonst »9 min 60 s« (floor(9) und round(59,9)=60). Fällt bei
+     einem laufenden Countdown in jeder vollen Minute einmal auf. */
+  if(s >= 3600){ const m = Math.round(s/60); return Math.floor(m/60)+" h "+(m%60)+" min"; }
+  if(s >= 60){ const q = Math.round(s); return Math.floor(q/60)+" min "+(q%60)+" s"; }
   return Math.round(s)+" s";
 }
 function telescopeUp(){ return Game.sandbox || !!Game.telescope; }
@@ -1603,6 +1618,11 @@ const SURVEY_PE = 200000, SURVEY_INC = 75;
    70 km ist die Luft so dünn, dass sie nichts mehr ausmacht – dort schon zu
    sperren würde nur beim Aufstieg nerven. */
 const PANEL_SAFE_ALT = 50000;
+
+/* Verkleinerungsfaktor der Crew-Porträtleiste (s. #crewCam / drawCrew).
+   0,62 ist die Grenze, ab der die Namen unter den Helmen (10 px) noch lesbar
+   bleiben – darunter wird aus »Dr. Luca« ein grauer Strich. */
+const CREW_ICON_SCALE = 0.62;
 
 /* ---------- Synchronbahn (»geostationär«): 1 Umlauf = 1 Leibniz-Tag ----------
    Die Wolken von Leibniz drehen mit ~14.000 s – unser "Schultag". In ≈2000 km
@@ -9639,7 +9659,11 @@ const Flight = {
     this.astObjs = ASTEROIDS.map(a=>{
       const mesh = makeSmallBodyMesh(a);
       this.world.add(mesh);
-      const marker = mkMarker(a.icon, "#d8c39a");
+      /* ⚠️ Mit NAMEN, nicht nur mit dem Symbol: In der rausgezoomten Karte
+         standen Gauß, Emmy, Halley und Whipple als unbeschriftete Pünktchen
+         zwischen den beschrifteten Planeten – man sah, dass da etwas ist,
+         konnte es aber nicht zuordnen (Bug-Report Simon). */
+      const marker = mkMarker(a.icon+" "+a.name, "#d8c39a");
       // ⚠️ 512 statt 256 Stützstellen bei Ellipsen: Am Perihel rast der Komet,
       // dort liegen die gleichmäßig in der ZEIT verteilten Punkte weit
       // auseinander und die Bahn bekäme eine sichtbare Ecke.
@@ -9753,7 +9777,12 @@ const Flight = {
       if(e.key==="j"||e.key==="J") this.jettisonBoosters();
       if(e.key==="r"||e.key==="R") this.igniteBoosters();
       if(e.key==="t"||e.key==="T") this.toggleSAS();
-      if(e.key==="k"||e.key==="K") this.addNode();
+      /* ⚠️ ⇧K = der Bordcomputer setzt den Transfer-Knoten selbst. Umschalt
+         auf dem natürlichen Partner, weil alle 26 Buchstaben belegt sind –
+         dieselbe Lösung wie ⇧X für Vollgas. */
+      if(e.key==="k"||e.key==="K"){
+        if(e.shiftKey) this.planTransferNode(); else this.addNode();
+      }
       if(e.key==="b"||e.key==="B") this.runExperiment();
       if(e.key==="m"||e.key==="M") this.toggleMap();
       if(e.key===".") this.warpUp();
@@ -12220,7 +12249,7 @@ const Flight = {
     // Dichteste Annäherung: die eigentliche Zielhilfe (nur in der Karte, dort
     // rechnet predict() sie – s. updateEncounter).
     if(!this.map){
-      out += '<br><small style="color:var(--muted)">💡 Karte [M] zeigt die Begegnung + Knoten [K] zum Feinjustieren</small>';
+      out += '<br><small style="color:var(--muted)">💡 Karte [M] zeigt die Begegnung + Knoten [K] zum Feinjustieren · 🧭 [⇧K] setzt ihn automatisch</small>';
     } else if(this.encounter){
       const e = this.encounter, hit = e.d < tb.soi;
       const enRoute = this.body() === tb.parent;   // schon unterwegs im Sonnenraum?
@@ -12230,9 +12259,11 @@ const Flight = {
           ? 'Innerhalb der Einflusssphäre ('+fmtBig(tb.soi)+') – am Ziel retrograde bremsen!'
           : (enRoute
              ? 'Ziel: unter '+fmtBig(tb.soi)+' (Einflusssphäre). Bahnkorrektur: Knoten [K] mit den '+
-               'Tage-Knöpfen etwa in die MITTE der Reise legen, dann NORMAL drehen – die Zahl zeigt dir die Richtung.'
+               'Tage-Knöpfen etwa in die MITTE der Reise legen, dann NORMAL drehen – die Zahl zeigt dir die Richtung. '+
+               '🧭 <b>[⇧K]</b> lässt den Bordcomputer die Korrektur selbst setzen.'
              : 'Ziel: unter '+fmtBig(tb.soi)+' (Einflusssphäre). Knoten [K] auf den Zündpunkt legen und '+
-               'Prograde hochdrehen; den Rest holt eine Korrektur unterwegs.'))+
+               'Prograde hochdrehen; den Rest holt eine Korrektur unterwegs. '+
+               '🧭 <b>[⇧K]</b> lässt den Bordcomputer den Knoten selbst setzen.'))+
         '</small>';
     }
     return out;
@@ -12614,6 +12645,167 @@ const Flight = {
     const n = this.node;
     return n ? Math.hypot(n.pro, n.nor, n.rad) : 0;
   },
+  /* Knoten-Δv (Prograde/Normal/Radial) als Weltvektor am Zustand (p,v,t).
+     ⚠️ EINE Quelle: die grüne Vorschau in predict() UND der automatische
+     Transfer-Knoten müssen exakt dasselbe rechnen, sonst plant der Computer
+     eine andere Bahn als die, die gezeichnet wird.
+     NORMAL ist eine reine Ebenen-DREHUNG: v wird um den Ortsvektor gedreht
+     statt ein senkrechtes Δv aufaddiert. So bleibt |v| erhalten → Ap/Pe der
+     geplanten Bahn ändern sich beim Plane-Change nicht (wie in echt); der
+     Wert in m/s ist die Bogenlänge der Drehung (≈ klassisches Normal-Δv). */
+  nodeDeltaV(p, v, t, node){
+    const b = this.bodyAt(p, t);
+    const vRel = v.clone().sub(bodyVel(b, t));
+    const pRel = p.clone().sub(bodyPos(b, t));
+    const pro = vRel.clone().normalize();
+    const hv = pRel.clone().cross(vRel).normalize();
+    const rad = pro.clone().cross(hv).negate().normalize();   // radial nach außen
+    const dv = pro.clone().multiplyScalar(node.pro).addScaledVector(rad, node.rad);
+    if(node.nor){
+      const axis = pRel.clone().normalize();
+      const th = node.nor / Math.max(1e-6, vRel.length());
+      dv.add(vRel.clone().applyAxisAngle(axis, th).sub(vRel));
+    }
+    return dv;
+  },
+  /* Zustand des Schiffs zu einem späteren Zeitpunkt (freier Flug, ohne Schub).
+     ⚠️ EXAKT dieselbe Schrittweiten-Formel wie die Knoten-Propagation in
+     predict(). Das ist Absicht: Der automatische Transfer-Knoten optimiert
+     gegen diesen Zustand, gezeichnet wird aber der aus predict() – mit einer
+     anderen Formel würde der Computer eine Zahl versprechen, die im HUD dann
+     nicht auftaucht. */
+  propagateTo(tEnd){
+    let p = this.pos.clone(), v = this.vel.clone(), t = this.t;
+    const span = Math.max(1, tEnd - t), floorDt = span/2200, capDt = Math.max(0.5, span/400);
+    /* ⚠️⚠️ `fine` sagt, ob das Ergebnis überhaupt etwas WERT ist. Die
+       Schrittzahl ist gedeckelt (sonst friert ein Knopfdruck das Spiel ein),
+       also wächst die Schrittweite mit dem Vorhersagefenster. Steht das Schiff
+       dabei in einem 5 300-s-Parkorbit und der Knoten liegt 35 Tage voraus,
+       sind das 790-s-Schritte auf 570 Umläufe – gemessen landet die Bahn dann
+       1,4e10 m neben der Wahrheit, das Schiff ist im Modell längst
+       davongeflogen. Solche Zustände dürfen NICHT die Grundlage für einen
+       Feinschliff sein; der Aufrufer weicht dann auf den analytischen Wert
+       aus (s. planTransferNode). */
+    let fine = true;
+    for(let i=0; i<2400 && t<tEnd; i++){
+      const b = this.bodyAt(p, t);
+      const r = Math.max(1e3, p.distanceTo(bodyPos(b, t)));
+      const loc = 2*Math.PI*Math.sqrt(r*r*r/b.mu);
+      const d = Math.min(tEnd-t, Math.max(floorDt, Math.min(capDt, loc/150)));
+      if(d > loc/120) fine = false;
+      const a1 = this.accel(p, t);
+      const pm = p.clone().addScaledVector(v, d/2);
+      const a2 = this.accel(pm, t+d/2);
+      p.addScaledVector(v, d).addScaledVector(a1, d*d/2);
+      v.addScaledVector(a2, d);
+      t += d;
+    }
+    return {p, v, t, fine: fine && t >= tEnd-1};
+  },
+  /* ---------- Automatischer Transfer-Knoten (Bordcomputer »Rechenknecht«) ----
+     Bis hierher rechnete der Computer den Zündzeitpunkt und das Δv nur AUS –
+     eintragen musste man beides von Hand über die ±-Knöpfe, und ein
+     1000-m/s-Burn sind 10 Klicks, die man erst einmal in der richtigen Zeile
+     finden muss. Für schwächere Schüler*innen ist das die Stelle, an der die
+     Reise scheitert, obwohl sie alles richtig verstanden haben (Wunsch Simon).
+     Der Knopf setzt den Knoten fertig hin; verschieben und nachjustieren geht
+     danach wie immer – die Handarbeit bleibt also möglich, sie ist nur nicht
+     mehr Pflicht.
+     ⚠️ NUR mit Bordcomputer an Bord: Das ist dieselbe Regel wie für
+     Transferfenster und Begegnungsanzeige (Teil `nav` bzw. Starship). Ohne
+     ihn gibt es die Zahlen gar nicht, die hier eingetragen würden.
+     Zwei Fälle, genau die beiden, zu denen auch der Reiseplaner rät:
+       a) noch im Parkorbit → EJECTION-Burn am Zündpunkt (prograde)
+       b) schon unterwegs im Sonnenraum → BAHNKORREKTUR auf halbem Weg
+          (normal – ein reiner Hohmann verfehlt Minzi um ~950 000 km, weil
+          dessen Bahn 3° geneigt ist; s. CLAUDE.md)
+     Der analytische Wert ist nur der STARTPUNKT: Danach läuft ein kurzer
+     Koordinatenabstieg über findEncounter (dieselbe Suche wie die Anzeige
+     »Dichteste Annäherung«) und schiebt die Zahl dorthin, wo die Begegnung
+     wirklich am nächsten liegt. ⚠️ Das Budget ist hart gedeckelt: EIN
+     findEncounter kostet ~14 ms, ohne Deckel steht das Spiel sekundenlang. */
+  planTransferNode(){
+    if(this.crashed || this.ended || this.landed){
+      this.showMsg("Einen Transfer-Knoten gibt es nur im Flug!", 2); return; }
+    if(!this.hasNavComp()){
+      this.showMsg("🧭 Dafür fehlt der Bordcomputer »Rechenknecht« an Bord!", 4); return; }
+    const tb = this.target && this.target.kind === "body" ? this.target.body : null;
+    if(!tb){ this.showMsg("Erst mit [Z] ein Reiseziel (Planet/Mond) wählen!", 3); return; }
+    const tw = this.transferWindow(tb);
+    if(!tw){
+      this.showMsg("Von hier aus gibt es kein Transferfenster – erst zurück in einen Orbit um "+
+        (tb.parent===SUN ? "Leibniz" : tb.parent.name)+".", 5); return; }
+    const enRoute = this.body() === tb.parent;      // schon im Sonnenraum unterwegs?
+    const hor = Math.min(6e7, Math.max(6*3600, tw.tT*1.8));
+    // 1) Zündzeitpunkt
+    let tN;
+    if(enRoute){
+      const e0 = this.findEncounter(this.pos, this.vel, this.t, tb, hor);
+      tN = this.t + Math.max(600, ((e0 ? e0.t : this.t+tw.tT) - this.t)*0.5);
+    } else {
+      tN = this.t + Math.max(20, tw.wait + this.ejectionWait(tw, this.t + tw.wait));
+    }
+    // 2) Zustand am Knoten (einmal – er hängt nicht vom Δv ab)
+    const st = this.propagateTo(tN);
+    const cand = {pro: enRoute ? 0 : (tw.vInf < 0 ? -tw.dv : tw.dv), nor: 0, rad: 0};
+    // 3) Feinschliff: Koordinatenabstieg auf die dichteste Annäherung –
+    //    aber NUR, wenn der Zustand am Knoten überhaupt belastbar ist.
+    let bd = Infinity, evals = 0;
+    if(st.fine){
+      const miss = c => {
+        evals++;
+        const dv = this.nodeDeltaV(st.p, st.v, st.t, c);
+        const e = this.findEncounter(st.p.clone(), st.v.clone().add(dv), st.t, tb, hor);
+        return e ? e.d : Infinity;
+      };
+      bd = miss(cand);
+      /* ⚠️⚠️ Optimiert wird NUR die Bahnkorrektur unterwegs – der
+         Ejection-Burn bekommt den analytischen Hohmann-Wert, ungeschliffen.
+         Das ist keine Faulheit, sondern gemessen: Rund um die 1002 m/s ist
+         die dichteste Annäherung praktisch KONSTANT (900 m/s → 4,99 Mio. km,
+         996 → 889 351 km, 1002 → 967 636, 1243 → 901 363, 1400 → 1,06 Mio.),
+         weil der Rest-Fehler die 3°-Bahnneigung von Minzi ist und die beim
+         ABFLUG fast nicht wegzudrehen ist (CLAUDE.md: 977 000 → 922 000 km).
+         Ein Abstieg auf diesem flachen, verrauschten Tal wanderte im Test auf
+         1243 m/s – 24 % mehr Treibstoff für nichts, und im HUD stünde eine
+         andere Zahl als im Reiseplaner daneben.
+         Der Hebel ist die Korrektur UNTERWEGS: gemessen 956 836 → 653 km,
+         also mitten in Minzis Einflusssphäre. Dafür lohnen die ~0,5 s.
+         Zwei Durchgänge (grob, dann fein), damit die Suche nicht schon im
+         ersten flachen Stück stehen bleibt. */
+      const budget = 130;
+      const axes = enRoute ? ["nor","pro","rad"] : [];
+      for(const scale of [1, 0.25]){
+        for(const ax of axes){
+          let step = 300*scale;
+          for(let round=0; round<10 && evals<budget; round++){
+            let moved = false;
+            for(const s of [1,-1]){
+              const trial = Object.assign({}, cand);
+              trial[ax] = cand[ax] + s*step;
+              const d = miss(trial);
+              if(d < bd*0.999){ bd = d; cand[ax] = trial[ax]; moved = true; break; }
+              if(evals >= budget) break;
+            }
+            if(!moved) step *= 0.35;
+          }
+        }
+      }
+    }
+    this.node = {t: tN, pro: Math.round(cand.pro), nor: Math.round(cand.nor),
+                 rad: Math.round(cand.rad)};
+    this.nodeBurned = 0; this.nodeSnap = null;
+    this._encAt = 0;
+    if(!this.map) this.toggleMap();
+    this.updateNodeUI();
+    this.showMsg("🧭 Knoten gesetzt: in "+fmtDur(tN-this.t)+", "+
+      (enRoute ? "Bahnkorrektur " : "Zündung ")+Math.round(this.nodeDvTotal())+" m/s. "+
+      (st.fine
+        ? (isFinite(bd) ? "Dichteste Annäherung "+fmtBig(bd)+". " : "")+
+          "Mit [T] auf Knoten stellen und zünden – nachjustieren geht weiter von Hand!"
+        : "Der Zündpunkt liegt noch weit voraus – mit [.] vorspulen und [⇧K] "+
+          "kurz davor nochmal drücken, dann rechnet der Computer ihn genau aus."), 9);
+  },
   updateNodeUI(){
     const ui = document.getElementById("nodeUI");
     if(!this.node){ ui.style.display="none"; return; }
@@ -12627,7 +12819,7 @@ const Flight = {
     const rest = Math.max(0, dv-(this.nodeBurned||0));
     document.getElementById("nodeStats").innerHTML =
       `Δv gesamt: <b style="color:var(--green)">${dv.toFixed(1)} m/s</b><br>
-       Zeit bis Knoten: <b>${tTo>=0?tTo.toFixed(0):"VORBEI ("+(-tTo).toFixed(0)+")"} s</b><br>
+       Zeit bis Knoten: <b>${tTo>=0?fmtDur(tTo):"VORBEI ("+fmtDur(-tTo)+")"}</b><br>
        Brenndauer ≈ <b>${burn.toFixed(0)} s</b> → bei T-${(burn/2).toFixed(0)} s zünden`+
       (this.nodeBurned>0.5?`<br><b style="color:var(--orange)">Rest: ${rest.toFixed(1)} m/s</b> (Auto-Stopp bei 0)`:"")+
       `<br><small>SAS [T] auf Knoten → Triebwerk stoppt automatisch!</small>`;
@@ -14286,6 +14478,47 @@ const Flight = {
       return bodyPos(b, t).clone().sub(bodyPos(cur, t)).add(bodyPos(cur, this.t));
     return bodyPos(b, this.t);
   },
+  /* ---------- Zeithorizont einer gezeichneten Bahn ----------
+     Wie weit muss die Linie in die Zukunft reichen, damit man die Bahn als
+     GANZE Figur sieht? Normalfall: eine Umlaufzeit (der Aufrufer legt noch
+     ~8 % drauf, damit sich die Schleife sichtbar schließt).
+     ⚠️⚠️ Ist die Bahn um `b` HYPERBOLISCH, gibt es dort gar keine Umlaufzeit –
+     und genau das ist jeder Ejection-Burn Richtung Nachbarplanet. Vorher fiel
+     die Rechnung dann auf einen festen Notwert (120 000 s) zurück: Die grüne
+     Linie endete nach anderthalb Tagen als winziger Stummel neben Leibniz,
+     die eigentliche Transfer-Ellipse um die Sonne war NIRGENDS zu sehen
+     (Bug-Report Simon: »der grüne Kreis ist nicht da«). Maßgeblich ist dann
+     die Bahn um den MUTTERKÖRPER, die das Schiff nach dem Verlassen der
+     Sphäre bekommt: v_∞ = √(2E) in Richtung der Relativgeschwindigkeit, dazu
+     die Bahngeschwindigkeit des Körpers selbst.
+     ⚠️ `soi` gibt es bei der Sonne nicht (sie steht nicht in ORBIT_BODIES) –
+     Math.min(x, undefined) wäre NaN und die Rechnung fiele still auf den
+     Notwert zurück. Deshalb `|| Infinity`. */
+  orbitHorizon(p, v, t, b){
+    const rel = v.clone().sub(bodyVel(b, t));
+    const r = Math.max(1e3, p.distanceTo(this.bodyCenter(b, t)));
+    const E = rel.lengthSq()/2 - b.mu/r;
+    if(E < 0){
+      // Halbachse auf die Gravitationssphäre kappen: Wer nur knapp eingefangen
+      // ist, hat rechnerisch eine riesige Ellipse, verlässt die Sphäre aber
+      // vorher wieder (gemessen bei Monti: a = 6,1 × Sphärenradius).
+      const sma = Math.min(-b.mu/(2*E), b.soi || Infinity);
+      return {per: 2*Math.PI*Math.sqrt(Math.pow(sma,3)/b.mu), body: b};
+    }
+    const par = b.parent;
+    if(par){
+      const vOut = bodyVel(b, t).addScaledVector(rel.clone().normalize(), Math.sqrt(2*E))
+        .sub(bodyVel(par, t));
+      const rP = Math.max(1e3, p.distanceTo(this.bodyCenter(par, t)));
+      const EP = vOut.lengthSq()/2 - par.mu/rP;
+      if(EP < 0){
+        const smaP = Math.min(-par.mu/(2*EP), par.soi || Infinity);
+        return {per: 2*Math.PI*Math.sqrt(Math.pow(smaP,3)/par.mu), body: par};
+      }
+      return {per: 0, body: par};      // Flucht auch aus dem Sonnensystem
+    }
+    return {per: 0, body: b};
+  },
   /* Vorhersagebahn als PATCHED CONICS (wie KSP) in bis zu zwei Linienzüge.
      Am SOI-Übergang wird unterschieden:
      - ABSTIEG in einen Mond (der neue Körper umkreist den alten): der Rest
@@ -14300,12 +14533,39 @@ const Flight = {
        sobald die Sonne der Bezug wurde. Das sah aus wie eine Fluchtbahn. */
   traceOrbit(lineA, lineB, p, v, t, total, n, wantApPe){
     const aA = lineA.geometry.attributes.position, aB = lineB.geometry.attributes.position;
-    const dt = total/n;
+    const dtMax = total/n, dtMin = dtMax/60;
     let frameBody = this.bodyAt(p, t), fbNow = this.anchorFor(frameBody, t);
     const originBody = frameBody;
     let attr = aA, cA = 0, cB = 0, onB = false, ghost = null;
     let rMin = Infinity, rMax = -Infinity, pMin = null, pMax = null;
     for(let i=0;i<n;i++){
+      /* ⚠️⚠️ SCHRITTWEITE AN DEN ÖRTLICHEN UMLAUF GEKOPPELT (wie in
+         findEncounter). Solange der Horizont eine Umlaufzeit ist, ist
+         total/n automatisch fein genug und dieser Zweig ändert nichts – der
+         Normalfall bleibt Punkt für Punkt identisch.
+         Er greift bei FLUCHTBAHNEN: Dort ist der Horizont die Umlaufzeit um
+         den MUTTERkörper (s. orbitHorizon), also z. B. 1,3e7 s für eine
+         Transferellipse um die Sonne. Ein gleichmäßiger Schritt wäre dann
+         21 000 s – im 200-km-Parkorbit, wo die Bahn beginnt, hätte EIN
+         Integrationsschritt mehr Zeit als ein ganzer Umlauf, und die grüne
+         Linie wäre frei erfunden. Weil r auf der Hyperbel schnell wächst
+         (T_lokal ∝ r^1,5), fängt die Untergrenze das nach gut einem Dutzend
+         Punkten von allein ein; der Rest des Puffers zeichnet die Ellipse. */
+      // ⚠️ `frameBody` ist bereits der Sphären-Körper an diesem Punkt (unten
+      // nachgeführt) – ein zweites bodyAt() hier wären 600 × 10 bodyPos()
+      // pro predict(), also die teuerste Zeile der ganzen Routine.
+      const rLoc = Math.max(1e3, p.distanceTo(bodyPos(frameBody, t)));
+      const locT = 2*Math.PI*Math.sqrt(rLoc*rLoc*rLoc/frameBody.mu);
+      /* ⚠️ Die Bremse greift NUR, wenn ein gleichmäßiger Schritt mehr als ein
+         Achtel des örtlichen Umlaufs verschlingen würde. Sonst bleibt dt
+         exakt total/n – jede gebundene Bahn wird also Punkt für Punkt
+         gezeichnet wie vorher, auch die stark elliptische (dort schrumpfte
+         der Schritt am Periapsis sonst auf ein Viertel, und die gezeichnete
+         Zeitspanne fiel von 108 % auf 93,5 % einer Umlaufzeit: die Ellipse
+         schloss sich gerade noch). */
+      const dt = dtMax > locT/8
+        ? Math.min(dtMax, Math.max(dtMin, locT/90))
+        : dtMax;
       for(let sub=0;sub<3;sub++){
         const d = dt/3;
         const a1 = this.accel(p,t);
@@ -14422,16 +14682,12 @@ const Flight = {
     const o = this.orbit();
     // Umlaufzeit aus der großen Halbachse (nicht aus dem aktuellen Radius!),
     // sonst endet die Linie bei elliptischen Bahnen zu früh.
-    let period;
-    if(o.ap >= 0){
-      // ⚠️ Halbachse auf die Gravitationssphäre kappen (s. gleiche Stelle bei der
-      // geplanten Bahn): Wer nur knapp eingefangen ist, hat rechnerisch eine
-      // riesige Ellipse, verlässt die Sphäre aber vorher wieder.
-      const sma = Math.min((o.ap + o.pe)/2 + o.body.R, o.body.soi);
-      period = 2*Math.PI*Math.sqrt(Math.pow(sma,3)/o.body.mu);
-    }
-    if(!isFinite(period)||!period||period<=0) period = o.body===SUN ? 9.5e6 : 40000;
-    const total = Math.min(period*1.08, o.body===SUN ? 1.2e7 : 600000), n = 600;
+    // Umlaufzeit UND Bezugskörper aus orbitHorizon – auf einer Fluchtbahn ist
+    // das die Bahn um den Mutterkörper (sonst endete die Linie als Stummel).
+    const hz = this.orbitHorizon(p, v, t, o.body);
+    let period = hz.per;
+    if(!isFinite(period)||!period||period<=0) period = hz.body===SUN ? 9.5e6 : 40000;
+    const total = Math.min(period*1.08, hz.body===SUN ? 2e7 : 600000), n = 600;
     // Vertices landen RELATIV zum Schiff im Puffer (s. traceOrbit): bei ~1e10 m
     // absoluten Koordinaten hat Float32 nur ~1 km Auflösung → die Linie
     // "zittert" beim Ranzoomen. Der große Anteil steckt in line.position.
@@ -14483,21 +14739,9 @@ const Flight = {
       const nBody = this.bodyAt(np, nt);
       const nvRel = nv.clone().sub(bodyVel(nBody, nt));
       const npRel = np.clone().sub(bodyPos(nBody, nt));
-      const pro = nvRel.clone().normalize();
-      const hv = npRel.clone().cross(nvRel).normalize();
-      const rad = pro.clone().cross(hv).negate().normalize(); // radial nach außen
-      // NORMAL = reine Ebenen-Drehung: v wird um die Knotenlinie (den Ortsvektor)
-      // GEDREHT statt ein senkrechtes Δv aufaddiert. So bleibt |v| erhalten →
-      // Ap/Pe der geplanten Bahn ändern sich nicht (wie beim echten Plane-Change);
-      // der Wert in m/s ist die Bogenlänge der Drehung (≈ klassisches Normal-Δv).
-      const dvWorld = pro.clone().multiplyScalar(this.node.pro)
-        .addScaledVector(rad, this.node.rad);
-      if(this.node.nor){
-        const axis = npRel.clone().normalize();
-        const theta = this.node.nor / Math.max(1e-6, nvRel.length());
-        dvWorld.add(nvRel.clone().applyAxisAngle(axis, theta).sub(nvRel));
-      }
-      this.nodeDir = dvWorld.lengthSq()>1e-6 ? dvWorld.clone().normalize() : pro;
+      const dvWorld = this.nodeDeltaV(np, nv, nt, this.node);
+      this.nodeDir = dvWorld.lengthSq()>1e-6 ? dvWorld.clone().normalize()
+        : nvRel.clone().normalize();
       // Fürs Inklinations-Tutorial: Höhe des Knotens über der Äquatorebene (y=0)
       // und Bahnneigung der GEPLANTEN Bahn direkt nach dem Burn
       this.nodeRelY = npRel.y;
@@ -14521,23 +14765,10 @@ const Flight = {
       // Schiff (Einfangbrennen bei Monti, während man noch bei Leibniz zählt),
       // rechnete das vorher mit dem falschen µ und dem falschen Mittelpunkt –
       // die geplante Bahn bekam dann eine völlig erfundene Umlaufzeit.
-      const b2 = nBody, o2mu = b2.mu;
-      const c2v = this.bodyCenter(b2, pt);
-      const r2 = pp.distanceTo(c2v);
-      const E2 = pv.clone().sub(bodyVel(b2,pt)).lengthSq()/2 - o2mu/r2;
-      let per2;
-      if(E2 < 0){
-        // ⚠️ Eine große Halbachse GRÖSSER als die Gravitationssphäre ist keine
-        // echte Umlaufbahn – das Schiff verlässt die Sphäre lange vor dem
-        // Apoapsis. Die Zwei-Körper-Periode ist dann sinnlos groß (gemessen:
-        // 1,4e6 s nach einem knappen Einfangbrennen bei Monti) und der Horizont
-        // lief in den 600 000-s-Deckel. Deshalb die Halbachse auf die Sphäre
-        // kappen: der Horizont deckt dann die Zeit bis zum Sphärenrand ab.
-        const sma2 = Math.min(-o2mu/(2*E2), b2.soi);
-        per2 = 2*Math.PI*Math.sqrt(Math.pow(sma2,3)/o2mu);
-      }
-      if(!isFinite(per2)||!per2||per2<=0) per2 = b2===SUN ? 9.5e6 : 120000;
-      const tot2 = Math.min(per2*1.08, b2===SUN ? 1.2e7 : 600000), n2 = 600;
+      const hz2 = this.orbitHorizon(pp, pv, pt, nBody);
+      let per2 = hz2.per;
+      if(!isFinite(per2)||!per2||per2<=0) per2 = hz2.body===SUN ? 9.5e6 : 120000;
+      const tot2 = Math.min(per2*1.08, hz2.body===SUN ? 2e7 : 600000), n2 = 600;
       // Auch die GEPLANTE Bahn läuft über traceOrbit – gleiche Patch-Logik,
       // gleicher Geister-Anker. Ein eigener Geist wird nur gezeigt, wenn die
       // ORANGE Bahn keinen liefert (sonst stünden zwei Monde übereinander).
@@ -15258,7 +15489,13 @@ const Flight = {
       ao.mesh.rotation.y = this.t*0.05; ao.mesh.rotation.x = this.t*0.02;
       ao.mesh.visible = !this.map;
       ao.ring.visible = this.map;
-      ao.marker.visible = this.map;
+      /* ⚠️ Der NAME hängt an der Entdeckung (»Rundumblick«), die BAHNLINIE
+         nicht. Wer noch kein Durchmusterungs-Teleskop hat, sieht in der Karte
+         also weiterhin, dass da eine Bahn läuft – aber nicht, was darauf
+         fliegt. Genau so ist es in echt: Die Bahn eines Kleinkörpers steht
+         erst fest, wenn man ihn gefunden hat, und der ???-Nebel der Karriere
+         soll nicht über die Kartenbeschriftung unterlaufen werden. */
+      ao.marker.visible = this.map && smallBodyKnown();
       // Der Schweif bleibt in BEIDEN Ansichten stehen – in der Karte ist er
       // der einzige Hinweis darauf, wo der Komet gerade steckt.
       if(ao.fx) updateCometFx(ao.fx, ao.a, ap2, this.t, 1);
@@ -15476,9 +15713,30 @@ const Flight = {
     const c = document.getElementById("crewCam");
     if(!this.crew.length || this.map){ c.style.display="none"; return; }
     c.style.display = "block";
-    c.width = 20 + this.crew.length*84;
+    /* ⚠️ Gezeichnet wird weiterhin im ALTEN 84×92-Raster, die ganze Leiste
+       wird nur per setTransform verkleinert – so bleibt jede Koordinate unten
+       unverändert, und die Porträts belegen bei 6 Leuten statt 524 px nur
+       noch 320 px unten rechts (s. #crewCam im HTML).
+       ⚠️ Zusätzlich wird sie in den FREIEN Platz neben der Knopfleiste
+       gequetscht: Die steht mittig unten und wächst auf schmalen Fenstern in
+       die Breite – bei 1280 px ragte die 6-Personen-Leiste sonst 19 px in sie
+       hinein. `_crewS` cacht das Ergebnis (getBoundingClientRect erzwingt ein
+       Layout, und drawCrew läuft in JEDEM Frame). */
+    const now = performance.now();
+    if(!this._crewS || now - (this._crewSAt||0) > 500){
+      this._crewSAt = now;
+      const ctl = document.getElementById("hudControls");
+      const free = (ctl && ctl.offsetParent)
+        ? window.innerWidth - 20 - ctl.getBoundingClientRect().right : 1e9;
+      this._crewS = Math.max(0.40,
+        Math.min(CREW_ICON_SCALE, free/(20 + this.crew.length*84)));
+    }
+    const S = this._crewS;
+    c.width  = Math.round((20 + this.crew.length*84)*S);
+    c.height = Math.round(92*S);
     const x = c.getContext("2d");
-    x.clearRect(0,0,c.width,92);
+    x.setTransform(S,0,0,S,0,0);
+    x.clearRect(0,0,c.width/S,92);
     // Stimmung: panisch bei hoher Belastung/Hitze/Sturz, glücklich bei Orbit/Landung
     const o = this.orbit();
     let mood = "neutral";
@@ -15716,6 +15974,10 @@ const Flight = {
        (Game.assets||[]).some(a=>a.kind==="tanker" && a.body==="LEIBNIZ")));
     const bt = document.getElementById("btnTarget");
     if(bt && bt.textContent!=="🎯 Ziel [Z]") bt.textContent = "🎯 Ziel [Z]";
+    // 🧭 Auto-Knoten: nur mit Bordcomputer, im Flug und mit gewähltem
+    // Planeten-/Mondziel – sonst gäbe es nichts zu berechnen.
+    show("btnPlanNode", !this.landed && !evaGround && this.hasNavComp() &&
+      !!(this.target && this.target.kind === "body"));
     show("btnModul", !Game.sandbox && has("dock"));
     show("btnBay", has("bay"));
     show("btnExp", has("lab"));

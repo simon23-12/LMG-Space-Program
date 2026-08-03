@@ -129,7 +129,10 @@ Zündung, danach endlos das Volllast-Stück, solange gebrannt wird.
 1. **Floating Origin:** Alles Weltfeste hängt in `Flight.world` (THREE.Group), die pro Frame um `-Flight.pos` verschoben wird. Kamera/Schiff bleiben nahe Ursprung → kein Float32-Jitter. `Flight.rocketGroup` und `shipMarker` hängen an `scene`, nicht an `world`.
 2. **Rails + N-Body:** Planeten laufen "on rails" (`bodyPos(b,t)`/`bodyVel(b,t)`, rekursiv über `parent`; Leibniz↔Monti als exaktes Baryzentrum via `K_LM`). Schiff/Sats/Debris/EVA spüren ALLE `GRAV_BODIES` gleichzeitig (restricted n-body, `Flight.accel`). Volle Planeten-Integration NICHT einbauen – zerstört Knoten-Vorhersage & Warp.
 3. **⚠️ Relativ-Geschwindigkeits-Gotcha:** Leibniz rast mit ~9,3 km/s um die Sonne. JEDE physikalisch sichtbare Geschwindigkeit (SAS-Prograde, Drag/airVel, Reentry-Hitze/Glühen, Navball, Knoten-Frame, Statistiken, Docking) MUSS relativ zum dominanten Körper (`vel - bodyVel(body,t)`) gerechnet werden.
-4. **Trajektorien als PATCHED CONICS (`Flight.traceOrbit`, EINE Routine für orange UND grün):** Vorhersagepunkte = `p_abs - bodyPos(frameBody, t) + anker`. Periode aus großer Halbachse, RK2 mit Substeps, Horizont ×1.08. **Linien-Vertices IMMER relativ zu `Flight.pos` in den Float32-Buffer schreiben** und den großen Anteil in `line.position` legen (Float64-Matrixverkettung) – absolute ~1e10-Koordinaten haben in Float32 nur ~1 km Auflösung → Zitter-Bug beim Ranzoomen.
+4. **Trajektorien als PATCHED CONICS (`Flight.traceOrbit`, EINE Routine für orange UND grün):** Vorhersagepunkte = `p_abs - bodyPos(frameBody, t) + anker`. Periode aus großer Halbachse, RK2 mit Substeps, Horizont ×1.08.
+   - ⚠️⚠️ **Der Horizont kommt aus `Flight.orbitHorizon(p,v,t,b)` – EINE Quelle für beide Linien.** Ist die Bahn um `b` HYPERBOLISCH (jeder Ejection-Burn Richtung Nachbarplanet!), gibt es dort keine Umlaufzeit; dann zählt die Bahn um den **MUTTERKÖRPER** nach dem Verlassen der Sphäre (`v∞ = √(2E)` in Richtung der Relativgeschwindigkeit + Bahngeschwindigkeit des Körpers). Vorher fiel die Rechnung auf einen festen Notwert (120 000 s) zurück: Die grüne Linie war ein 1,5-Tage-Stummel neben Leibniz, die Transfer-Ellipse um die Sonne **nirgends zu sehen** (Bug-Report Simon: »der grüne Kreis ist nicht da«). ⚠️ `SUN.soi` gibt es nicht (die Sonne steht nicht in ORBIT_BODIES) – `Math.min(x, undefined)` ist NaN und die alte Rechnung fiel deshalb auch bei jeder Sonnenbahn still auf den Notwert zurück; darum `|| Infinity`.
+   - ⚠️⚠️ **Schrittweite adaptiv, aber nur wo nötig:** `dt = total/n`, AUSSER ein solcher Schritt fräße mehr als ein Achtel des örtlichen Umlaufs – dann `clamp(T_lokal/90, dtMax/60, dtMax)`. Ohne das hätte auf einer Fluchtbahn (Horizont 2e7 s ⇒ 33 000 s je Schritt) EIN Schritt im 200-km-Parkorbit mehr Zeit als ein ganzer Umlauf und die Linie wäre frei erfunden. Weil r auf der Hyperbel schnell wächst (T ∝ r^1,5), fängt die Untergrenze das nach ~12 Punkten von allein ein; der Rest des Puffers zeichnet die Ellipse (gemessen: 20 Punkte Hyperbel + 580 Punkte Sonnen-Ellipse). **Die Achtel-Schwelle ist Pflicht:** ohne sie schrumpfte der Schritt auch am Periapsis einer stark elliptischen GEBUNDENEN Bahn (ap 12 000 / pe 200 km) und die gezeichnete Zeitspanne fiel von 108 % auf 93,5 % einer Umlaufzeit – die Ellipse schloss sich gerade noch. Mit Schwelle: 107,7 %, alle Kreis-/Ellipsenbahnen Punkt für Punkt identisch zu vorher.
+   - ⚠️ Der örtliche Körper dafür ist `frameBody` (wird unten ohnehin nachgeführt) – ein zweites `bodyAt()` je Punkt wären 600 × 10 `bodyPos()` pro `predict()`. **Linien-Vertices IMMER relativ zu `Flight.pos` in den Float32-Buffer schreiben** und den großen Anteil in `line.position` legen (Float64-Matrixverkettung) – absolute ~1e10-Koordinaten haben in Float32 nur ~1 km Auflösung → Zitter-Bug beim Ranzoomen.
    - ⚠️⚠️ **Der Anker ist NICHT mehr pauschal `bodyPos(frameBody, jetzt)`.** Genau das war der »Orbit schließt sich nicht / ich bin plötzlich auf Fluchtbahn zur Sonne«-Bug: Bei jedem SOI-Wechsel sprang der Anker, und die Linie riss um die Strecke, die der neue Bezugskörper zwischen Wechselzeitpunkt und JETZT zurücklegt. Gemessen: Leibniz↔Monti nach 1 h 1 969 km, nach 17 h 23 511 km (mehr als Montis ganzer Bahnradius von 12 000 km); Leibniz↔Sonne nach 7 d **5 531 491 km**. Der größte Sprung in der grünen Linie lag bei **2 226 735 km** – heute 129 km.
    - **ABSTIEG in einen Mond** (`bHere.parent === frameBody`): Anker = **Geisterposition** `bodyPos(mond,t) − bodyPos(alt,t) + anker_alt` – also dort, wo der Mond bei der ANKUNFT steht. Nachgerechnet exakt stetig (der Übergangspunkt fällt in beiden Rahmen zusammen), und die Begegnungsschleife liegt um ein sichtbares Objekt: `Flight.ghostMesh` + `ghostRing` (türkis) zeigen den »Geister-Monti« (`showGhost`). Beantwortet die eigentliche Frage: *Wo* treffe ich ihn?
    - **AUFSTIEG zum Mutterkörper:** dorthin gibt es keine stetige Linie, also **ZWEITER Linienzug** (`trajLine2` / `nodeTrajLine2`, halbtransparent). Getrennte Objekte, damit three.js keine falsche Verbindung zeichnet. Mehr als zwei Patches werden abgeschnitten (unlesbar).
@@ -532,6 +535,36 @@ die Antwort auf »wie macht KSP das?«:
 4. **`findEncounter`** – dichteste Annäherung ans Ziel, türkiser Marker »Begegnung« + HUD.
    Das ist das Werkzeug zum Treffen: Knotenwert drehen, Zahl fallen sehen.
 
+### 🧭 Auto-Knoten: der Bordcomputer setzt den Knoten selbst (`planTransferNode`, **[⇧K]**)
+Bis August 2026 rechnete der Computer Zündzeitpunkt und Δv nur AUS – eintragen musste man
+beides über die ±-Knöpfe, und 1000 m/s sind 10 Klicks in der richtigen Zeile. Genau dort
+scheiterten schwächere Schüler*innen, obwohl sie alles verstanden hatten (Wunsch Simon).
+Knopf »🧭 Auto-Knoten [⇧K]« (nur mit Bordcomputer, im Flug, mit Planeten-/Mondziel –
+`updateButtons`). Nachjustieren von Hand bleibt möglich, ist nur nicht mehr Pflicht.
+- Zwei Fälle, genau die beiden, zu denen auch `travelPanel` rät: **noch im Parkorbit** →
+  Ejection-Burn am Zündpunkt (`tw.wait + ejectionWait`, prograde) · **schon im Sonnenraum**
+  (`this.body() === tb.parent`) → Bahnkorrektur auf halbem Weg zur Begegnung.
+- ⚠️⚠️ **Optimiert wird NUR die Korrektur unterwegs.** Beim Ejection-Burn ist die dichteste
+  Annäherung rund um die 1002 m/s praktisch konstant (gemessen 900 → 4,99 Mio. km, 996 →
+  889 351 km, **1002 → 967 636**, 1243 → 901 363, 1400 → 1,06 Mio. km), weil der Rest-Fehler
+  Minzis 3°-Bahnneigung ist. Ein Koordinatenabstieg auf diesem flachen, verrauschten Tal
+  wanderte im Test auf **1243 m/s = 24 % mehr Treibstoff für nichts** – und im HUD stünde
+  eine andere Zahl als im Reiseplaner daneben. Also: analytischer Hohmann-Wert, 11 ms.
+  Die Korrektur unterwegs ist der Hebel: gemessen **956 836 km → 653 km** (Minzis Sphäre ist
+  6 066 km) mit 326 m/s, ~0,5 s Rechenzeit, Achsen nor/pro/rad in zwei Durchgängen.
+- ⚠️⚠️ **`propagateTo(tEnd)` liefert `fine` mit – ohne das optimiert man gegen Müll.** Die
+  Schrittzahl ist gedeckelt (2200, sonst friert ein Knopfdruck das Spiel ein), also wächst
+  die Schrittweite mit dem Vorhersagefenster. Steht das Schiff im 40-Minuten-Parkorbit und
+  der Zündpunkt liegt 35 Tage voraus, sind das 790-s-Schritte auf 570 Umläufe: gemessen
+  landet die Bahn **1,4e10 m** daneben, das Schiff ist im Modell längst davongeflogen. Bei
+  `!fine` wird der Knoten trotzdem gesetzt (der Zeitpunkt stimmt ja), aber ohne Feinschliff
+  und mit dem Hinweis, mit [.] vorzuspulen und [⇧K] dann nochmal zu drücken.
+- ⚠️ `propagateTo` benutzt **exakt dieselbe Schrittweiten-Formel** wie die Knoten-Propagation
+  in `predict()` (`max(span/2200, min(span/400, T_lokal/150))`). Sonst verspricht der
+  Computer eine Annäherung, die im HUD dann nicht auftaucht.
+- ⚠️ `Flight.nodeDeltaV(p,v,t,node)` ist die EINE Quelle für »Prograde/Normal/Radial → Welt-
+  vektor« (Optimierer UND grüne Vorschau). Normal bleibt eine reine Ebenen-DREHUNG.
+
 ⚠️⚠️ **Ein reiner Hohmann trifft Minzi NICHT – und das ist Physik, kein Bug.** Minzis Bahn
 ist 3° geneigt; bei der Ankunft steht der Planet ~950 000 km neben der Ekliptik, das Schiff
 aber bei y≈0. Gegenprobe: Ein Normal-Δv beim ABFLUG bringt fast nichts (gemessen 977 000 →
@@ -849,6 +882,15 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
   sitzt (Abstand < 1,3 Markerhöhen), bekommt KEINEN eigenen Marker – sonst kleben in der
   Gesamtsystem-Ansicht »Huygens«, »Cassini«, »Herschel« und »Ada« auf einem Punkt. Beim
   Ranzoomen tauchen sie von allein auf.
+- ⚠️ **Kleinkörper-Marker tragen den NAMEN, nicht nur das Symbol** (`mkMarker(a.icon+" "+a.name)`).
+  Vorher standen Gauß, Emmy, Halley und Whipple als unbeschriftete Pünktchen zwischen den
+  beschrifteten Planeten – man sah, dass da etwas ist, konnte es aber nicht zuordnen
+  (Bug-Report Simon: »manche Planeten sind benannt und manche nicht«).
+  ⚠️ Dafür hängt der Marker jetzt an `smallBodyKnown()`, die **BAHNLINIE aber nicht**: Ohne
+  »Rundumblick« sieht man in der Karte weiterhin, dass da eine Bahn läuft – nur nicht, was
+  darauf fliegt. Genau so wollte Simon es, und es hält den ???-Nebel der Karriere dicht
+  (vorher unterlief die Kartenbeschriftung ihn). Verifiziert: frische Karriere = 4 Ringe
+  sichtbar, 0 Namen.
 
 ## Bauteile & Stack
 `PARTS` (Reihenfolge im Stack: Index 0 = SPITZE; die Zuordnung zu den Rubriken der Teileliste steht in `CATS[].ids`, NICHT mehr als `cat`-Feld am Teil – s. »Teileauswahl im KSP-Stil«). **Radialteile** (`isRadial`: fin, sb2/sb4, gridfin, **legs**) belegen KEINE Stack-Höhe (`stackHeight()` statt Summe!) und werden in `buildRocketGroup` an den benachbarten Tank montiert (`radialHost`: erst darunter, dann darüber; `buildPartMesh(id, {r,h})`). **Sidebooster = Pool PRO STUFE** (`seg.boost` in buildVessel, kein globales v.boost mehr!): zünden mit IHRER Stufe (Zündung/Stufentrennung setzt `n.boost.ignited`) oder [R] (aktive Stufe), [J] wirft NUR die Booster der aktiven Stufe ab (nächstes [J] nach der Trennung = nächste Stufe); abgeworfene Stufen nehmen ihren Pool automatisch mit (hängt am Segment). Physik/HUD/Gauge/Flammen lesen `activeSeg().boost`; Flammen von Oberstufen-Boostern via `bflame.userData.upper` aus (gesetzt in buildRocketGroup, wenn Decoupler darunter). Trümmer-Mesh = `buildStrapOnMesh(strapOnHeight(stack,i))` – NICHT das srb-Mesh (Formwechsel-Bug). Servicebuchten (`bayCoverage()`): `bay` = »M« verkleidet 2 Teile darüber, `bayS` 1 (`PARTS[..].covers`) – aber NUR Typen aus `BAY_FITS` (battery/solar/probe/antenna/lab), sonst "verschluckt" die Bucht z. B. Oberstufen-Triebwerke; geschlossene Bucht schützt Solarpanele vor Fahrtwind, [G] öffnet sie automatisch mit. Oberstufen-Triebwerke (Decoupler darunter) kriegen `flame.userData.idle` – `setFlames` lässt sie aus, bis sie unterste Stufe sind. VAB-Info: Seitenbooster zählen zu Gesamtmasse + TWR IHRER Stufe (nicht Δv, `segBoost[]`); jede Stufe zeigt Leergewicht, **Kosten (🪙 + Anteil an der Rakete, plus Notiz »mit Gitterflossen bergbar«)** und Δv/TWR, Rakete gesamt »Leergewicht (Tanks leer)«. Die Stufenkosten sind die entscheidende Zahl für Reusability-Builds: Erstattet wird immer nur der gelandete Reststack (`settleCrewAndAssets`) bzw. der geborgene Booster (`b.value = stackCost(debrisStack)`). Solarflügel (`name:"wing"`) starten eingefahren (scale.x 0.1) – für Orbit-Sats `deployWings()`. Fairing verkleidet alles darüber.
@@ -1268,8 +1310,26 @@ innerhalb der Atmosphäre. Auf dem Boden: W/A/S/D laufen (kamerarelativ, 3,5 m/s
 - [F] ist doppelt belegt: bei EVA am Boden Flagge, sonst Fairing (beides gleichzeitig gibt es
   nie). `updateButtons` blendet `btnFlag`/`btnFairing` gegenseitig aus.
 
+## HUD-Kleinkram
+- **Crew-Porträts (`#crewCam` / `drawCrew`) sitzen UNTEN RECHTS und klein** (`CREW_ICON_SCALE`
+  0,62; darunter wird aus »Dr. Luca« ein grauer Strich). Oben rechts lagen sie über dem
+  Reiseplaner – auf einem 13"-Laptop war von Transferfenster, Δv und Begegnung nichts mehr
+  zu lesen (Bug-Report Simon). ⚠️ Gezeichnet wird weiter im alten 84×92-Raster, verkleinert
+  wird per `setTransform` – so bleibt jede Koordinate im Zeichencode unangetastet.
+  ⚠️ `#nodeUI` sitzt zwar auch unten rechts, ist aber NUR in der Karte sichtbar, und dort
+  blendet `drawCrew` die Porträts ohnehin aus. ⚠️ Die Leiste wird zusätzlich in den freien
+  Platz neben der (mittig stehenden, umbrechenden) Knopfleiste gequetscht: bei 1280 px ragte
+  sie sonst 19 px hinein. `_crewS` cacht das Ergebnis 500 ms – `getBoundingClientRect`
+  erzwingt ein Layout und `drawCrew` läuft in JEDEM Frame.
+- **`fmtDur` kennt Jahre** (ab 2 Jahren, bewusst 365 ERD-Tage – die Spieluhr zählt
+  24-Stunden-Tage, ein Leibniz-Jahr wären 107 Tage und niemand rechnet das im Kopf um).
+  Das Knoten-Panel zeigt »Zeit bis Knoten« damit als min/h/Tage/Jahre statt in **Sekunden** –
+  bei einem Knoten 35 Tage voraus stand dort vorher »3002461 s«.
+  ⚠️ `fmtDur` rundet ERST auf die kleinste angezeigte Einheit und zerlegt DANN: aus 599,9 s
+  wurde sonst »9 min 60 s«, und das fällt in jeder vollen Minute eines Countdowns auf.
+
 ## Tastenkürzel
-Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · K Knoten · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
+Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
 - ⚠️⚠️ **[Z] war bis August 2026 im Flug VOLLGAS und die Zielwahl brauchte ⇧Z** – »zu
   umständlich und verwirrend« (Simon), weil dieselbe Taste je nach Flugzustand etwas völlig
   anderes tat. Jetzt liegt der Schub komplett auf **[X]** (aus / ⇧ voll) und [Z] ist überall
