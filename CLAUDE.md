@@ -542,8 +542,21 @@ scheiterten schwächere Schüler*innen, obwohl sie alles verstanden hatten (Wuns
 Knopf »🧭 Auto-Knoten [⇧K]« (nur mit Bordcomputer, im Flug, mit Planeten-/Mondziel –
 `updateButtons`). Nachjustieren von Hand bleibt möglich, ist nur nicht mehr Pflicht.
 - Zwei Fälle, genau die beiden, zu denen auch `travelPanel` rät: **noch im Parkorbit** →
-  Ejection-Burn am Zündpunkt (`tw.wait + ejectionWait`, prograde) · **schon im Sonnenraum**
-  (`this.body() === tb.parent`) → Bahnkorrektur auf halbem Weg zur Begegnung.
+  Hohmann-/Ejection-Burn am Zündpunkt (`tw.wait + ejectionWait`, prograde) · **schon
+  unterwegs** → Bahnkorrektur auf halbem Weg zur Begegnung.
+- ⚠️⚠️ **Welcher Fall vorliegt, entscheidet `Flight.onTransferTo(tb)` – NICHT
+  `this.body() === tb.parent`.** Bei einem MOND des Körpers, den man gerade umkreist
+  (Leibniz→Monti), stimmt Letzteres schon im 200-km-Parkorbit: Der Computer plante
+  dann eine »Bahnkorrektur« quer zur Bahn (737 m/s, Annäherung 7 635 km) statt des
+  Abflug-Burns – »der Computer funktioniert nicht, trifft Monti nicht und packt zu
+  wenig Δv rein« (Bug-Report Simon). `onTransferTo` prüft, ob die eigene Bahn die
+  ZIELBAHN überhaupt schon erreicht (`rAp > 0,85·orbitR && rPe < 1,15·orbitR`).
+  Verifiziert: Monti aus dem Parkorbit → 777 m/s prograde, Annäherung **186 km**
+  (Sphäre 2 430 km); schon auf dem Transfer → Korrekturzweig, 11 m/s.
+- ⚠️ **`Flight.leavingSphereTo(tb)`**: Direkt nach dem Ejection-Burn steckt das Schiff
+  noch auf einer Fluchthyperbel IN Leibniz' Sphäre. `transferWindow` rechnet den
+  Parkorbit dort als Kreisbahn und schlug ein neues Fenster in **231,8 Tagen** vor.
+  Jetzt sagen Auto-Knoten UND Reiseplaner stattdessen: erst mit [.] hinausfliegen.
 - ⚠️⚠️ **Optimiert wird NUR die Korrektur unterwegs.** Beim Ejection-Burn ist die dichteste
   Annäherung rund um die 1002 m/s praktisch konstant (gemessen 900 → 4,99 Mio. km, 996 →
   889 351 km, **1002 → 967 636**, 1243 → 901 363, 1400 → 1,06 Mio. km), weil der Rest-Fehler
@@ -564,6 +577,57 @@ Knopf »🧭 Auto-Knoten [⇧K]« (nur mit Bordcomputer, im Flug, mit Planeten-/
   Computer eine Annäherung, die im HUD dann nicht auftaucht.
 - ⚠️ `Flight.nodeDeltaV(p,v,t,node)` ist die EINE Quelle für »Prograde/Normal/Radial → Welt-
   vektor« (Optimierer UND grüne Vorschau). Normal bleibt eine reine Ebenen-DREHUNG.
+
+### ⏭ Zeitsprung zum Ereignis (`warpToEvent` / `keplerAdvance`, **[⇧.]**)
+⚠️⚠️ **Der Zeitraffer allein REICHT NICHT, und das ist gemessen, nicht gefühlt:** In
+einem 200-km-Parkorbit deckelt `frame()` die Schrittweite auf 1 s (`localT/4000`) und
+die Schleife auf 400 Schritte pro Bild. Auch bei »100 000×« kommen damit nur 400 s
+Spielzeit pro Bild heraus – **effektiv 24 000×**. Das Minzi-Fenster (34,7 Tage) sind
+2,1 Minuten Zusehen, seine synodische Periode (232 Tage) 14 Minuten, bei Newton noch
+weit mehr (»selbst mit max vorspulen dauert das ewig«, Bug-Report Simon). Die
+Schrittweite hochzudrehen ist KEINE Option: Bei 790-s-Schritten auf einem 2 392-s-Umlauf
+zerfällt der Parkorbit (gemessen 1,4e10 m daneben).
+Also wie in KSP: über die Wartezeit **springen**. Knopf »⏭ Zum Startfenster / Zum
+Knoten / [⇧.]«. Ziel ist der Manöverknoten, sonst die Begegnung (wenn schon unterwegs),
+sonst das Startfenster – der Sprung hält immer mit etwas Vorlauf davor an.
+- ⚠️⚠️ **Zwei Verfahren, und die Wahl ist keine Geschmackssache.** Bevorzugt wird die
+  n-Körper-**Integration** (`propagateTo`, `stepsFine`) – das ist exakt die Rechnung,
+  gegen die auch der Auto-Knoten optimiert, Vorhersage und Sprung bleiben konsistent.
+  Nur wo 2 200 Schritte für Wochen nicht reichen (Parkorbit), springt `keplerAdvance`
+  ein: exakte Zweikörper-Ellipse über Lagrange f & g. **Umgekehrt wäre es falsch** –
+  on rails fehlen alle Störungen, gemessen laufen Ellipse und n-Körper-Rechnung auf der
+  Sonnenbahn binnen 40 Tagen um **88 224 km** auseinander (14 × Minzis Sphäre), der eben
+  gesetzte Knoten wäre Makulatur. Im Parkorbit dagegen ist die Bahnform das Wichtige,
+  und die bleibt exakt erhalten (gegen eine feine Integration: 0,1 km nach 2 000 s,
+  28 km nach 3 Tagen – das ist die echte Störung, nicht Numerik).
+- ⚠️ `keplerAdvance` kürzt `dt` zuerst um GANZE Umläufe: Der Zweikörper-Zustand ist
+  danach identisch, aber sin/cos von 7 854 rad (34 Tage im 40-Minuten-Orbit) verlieren
+  in float64 spürbar Stellen. Der KÖRPER wird trotzdem zur vollen Zielzeit abgefragt.
+- ⚠️⚠️ **Nie durch eine fremde Sphäre hindurch** – beide Verfahren kennen nur EINEN
+  Körper, ein Vorbeiflug am Ziel würde verschluckt. `propagateTo(tEnd, stopBody)` hält
+  am Sphärenwechsel an und liefert den Zustand **VOR** dem Schritt: Ein Schritt ist im
+  Sonnenraum bis 7 800 s lang und durchquert Minzis 6 066-km-Sphäre in einem Rutsch –
+  wer den Zustand danach nimmt, steht schon mitten drin (so gemessen: 1 412 km statt
+  außerhalb). Verifiziert: Sprung endet bei 7 017 km, also knapp vor der Sphäre.
+- **Guards:** nur im freien Flug (nicht gelandet/angedockt/EVA/Autopilot/Schub),
+  elliptische Bahn (auf einer Fluchtbahn sind es ohnehin nur Stunden bis zum
+  Sphärenrand), Pe über der Atmosphäre, Ap unter 0,95·SOI.
+- ⚠️ **Strom:** Der Sprung darf weder Energie schenken noch eine Sonde stillschweigend
+  töten. SAS geht aus (im Leerlauf braucht es niemand), danach zieht nur die
+  Sondensteuerung (0,25 ⚡/s). Mit Panelen im Licht → volle Batterie; ohne Panele wird
+  der Sprung **verweigert** und gesagt, wie lange der Strom reicht und was hilft ([G]).
+- ⚠️ **Beim Startfenster wird auf das ÖFFNEN gezielt, nicht auf den Zündpunkt**
+  (Fenster + Ejection-Winkel): `transferWindow.wait` springt danach sofort auf die
+  NÄCHSTE synodische Periode, im HUD stünde also »Zündung in 232 Tage« statt »in 40 s«.
+  Der Rest (höchstens ein Parkorbit-Umlauf) ist mit [.] eine Sache von Sekunden.
+- ⚠️ **Wer schon unterwegs ist, will zur ANKUNFT** – nicht zum nächsten Fenster. Ohne
+  diese Fallunterscheidung sprang der Computer im Test **4,5 Jahre** und flog glatt an
+  Minzi vorbei.
+- Nach dem Sprung: `warpI = 0` (nicht im 100 000×-Rausch ankommen), `_encAt = 0`,
+  `sunBlend = null` (Sonne sofort richtig stellen statt mit `SUN_SLEW` herumzudrehen).
+- **Ganze Minzi-Reise gemessen: 5 Tastendrücke, 520 ms Rechenzeit** – [⇧.] zum Fenster,
+  [⇧K] Knoten, [⇧.] zum Knoten, [⇧K] Korrektur, [⇧.] zur Ankunft; Endanflug 1 426 km,
+  also innerhalb der 6 066-km-Sphäre.
 
 ⚠️⚠️ **Ein reiner Hohmann trifft Minzi NICHT – und das ist Physik, kein Bug.** Minzis Bahn
 ist 3° geneigt; bei der Ankunft steht der Planet ~950 000 km neben der Ekliptik, das Schiff
@@ -882,6 +946,18 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
   sitzt (Abstand < 1,3 Markerhöhen), bekommt KEINEN eigenen Marker – sonst kleben in der
   Gesamtsystem-Ansicht »Huygens«, »Cassini«, »Herschel« und »Ada« auf einem Punkt. Beim
   Ranzoomen tauchen sie von allein auf.
+- ⚠️⚠️ **Sterne und Nebel müssen mit dem Zoom MITWACHSEN** (`starField.scale`,
+  `Flight.nebGroup.scale`, gesetzt in `frame()`). Beide hängen an `scene`, also am
+  SCHIFF – in der Flugansicht genau richtig (Himmel dreht sich mit dem Blick). In der
+  KARTE wird daraus ein Objekt: Die Sternenkugel hat nur **4e7 m** Radius, beim
+  Herauszoomen auf das Sonnensystem ist sie ein sichtbarer PUNKTEBALL, der neben
+  Leibniz herfliegt und am Schiff klebt (Bug-Report Simon); die Nebel hängen dann
+  zwischen den Planetenbahnen. Also Radius an `camDist` koppeln (Sterne ×40 bis
+  1,6e11, Nebel ×80 bis 1,89e11 – beides unter der Far-Ebene 2,2e11). ⚠️ In der
+  Flugansicht ist camDist ein paar hundert Meter ⇒ beide Faktoren sind exakt 1, dort
+  ändert sich kein Pixel. ⚠️ Die Nebel brauchen dafür eine eigene GRUPPE: Bei Sprites
+  multipliziert eine Gruppenskalierung Position UND Bildgröße, und beides muss
+  zusammen wachsen.
 - ⚠️ **Kleinkörper-Marker tragen den NAMEN, nicht nur das Symbol** (`mkMarker(a.icon+" "+a.name)`).
   Vorher standen Gauß, Emmy, Halley und Whipple als unbeschriftete Pünktchen zwischen den
   beschrifteten Planeten – man sah, dass da etwas ist, konnte es aber nicht zuordnen
@@ -1329,7 +1405,7 @@ innerhalb der Atmosphäre. Auf dem Boden: W/A/S/D laufen (kamerarelativ, 3,5 m/s
   wurde sonst »9 min 60 s«, und das fällt in jeder vollen Minute eines Countdowns auf.
 
 ## Tastenkürzel
-Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
+Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp, **⇧. = Zeitsprung zum Knoten/Startfenster** · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
 - ⚠️⚠️ **[Z] war bis August 2026 im Flug VOLLGAS und die Zielwahl brauchte ⇧Z** – »zu
   umständlich und verwirrend« (Simon), weil dieselbe Taste je nach Flugzustand etwas völlig
   anderes tat. Jetzt liegt der Schub komplett auf **[X]** (aus / ⇧ voll) und [Z] ist überall

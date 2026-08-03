@@ -385,6 +385,8 @@ input[type=file]{display:none;}
     <button class="btn" onclick="Flight.toggleMap()">Karte [M]</button>
     <button class="btn" onclick="Flight.warpDown()">⏪ [,]</button>
     <button class="btn" onclick="Flight.warpUp()">⏩ [.]</button>
+    <!-- Zeitsprung on rails; nur im freien Flug mit Ziel/Knoten (updateButtons) -->
+    <button class="btn" id="btnWarpTo" onclick="Flight.warpToEvent()">⏭ Zum Startfenster [⇧.]</button>
     <button class="btn orange" onclick="Flight.endFlight()">Flug beenden</button>
   </div>
 </div>
@@ -9419,9 +9421,14 @@ const Flight = {
     this.starField = new THREE.Points(starGeo,
       new THREE.PointsMaterial({color:0xffffff, size:2.2, sizeAttenuation:false, transparent:true}));
     this.scene.add(this.starField);
-    // Nebel-Fotos: weit hinter allen Planeten; frame() koppelt die Opacity
-    // an die Sternen-Ausblendung (Atmosphäre blendet sie aus)
-    this.nebulae = addNebulae(this.scene, 7e10, 1, 1);
+    /* Nebel-Fotos: weit hinter allen Planeten; frame() koppelt die Opacity
+       an die Sternen-Ausblendung (Atmosphäre blendet sie aus).
+       ⚠️ In einer eigenen GRUPPE, damit `frame()` sie mit dem Zoom mitziehen
+       kann (s. »Kulisse« dort) – eine Gruppenskalierung multipliziert bei
+       Sprites Position UND Bildgröße, beides muss zusammen wachsen. */
+    this.nebGroup = new THREE.Group();
+    this.scene.add(this.nebGroup);
+    this.nebulae = addNebulae(this.nebGroup, 7e10, 1, 1);
     // --- Himmelskuppel (Rayleigh/Mie, s. SKY_FRAG) ---------------------
     // ⚠️ depthTest AUS + renderOrder −1000: die Kuppel wird als allererstes
     // gemalt, alles andere darüber. Dadurch ist ihr Radius egal – sie muss
@@ -9785,8 +9792,11 @@ const Flight = {
       }
       if(e.key==="b"||e.key==="B") this.runExperiment();
       if(e.key==="m"||e.key==="M") this.toggleMap();
-      if(e.key===".") this.warpUp();
-      if(e.key===",") this.warpDown();
+      /* ⚠️ `e.code` statt `e.key`: Auf einer deutschen Tastatur liefert
+         Umschalt+Punkt ein ":" – mit e.key wäre der Zeitsprung dort nicht
+         erreichbar. */
+      if(e.code==="Period" || e.key==="."){ if(e.shiftKey) this.warpToEvent(); else this.warpUp(); }
+      else if(e.code==="Comma" || e.key===",") this.warpDown();
       if(e.key==="v"||e.key==="V") this.toggleEVA();
       if(e.key==="c"||e.key==="C") this.toggleBellyflop();
       if(e.key==="y"||e.key==="Y") this.toggleLegs();
@@ -12219,6 +12229,32 @@ const Flight = {
     const wrap = x => ((x % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
     return wrap((angBurn - angShip)*Math.sign(w))/Math.abs(w);
   },
+  /* Sind wir schon UNTERWEGS zum Ziel – oder stehen wir noch im Parkorbit?
+     ⚠️⚠️ `this.body() === tb.parent` allein reicht NICHT, und das war der
+     »der Auto-Knoten trifft Monti nicht und packt zu wenig Δv rein«-Bug
+     (Bug-Report Simon): Bei einem MOND des Körpers, den wir gerade umkreisen
+     (Leibniz→Monti), trifft die Bedingung schon im 200-km-Parkorbit zu. Der
+     Computer plante daraufhin eine »Bahnkorrektur« quer zur Bahn (737 m/s,
+     Annäherung 7 635 km) statt des Abflug-Burns (776 m/s prograde am
+     richtigen Punkt). Entscheidend ist, ob die eigene Bahn die ZIELBAHN
+     überhaupt schon erreicht – erst dann gibt es einen Kurs zu korrigieren. */
+  onTransferTo(tb){
+    const o = this.orbit();
+    if(!tb || o.body !== tb.parent || o.ap <= 0) return false;
+    const rAp = o.body.R + o.ap, rPe = o.body.R + o.pe;
+    return rAp > tb.orbitR*0.85 && rPe < tb.orbitR*1.15;
+  },
+  /* Gerade auf dem Weg AUS der Sphäre heraus, in der wir noch stecken?
+     ⚠️ In diesem Zustand ist `transferWindow` wertlos: Es rechnet den
+     Parkorbit als KREISBAHN, und eine Fluchthyperbel ist keine. Direkt nach
+     dem Ejection-Burn schlug der Bordcomputer deshalb ein neues Startfenster
+     in 231,8 Tagen vor – statt zu sagen, dass man einfach nur hinausfliegen
+     muss (gemessen im Testflug). */
+  leavingSphereTo(tb){
+    const b = this.body();
+    return !!tb && this.orbit().ap <= 0 &&
+           b !== tb && b !== tb.parent && b.parent === tb.parent;
+  },
   /* HUD-Block »Reiseplaner« für ein Planeten-/Mondziel: Transferfenster,
      Zündpunkt, Δv und die dichteste Annäherung. Das ist die komplette
      Antwort auf »wie komme ich nach Minzi?« – zusammen mit dem Knoten-Panel
@@ -12229,7 +12265,12 @@ const Flight = {
       '<br>Entfernung: <b>'+fmtBig(d)+'</b>'+
       '<br><small style="color:var(--muted)">'+this.targetInfo(this.target)+'</small>';
     const tw = this.transferWindow(tb);
-    if(!tw){
+    if(this.leavingSphereTo(tb)){
+      // Fluchthyperbel: ein »Startfenster« gibt es hier nicht mehr, der Abflug LÄUFT.
+      out += '<br><b style="color:var(--green)">🚀 Abflug läuft – raus aus der Sphäre von '+
+        this.body().name+'</b><br><small style="color:var(--muted)">Mit [.] weiterfliegen; '+
+        'sobald oben »Sonne« steht, 🧭 [⇧K] für die Bahnkorrektur.</small>';
+    } else if(!tw){
       out += '<br><small style="color:var(--muted)">💡 Von hier aus gibt es kein Transferfenster – '+
         'erst zurück in einen Orbit um '+(tb.parent===SUN ? "Leibniz" : tb.parent.name)+'.</small>';
     } else {
@@ -12252,7 +12293,7 @@ const Flight = {
       out += '<br><small style="color:var(--muted)">💡 Karte [M] zeigt die Begegnung + Knoten [K] zum Feinjustieren · 🧭 [⇧K] setzt ihn automatisch</small>';
     } else if(this.encounter){
       const e = this.encounter, hit = e.d < tb.soi;
-      const enRoute = this.body() === tb.parent;   // schon unterwegs im Sonnenraum?
+      const enRoute = this.onTransferTo(tb);       // schon auf dem Weg?
       out += '<br>'+(hit?'<b style="color:var(--green)">✔ Begegnung: ':'◇ Dichteste Annäherung: ')+
         fmtBig(e.d)+(hit?'</b>':'')+' <small>in '+fmtDur(e.t-this.t)+'</small>'+
         '<br><small style="color:var(--muted)">'+(hit
@@ -12674,7 +12715,7 @@ const Flight = {
      gegen diesen Zustand, gezeichnet wird aber der aus predict() – mit einer
      anderen Formel würde der Computer eine Zahl versprechen, die im HUD dann
      nicht auftaucht. */
-  propagateTo(tEnd){
+  propagateTo(tEnd, stopBody){
     let p = this.pos.clone(), v = this.vel.clone(), t = this.t;
     const span = Math.max(1, tEnd - t), floorDt = span/2200, capDt = Math.max(0.5, span/400);
     /* ⚠️⚠️ `fine` sagt, ob das Ergebnis überhaupt etwas WERT ist. Die
@@ -12686,7 +12727,9 @@ const Flight = {
        davongeflogen. Solche Zustände dürfen NICHT die Grundlage für einen
        Feinschliff sein; der Aufrufer weicht dann auf den analytischen Wert
        aus (s. planTransferNode). */
-    let fine = true;
+    let fine = true, hit = false;
+    // letzter Zustand, der noch SICHER in `stopBody` liegt (s. unten)
+    let gp = p.clone(), gv = v.clone(), gt = t;
     for(let i=0; i<2400 && t<tEnd; i++){
       const b = this.bodyAt(p, t);
       const r = Math.max(1e3, p.distanceTo(bodyPos(b, t)));
@@ -12699,8 +12742,23 @@ const Flight = {
       p.addScaledVector(v, d).addScaledVector(a1, d*d/2);
       v.addScaledVector(a2, d);
       t += d;
+      /* `stopBody`: bei einem SPHÄRENWECHSEL abbrechen. Der Zeitsprung darf
+         nicht durch eine fremde Sphäre hindurch (s. warpToEvent) – und der
+         Test kostet hier fast nichts, weil er ohnehin nur ein paar
+         Abstandsvergleiche pro Schritt sind.
+         ⚠️ Zurückgegeben wird der Zustand VOR dem Schritt, also der letzte,
+         der noch sicher außerhalb der fremden Sphäre liegt. Ein Schritt kann
+         im Sonnenraum 7 800 s lang sein und die 6 066-km-Sphäre von Minzi in
+         einem Rutsch durchqueren – wer den Zustand DANACH nimmt, steht schon
+         mitten drin (so gemessen). */
+      if(stopBody && this.bodyAt(p, t) !== stopBody){
+        p = gp; v = gv; t = gt; hit = true; break; }
+      gp = p.clone(); gv = v.clone(); gt = t;
     }
-    return {p, v, t, fine: fine && t >= tEnd-1};
+    // `fine` = Ergebnis belastbar (Schrittweite fein UND Ziel erreicht),
+    // `stepsFine` = nur die Schrittweite, `stopped` = an einer Sphärengrenze
+    // abgebrochen (dann ist `t` der letzte Zeitpunkt davor).
+    return {p, v, t, fine: fine && !hit && t >= tEnd-1, stepsFine: fine, stopped: hit};
   },
   /* ---------- Automatischer Transfer-Knoten (Bordcomputer »Rechenknecht«) ----
      Bis hierher rechnete der Computer den Zündzeitpunkt und das Δv nur AUS –
@@ -12731,11 +12789,15 @@ const Flight = {
       this.showMsg("🧭 Dafür fehlt der Bordcomputer »Rechenknecht« an Bord!", 4); return; }
     const tb = this.target && this.target.kind === "body" ? this.target.body : null;
     if(!tb){ this.showMsg("Erst mit [Z] ein Reiseziel (Planet/Mond) wählen!", 3); return; }
+    if(this.leavingSphereTo(tb)){
+      this.showMsg("🚀 Du fliegst gerade aus der Sphäre von "+this.body().name+
+        " heraus – das läuft schon richtig. Mit [.] hinausfliegen (die Höhenanzeige "+
+        "wechselt auf »Sonne«), dann hier nochmal [⇧K] für die Bahnkorrektur.", 8); return; }
     const tw = this.transferWindow(tb);
     if(!tw){
       this.showMsg("Von hier aus gibt es kein Transferfenster – erst zurück in einen Orbit um "+
         (tb.parent===SUN ? "Leibniz" : tb.parent.name)+".", 5); return; }
-    const enRoute = this.body() === tb.parent;      // schon im Sonnenraum unterwegs?
+    const enRoute = this.onTransferTo(tb);          // schon auf dem Weg?
     const hor = Math.min(6e7, Math.max(6*3600, tw.tT*1.8));
     // 1) Zündzeitpunkt
     let tN;
@@ -12759,25 +12821,30 @@ const Flight = {
         return e ? e.d : Infinity;
       };
       bd = miss(cand);
-      /* ⚠️⚠️ Optimiert wird NUR die Bahnkorrektur unterwegs – der
-         Ejection-Burn bekommt den analytischen Hohmann-Wert, ungeschliffen.
-         Das ist keine Faulheit, sondern gemessen: Rund um die 1002 m/s ist
-         die dichteste Annäherung praktisch KONSTANT (900 m/s → 4,99 Mio. km,
-         996 → 889 351 km, 1002 → 967 636, 1243 → 901 363, 1400 → 1,06 Mio.),
-         weil der Rest-Fehler die 3°-Bahnneigung von Minzi ist und die beim
-         ABFLUG fast nicht wegzudrehen ist (CLAUDE.md: 977 000 → 922 000 km).
-         Ein Abstieg auf diesem flachen, verrauschten Tal wanderte im Test auf
-         1243 m/s – 24 % mehr Treibstoff für nichts, und im HUD stünde eine
-         andere Zahl als im Reiseplaner daneben.
-         Der Hebel ist die Korrektur UNTERWEGS: gemessen 956 836 → 653 km,
-         also mitten in Minzis Einflusssphäre. Dafür lohnen die ~0,5 s.
+      /* ⚠️⚠️ Der INTERPLANETARE Ejection-Burn (`tw.dep`) bekommt den
+         analytischen Hohmann-Wert ungeschliffen. Das ist keine Faulheit,
+         sondern gemessen: Rund um die 1002 m/s ist die dichteste Annäherung
+         praktisch KONSTANT (900 m/s → 4,99 Mio. km, 996 → 889 351 km,
+         1002 → 967 636, 1243 → 901 363, 1400 → 1,06 Mio.), weil der
+         Rest-Fehler die 3°-Bahnneigung von Minzi ist und die beim ABFLUG fast
+         nicht wegzudrehen ist (CLAUDE.md: 977 000 → 922 000 km). Ein Abstieg
+         auf diesem flachen, verrauschten Tal wanderte im Test auf 1243 m/s –
+         24 % mehr Treibstoff für nichts, und im HUD stünde eine andere Zahl
+         als im Reiseplaner daneben.
+         Beim MONDTRANSFER (Leibniz→Monti, kein `tw.dep`) ist es umgekehrt:
+         Der Knoten liegt Minuten voraus, es gibt keine Bahnneigung zu
+         bekämpfen, und der Hohmann-Wert aus der Kreisbahn-Näherung lässt sich
+         messbar verbessern – dort wird prograde nachgeschliffen.
+         Und die Korrektur UNTERWEGS ist der große Hebel: gemessen
+         956 836 → 653 km, mitten in Minzis Sphäre. Dafür lohnen die ~0,5 s.
          Zwei Durchgänge (grob, dann fein), damit die Suche nicht schon im
          ersten flachen Stück stehen bleibt. */
-      const budget = 130;
-      const axes = enRoute ? ["nor","pro","rad"] : [];
+      const budget = enRoute ? 130 : 44;
+      const axes = enRoute ? ["nor","pro","rad"] : (tw.dep ? [] : ["pro"]);
+      const step0 = enRoute ? 300 : Math.max(8, Math.abs(cand.pro)*0.05);
       for(const scale of [1, 0.25]){
         for(const ax of axes){
-          let step = 300*scale;
+          let step = step0*scale;
           for(let round=0; round<10 && evals<budget; round++){
             let moved = false;
             for(const s of [1,-1]){
@@ -13542,6 +13609,167 @@ const Flight = {
   },
   warpUp(){ if(this.canWarp(this.warpI+1)) this.warpI=Math.min(this.warpI+1,WARPS.length-1); },
   warpDown(){ this.warpI=Math.max(0,this.warpI-1); },
+  /* ---------- Zweikörper-Sprung »on rails« (Lagrange f & g) ----------------
+     Setzt das Schiff um `dt` weiter, indem die Bahn als exakte Ellipse um den
+     dominanten Körper gerechnet wird – ohne Integration und ohne Störungen.
+     Genau das meint »on rails«, und genau so machen es Station, Satelliten
+     und Tanker im Spiel ohnehin schon (`stationPos`, `assetPos`).
+     ⚠️ Zuerst wird `dt` um GANZE Umläufe gekürzt: Nach einer Umlaufzeit ist
+     der Zweikörper-Zustand identisch, aber sin/cos eines Winkels von 7 854 rad
+     (34 Tage im 40-Minuten-Parkorbit) verlieren in float64 spürbar Stellen.
+     Der Körper selbst wird trotzdem zur VOLLEN Zielzeit abgefragt.
+     Rückgabe false = geht nicht (Hyperbel), dann bleibt alles unverändert. */
+  keplerAdvance(dt){
+    const b = this.body(), mu = b.mu, t1 = this.t + dt;
+    const r0v = this.pos.clone().sub(this.bodyCenter(b, this.t));
+    const v0v = this.vel.clone().sub(bodyVel(b, this.t));
+    const r0 = r0v.length();
+    const a = 1/(2/r0 - v0v.lengthSq()/mu);
+    if(!isFinite(a) || a <= 0) return false;
+    const sq = Math.sqrt(mu*a), n = Math.sqrt(mu/(a*a*a)), T = 2*Math.PI/n;
+    const dtR = dt - Math.floor(dt/T)*T;          // nur der Rest-Umlauf zählt
+    const ecos0 = 1 - r0/a, esin0 = r0v.dot(v0v)/sq;
+    const e = Math.hypot(ecos0, esin0);
+    const E0 = Math.atan2(esin0, ecos0);
+    const M = E0 - esin0 + n*dtR;
+    let E = M;
+    for(let i=0;i<60;i++){
+      const d = (E - e*Math.sin(E) - M)/(1 - e*Math.cos(E));
+      E -= d;
+      if(Math.abs(d) < 1e-13) break;
+    }
+    const dE = E - E0, cd = Math.cos(dE), sd = Math.sin(dE);
+    const rv = r0v.clone().multiplyScalar(1 - a/r0*(1-cd))
+                  .addScaledVector(v0v, dtR + (sd - dE)/n);
+    const r1 = rv.length();
+    if(!isFinite(r1) || r1 < 1) return false;
+    const vv = r0v.clone().multiplyScalar(-sq*sd/(r0*r1))
+                  .addScaledVector(v0v, 1 - a/r1*(1-cd));
+    this.pos.copy(this.bodyCenter(b, t1)).add(rv);
+    this.vel.copy(bodyVel(b, t1)).add(vv);
+    this.t = t1;
+    return true;
+  },
+  /* ---------- ⏭ Zeitsprung zum nächsten Ereignis --------------------------
+     ⚠️⚠️ Der Zeitraffer allein REICHT NICHT, und das ist keine Meinung: In
+     einem 200-km-Parkorbit deckelt `frame()` die Schrittweite auf 1 s
+     (`localT/4000`) und die Schleife auf 400 Schritte pro Bild. Damit kommen
+     auch bei »100 000×« nur 400 Sekunden Spielzeit pro Bild heraus –
+     effektiv **24 000×**, egal was oben steht. Gemessen: Transferfenster zu
+     Minzi 34,7 Tage = **2,1 Minuten** Zusehen, dessen synodische Periode
+     (232 Tage) 14 Minuten, bei Newton noch deutlich mehr (Bug-Report Simon:
+     »selbst mit max vorspulen dauert das ewig«).
+     Die Schrittweite darf man NICHT einfach hochdrehen – bei 790-s-Schritten
+     auf einem 2 392-s-Umlauf zerfällt der Parkorbit (gemessen 1,4e10 m
+     Abweichung). Also wie in KSP: über die Wartezeit hinweg SPRINGEN und die
+     Bahn dabei als Zweikörper-Ellipse weiterrechnen (`keplerAdvance`).
+     Ziel ist der Manöverknoten, sonst der Zündpunkt aus dem Reiseplaner. */
+  warpToEvent(){
+    if(this.crashed || this.ended || this.landed || this.eva || this.docked){
+      this.showMsg("Der Zeitsprung geht nur im freien Flug!", 2); return; }
+    if(this.belly || this.autoDock || (this.booster && this.booster.state!=="landed")){
+      this.showMsg("Erst den Autopiloten beenden!", 2); return; }
+    if(this.throttle > 0){ this.showMsg("Erst den Schub abstellen [X]!", 2); return; }
+    /* 1) Wohin springen? Und wie viel Vorlauf bleibt davor stehen?
+       ⚠️⚠️ Beim TRANSFERFENSTER wird bewusst NICHT auf den Zündpunkt selbst
+       gezielt (Fenster + Ejection-Winkel), sondern auf das Öffnen des
+       Fensters. Grund ist `transferWindow`: `wait` ist die Zeit bis zur
+       richtigen Phasenlage und läuft danach sofort auf die NÄCHSTE synodische
+       Periode über. Wer eine Sekunde hinter dem Fenster herauskommt, liest im
+       Reiseplaner also »Zündung in 232 Tage« statt »in 40 Sekunden«. Vor dem
+       Fenster ist die Anzeige dagegen stimmig, und der Rest (höchstens ein
+       Parkorbit-Umlauf) ist mit [.] eine Sache von Sekunden. */
+    let tEv = null, what = "", lead = 60;
+    if(this.node && this.node.t > this.t + 5){
+      tEv = this.node.t; what = "Knoten";
+      const s = this.activeSeg(), F = s ? (s.thrust + s.srbThrust) : 0;
+      const burn = F > 0 ? this.nodeDvTotal()*this.mass()/F : 0;
+      lead = Math.min(900, Math.max(45, burn/2 + 45));
+    } else {
+      const tb = this.target && this.target.kind==="body" ? this.target.body : null;
+      const tw = tb && this.hasNavComp() ? this.transferWindow(tb) : null;
+      /* ⚠️⚠️ Wer schon UNTERWEGS ist, will zur ANKUNFT – nicht zum nächsten
+         Startfenster. `transferWindow` rechnet stur den nächsten Hohmann von
+         hier aus, und der lag im Test **4,5 Jahre** voraus: Der Sprung wäre
+         glatt an Minzi vorbeigeflogen. */
+      if(tb && tw && this.onTransferTo(tb)){
+        const e = this.findEncounter(this.pos, this.vel, this.t, tb,
+          Math.min(6e7, Math.max(6*3600, tw.tT*1.8)));
+        if(e && e.t > this.t + 240){ tEv = e.t; what = "Begegnung"; lead = 120; }
+      }
+      if(tEv === null && tw){ tEv = this.t + tw.wait; what = "Startfenster"; }
+    }
+    if(tEv === null){
+      this.showMsg("Kein Ziel zum Hinspringen – erst einen Knoten setzen [K] oder ein Reiseziel wählen [Z].", 4);
+      return; }
+    const dt = tEv - lead - this.t, before0 = this.t;
+    if(dt < 30){ this.showMsg("Das Ereignis ist schon fast da – hier hilft nur noch [.]!", 3); return; }
+    // 3) Ist die Bahn dafür überhaupt stabil? (Der Sprung kennt nur EINE Sphäre.)
+    const b = this.body(), o = this.orbit();
+    if(o.ap <= 0){
+      this.showMsg("Auf einer Fluchtbahn springt der Computer nicht – bis zum Rand der Sphäre "+
+        "sind es nur Stunden, das schafft [.] in Sekunden.", 5); return; }
+    const rPe = b.R + o.pe, rAp = b.R + o.ap;
+    const floorR = b.R + (b === LEIBNIZ ? LEIBNIZ.atmoH : 0) + 500;
+    if(rPe < floorR){
+      this.showMsg("Zu tief: Der Zeitsprung braucht eine stabile Bahn "+
+        (b === LEIBNIZ ? "über der Atmosphäre (Pe > 70 km)." : "über der Oberfläche."), 5); return; }
+    if(b.soi && rAp > b.soi*0.95){
+      this.showMsg("Die Bahn reicht bis an den Rand der Einflusssphäre – dort wird es unberechenbar, also nur [.].", 5); return; }
+    // 4) Strom: ⚠️ Der Sprung darf keine Gratis-Energie schenken UND keine
+    //    Sonde ins Aus schicken. SAS geht aus (im Leerlauf braucht es niemand),
+    //    danach zieht nur noch die Sondensteuerung. Wer ohne Solarpanele
+    //    springen will, bekommt gesagt, woran es liegt, statt einer Leiche.
+    const hasPod = isCrewedStack(this.v.stack);
+    const nSolar = this.v.stack.filter(id=>PARTS[id].type==="solar").length;
+    const tut = typeof Tut!=="undefined" && Tut.active;
+    if(this.sas !== "off") this.sas = "off";
+    if(!tut){
+      const gen = (this.panelsOut && !this.panelsBroken && nSolar) ? 1 : 0;
+      const use = hasPod ? 0 : 0.25;
+      if(!gen && use*dt > this.charge){
+        this.showMsg("🪫 So lange reicht der Strom nicht ("+fmtDur(this.charge/use)+
+          "). Solarpanele ausfahren [G] – dann geht der Sprung.", 6);
+        return; }
+      this.charge = gen ? this.maxCharge : Math.max(0, this.charge - use*dt);
+    }
+    /* 5) Springen – und zwar mit der GENAUEREN der beiden Methoden.
+       ⚠️⚠️ »On rails« ist nur zweite Wahl: Auf einer interplanetaren Bahn
+       fehlen ihm alle Störungen, gemessen laufen Ellipse und n-Körper-Rechnung
+       binnen 40 Tagen um **88 224 km** auseinander – bei Minzis 6 066-km-Sphäre
+       also 14 Sphärenradien daneben, und der eben erst optimierte Knoten wäre
+       Makulatur. Wo die Integration die Schrittweite hält (`stepsFine`), wird
+       also integriert – das ist zugleich exakt die Rechnung, gegen die der
+       Auto-Knoten optimiert hat, Vorhersage und Sprung bleiben konsistent.
+       Nur im Parkorbit, wo 2 200 Schritte für Wochen nicht reichen, springt
+       die exakte Zweikörper-Ellipse ein: Dort ist die Bahnform das Wichtige,
+       und die bleibt dabei millimetergenau erhalten.
+       ⚠️⚠️ `stopBody`: NICHT durch eine fremde Einflusssphäre hindurch. Beide
+       Verfahren kennen nur EINEN Körper – ein Vorbeiflug am Ziel würde beim
+       Springen einfach verschluckt. Die Integration hält deshalb am
+       Sphärenwechsel an, und wir kommen 150 s DAVOR heraus. */
+    const nb = this.propagateTo(this.t + dt, b);
+    if(nb.stepsFine){
+      if(nb.stopped){
+        // `nb` ist der letzte Zustand VOR dem Sphärenwechsel – genau dort raus.
+        if(nb.t < this.t + 30){
+          this.showMsg("Der Sphärenwechsel steht unmittelbar bevor – ab hier zählt jede Minute, also [.].", 5);
+          return; }
+        this.pos.copy(nb.p); this.vel.copy(nb.v); this.t = nb.t;
+        this.warpI = 0; this._encAt = 0; this.sunBlend = null;
+        this.showMsg("⏭ "+fmtDur(nb.t - before0)+" übersprungen – ANKUNFT steht bevor, "+
+          "der Rest läuft normal weiter!", 7);
+        return; }
+      this.pos.copy(nb.p); this.vel.copy(nb.v); this.t = nb.t;
+    } else if(!this.keplerAdvance(dt)){
+      this.showMsg("Diese Bahn lässt sich nicht überspringen – bitte [.] benutzen.", 3); return; }
+    this.warpI = 0;              // am Ziel NICHT im 100 000×-Rausch stehen
+    this._encAt = 0;
+    this.sunBlend = null;        // Sonne sofort richtig stellen statt langsam drehen
+    this.showMsg("⏭ "+fmtDur(dt)+" übersprungen (Bahn on rails). "+what+" in "+
+      fmtDur(tEv - this.t)+
+      (what==="Startfenster" ? " – jetzt 🧭 [⇧K] für den Knoten." : "."), 7);
+  },
   canWarp(i){
     if(i<=1) return true;
     // In der Atmosphäre maximal 50× – im Vakuum unbegrenzt.
@@ -15165,6 +15393,20 @@ const Flight = {
     // Nebel-Kulisse: wie die Sterne in der Atmosphäre ausblenden
     for(const neb of this.nebulae)
       neb.material.opacity = (this.map ? 1 : 1-fEff) * neb.userData.base;
+    /* ⚠️⚠️ Sterne und Nebel sind KULISSE und müssen mit dem Zoom mitwachsen.
+       Beide hängen an `scene`, also am SCHIFF (Floating Origin) – das ist für
+       die Flugansicht genau richtig (Himmel dreht sich mit dem Blick, nicht
+       mit dem Ort). In der KARTE wird daraus ein Objekt: Die Sternenkugel hat
+       nur 4e7 m Radius, und sobald man auf das halbe Sonnensystem
+       herauszoomt, ist sie ein sichtbarer PUNKTEBALL, der neben Leibniz
+       herfliegt und am Schiff klebt (Bug-Report Simon). Dasselbe bei den
+       Nebeln, die dann zwischen den Planetenbahnen hängen.
+       Also: Radius an den Kameraabstand koppeln, gedeckelt unter der
+       Far-Ebene (2,2e11). In der Flugansicht ist camDist ein paar hundert
+       Meter → beide Faktoren sind 1, dort ändert sich kein Pixel. */
+    const bgCd = this._cd || this.camDist;
+    this.starField.scale.setScalar(Math.min(4000, Math.max(1, bgCd*40/4e7)));
+    this.nebGroup.scale.setScalar(Math.min(2.7, Math.max(1, bgCd*80/7e10)));
     this.groundGroup.visible = !this.map && alt<16000;
     if(this.groundGroup.visible) this.updateOcean(sky, alt);
     /* ⚠️ Die Kugel bekommt bodennah DENSELBEN Dunst wie die Geländescheibe –
@@ -15976,8 +16218,15 @@ const Flight = {
     if(bt && bt.textContent!=="🎯 Ziel [Z]") bt.textContent = "🎯 Ziel [Z]";
     // 🧭 Auto-Knoten: nur mit Bordcomputer, im Flug und mit gewähltem
     // Planeten-/Mondziel – sonst gäbe es nichts zu berechnen.
-    show("btnPlanNode", !this.landed && !evaGround && this.hasNavComp() &&
-      !!(this.target && this.target.kind === "body"));
+    const bodyTgt = !!(this.target && this.target.kind === "body");
+    show("btnPlanNode", !this.landed && !evaGround && this.hasNavComp() && bodyTgt);
+    // ⏭ Zeitsprung: braucht ein Ziel in der Zukunft (Knoten oder Zündpunkt)
+    const hasNode = !!(this.node && this.node.t > this.t + 5);
+    show("btnWarpTo", !this.landed && !this.eva && !this.docked &&
+      (hasNode || (this.hasNavComp() && bodyTgt)));
+    const wb = document.getElementById("btnWarpTo");
+    const wt = hasNode ? "⏭ Zum Knoten [⇧.]" : "⏭ Zum Startfenster [⇧.]";
+    if(wb && wb.textContent !== wt) wb.textContent = wt;
     show("btnModul", !Game.sandbox && has("dock"));
     show("btnBay", has("bay"));
     show("btnExp", has("lab"));
