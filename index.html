@@ -119,7 +119,15 @@ button{cursor:pointer;font-family:inherit;}
 #hudLeft{top:12px;left:12px;min-width:210px;}
 #hudLeft .row{display:flex;justify-content:space-between;gap:16px;}
 #hudLeft .row span:last-child{color:var(--orange);font-variant-numeric:tabular-nums;}
-#hudRight{top:12px;right:12px;text-align:right;}
+/* ⚠️ max-width ist PFLICHT, sobald ein Reiseziel gewählt ist: Der Reiseplaner
+   hängt unten einen langen Tipp an ("Ziel: unter 6.066 km (Einflusssphäre) …").
+   Ohne Deckel wächst das rechte Panel einzeilig nach LINKS und schiebt sich
+   über die Info-Tafel oben links (Bug-Report Simon, Screenshot Minzi-Anflug).
+   Die 380 px sind die Breite der linken Tafel plus Rand – so bleibt zwischen
+   beiden auch auf einem 13"-Laptop noch Luft; der zweite Wert deckelt die
+   Zeilenlänge auf breiten Schirmen, sonst läuft der Tipp über den halben
+   Bildschirm und liest sich schlecht. */
+#hudRight{top:12px;right:12px;text-align:right;max-width:min(640px, calc(100vw - 380px));}
 #hudMsg{bottom:310px;z-index:6;left:50%;transform:translateX(-50%);font-size:18px;font-weight:700;
   color:var(--orange);display:none;text-align:center;}
 #hudControls{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
@@ -1708,6 +1716,16 @@ const PANEL_SAFE_ALT = 50000;
    0,62 ist die Grenze, ab der die Namen unter den Helmen (10 px) noch lesbar
    bleiben – darunter wird aus »Dr. Luca« ein grauer Strich. */
 const CREW_ICON_SCALE = 0.62;
+
+/* Schriftgröße der Kartenmarker auf ihrem Canvas (s. Flight.markerCanvas).
+   ⚠️ Das ist der EINZIGE Hebel für die Größe der Beschriftung am Bildschirm:
+   Die Canvas-Höhe (48) wird von `scaleMarker` auf `ms/2` Weltmeter gestreckt,
+   die Schrift wächst also mit ihrem ANTEIL daran. Am Skalierungsfaktor zu
+   drehen würde auch den Positionspunkt aufblähen – und der markiert die
+   Objektposition, der soll genau bleiben. 20 → 27 px (Wunsch Simon: zu klein). */
+const MARKER_FONT = 27;
+/* Bahnlinie des GEWÄHLTEN Reiseziels – hell-lila wie in KSP (s. frame()). */
+const RING_COL = 0x8fa0c0, RING_TGT_COL = 0xc9a0ff;
 
 /* ---------- Synchronbahn (»geostationär«): 1 Umlauf = 1 Leibniz-Tag ----------
    Die Wolken von Leibniz drehen mit ~14.000 s – unser "Schultag". In ≈2000 km
@@ -9569,7 +9587,7 @@ const Flight = {
       for(let i=0;i<128;i++) ringPts.push(bodyLocalPos(b, i/128*b.period - b.phase*b.period/(2*Math.PI)));
       const ring = new THREE.LineLoop(
         new THREE.BufferGeometry().setFromPoints(ringPts),
-        new THREE.LineBasicMaterial({color:0x8fa0c0, transparent:true, opacity:.4}));
+        new THREE.LineBasicMaterial({color:RING_COL, transparent:true, opacity:.4}));
       ring.visible = false;
       this.world.add(ring);
       this.moonRings.push([b, ring]);
@@ -10542,19 +10560,42 @@ const Flight = {
      des Objekts), das Label steht rechts daneben – sonst zeigt optisch der Text
      statt des Punkts den Standort an. Methode (nicht mehr nur Closure in init),
      weil auch spawnAssets() für jedes geparkte Objekt einen Marker braucht. */
-  mkMarker(txt, color){
+  /* Canvas eines Kartenmarkers: farbiger Punkt im Zentrum, Beschriftung
+     rechts daneben. Schriftgröße s. MARKER_FONT.
+     ⚠️ `textBaseline="middle"` statt einer von Hand gesetzten Grundlinie –
+     sonst muss der y-Wert bei jeder Schriftgrößen-Änderung nachgerechnet
+     werden, und die Beschriftung sitzt schief zum Punkt. */
+  markerCanvas(txt, color){
+    const font = "bold "+MARKER_FONT+"px sans-serif";
     const c = document.createElement("canvas");
-    const mx = c.getContext("2d"); mx.font = "bold 20px sans-serif";
+    const mx = c.getContext("2d"); mx.font = font;
     const tw = Math.ceil(mx.measureText(txt).width);
     c.width = 2*(tw+26); c.height = 48;          // Punkt bei (W/2, 24) = Zentrum
     const x = c.getContext("2d");
     x.fillStyle=color; x.beginPath(); x.arc(c.width/2, 24, 8, 0, 7); x.fill();
-    x.font="bold 20px sans-serif"; x.fillStyle="#fff";
+    x.font=font; x.fillStyle="#fff"; x.textBaseline="middle";
     x.strokeStyle="rgba(4,6,14,.85)"; x.lineWidth=4;
-    x.strokeText(txt, c.width/2+14, 31); x.fillText(txt, c.width/2+14, 31);
+    x.strokeText(txt, c.width/2+14, 25); x.fillText(txt, c.width/2+14, 25);
+    return c;
+  },
+  mkMarker(txt, color){
+    const c = this.markerCanvas(txt, color);
     const m = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c), transparent:true, depthTest:false}));
     m.userData.aspect = c.width/c.height;
     m.visible = false; this.world.add(m); return m;
+  },
+  /* Beschriftung eines BESTEHENDEN Markers austauschen (der Begegnungs-Marker
+     trägt den Namen des gewählten Ziels).
+     ⚠️ Die alte Textur muss disposed werden – sonst leckt jeder Zielwechsel
+     eine Canvas-Textur, und mit [Z] klickt man sich schnell durch zehn Ziele.
+     ⚠️ `userData.aspect` mitziehen: Ein längerer Name macht das Canvas breiter,
+     und `scaleMarker` rechnet die Sprite-Breite genau daraus. */
+  setMarkerLabel(m, txt, color){
+    const c = this.markerCanvas(txt, color);
+    if(m.material.map) m.material.map.dispose();
+    m.material.map = new THREE.CanvasTexture(c);
+    m.material.needsUpdate = true;
+    m.userData.aspect = c.width/c.height;
   },
   /* Kartenmarker skalieren: Höhe = ms/2, Breite folgt dem Canvas-Seitenverhältnis
      (der Punkt bleibt so immer exakt auf der Objektposition) */
@@ -15207,6 +15248,15 @@ const Flight = {
     if(!tb || !this.map || this.body() === tb){
       this.encounter = null; this.encMarker.visible = false; return;
     }
+    /* ⚠️ Der Marker trägt den ZIELNAMEN: »Begegnung« allein sagt nicht, WEN
+       man da trifft – bei mehreren Bahnen im Bild ist das die eigentliche
+       Frage (Wunsch Simon). Nur bei WECHSEL neu zeichnen, nicht pro Frame:
+       das wäre ein Canvas + Textur-Upload alle 16 ms. */
+    if(this._encFor !== tb){
+      this._encFor = tb;
+      this.setMarkerLabel(this.encMarker,
+        "Begegnung mit "+(BODY_ICON[tb.name]||"•")+" "+tb.name, "#39ffd0");
+    }
     const now = performance.now();
     if(now - (this._encAt||0) > 200){
       this._encAt = now;
@@ -15605,7 +15655,20 @@ const Flight = {
     }
     this.padGroup.visible = !this.map && alt<25000;
     if(this.padGroup.visible) this.updatePad(alt, 1/60);
-    for(const [,ring] of this.moonRings) ring.visible = this.map;
+    /* ⚠️ Die Bahnlinie des GEWÄHLTEN Reiseziels leuchtet hell-lila (wie in
+       KSP). Zwischen sieben gleich grauen Ellipsen war sonst nicht zu
+       erkennen, welche davon die eigene Reise überhaupt meint – und das ist
+       genau die Linie, an der man die Begegnung ablesen will (Wunsch Simon).
+       Farbe/Deckkraft pro Frame zu setzen ist gratis: Jeder Ring hat sein
+       EIGENES LineBasicMaterial, und Farbe und Opacity lösen keine
+       Shader-Neuübersetzung aus. */
+    const tgtRing = this.target && this.target.kind==="body" ? this.target.body : null;
+    for(const [b, ring] of this.moonRings){
+      ring.visible = this.map;
+      const on = b === tgtRing;
+      ring.material.color.setHex(on ? RING_TGT_COL : RING_COL);
+      ring.material.opacity = on ? 0.95 : 0.4;
+    }
     this.shipMarker.visible = this.map && !this.crashed;
     if(this.map){
       const ss = this._cd*0.035;

@@ -960,7 +960,26 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
     Verifiziert: SAS-Knoten unverändert · Hand auf dem ✛ und 30° daneben = 0,00° Wanderung,
     Auto-Cutoff bei exakt 600 von 600 m/s · 90° daneben friert korrekt NICHT ein.
     ⚠️ `nodeDir` kann null sein, wenn nie eine Karte offen war – Guard nicht entfernen.
-- **Kartenmarker:** `mkMarker(txt,color)` legt den farbigen Punkt EXAKT ins Sprite-Zentrum (= Objektposition), Label rechts daneben; Breite dynamisch (`userData.aspect`), skalieren NUR über `Flight.scaleMarker(m,ms)`. Stationsmarker heißt »Große Pause« (nicht mehr "ISS").
+- **Kartenmarker:** `markerCanvas(txt,color)` (Canvas) → `mkMarker(txt,color)` (neues Sprite) bzw. `setMarkerLabel(m,txt,color)` (Beschriftung eines BESTEHENDEN Markers tauschen). Der farbige Punkt sitzt EXAKT im Sprite-Zentrum (= Objektposition), Label rechts daneben; Breite dynamisch (`userData.aspect`), skalieren NUR über `Flight.scaleMarker(m,ms)`. Stationsmarker heißt »Große Pause« (nicht mehr "ISS").
+  - ⚠️ **Schriftgröße = `MARKER_FONT` (27 px), und das ist der EINZIGE Hebel dafür.** Die
+    Canvas-Höhe (48) wird von `scaleMarker` auf `ms/2` Weltmeter gestreckt, die Schrift wächst
+    also mit ihrem ANTEIL daran. Am Skalierungsfaktor (`cd*0.042` etc.) zu drehen macht auch
+    den Positionspunkt größer – und der markiert die Objektposition, der soll genau bleiben.
+    20 → 27 px = +35 % (Bug-Report Simon: »zu klein«). `textBaseline="middle"` statt einer
+    von Hand gesetzten Grundlinie, sonst muss der y-Wert bei jeder Größenänderung neu
+    ausgerechnet werden.
+  - ⚠️ `setMarkerLabel` muss die alte Textur **disposen** – sonst leckt jeder Zielwechsel
+    eine Canvas-Textur (verifiziert: 20 Zielwechsel = 0 zusätzliche GPU-Texturen).
+- **Begegnungs-Marker trägt den ZIELNAMEN** (»Begegnung mit 🍬 Minzi«, `updateEncounter`):
+  »Begegnung« allein sagt nicht, WEN man da trifft – bei mehreren Bahnen im Bild ist das die
+  eigentliche Frage (Bug-Report Simon). ⚠️ Nur bei WECHSEL neu zeichnen (`_encFor`), nicht
+  pro Frame – das wäre ein Canvas + Textur-Upload alle 16 ms.
+- ⚠️ **Die Bahnlinie des GEWÄHLTEN Reiseziels leuchtet hell-lila** (`RING_TGT_COL` 0xc9a0ff,
+  Deckkraft 0,95; alle anderen `RING_COL` 0x8fa0c0 / 0,4), gesetzt pro Frame in `frame()` –
+  wie in KSP. Zwischen neun gleich grauen Ellipsen war sonst nicht zu erkennen, welche davon
+  die eigene Reise meint (Wunsch Simon). Kostet nichts: Jeder Ring hat sein EIGENES
+  `LineBasicMaterial`, und Farbe/Opacity lösen keine Shader-Neuübersetzung aus. Verifiziert:
+  genau ein lila Ring, folgt [Z] sofort, wird bei Ziel »Station« wieder grau.
 - ⚠️ **Sonne, Planeten und Monde haben eigene Marker** (`Flight.bodyMarkers`, Farbe aus
   `shade2D[0]`, Faktor `cd*0.042`). Vorher zeigte die Karte von einem Planeten nur die
   BAHNLINIE – wo er darauf gerade steht, ist bei 1e11 Zoom nicht zu sehen (seine Kugel ist
@@ -1450,6 +1469,13 @@ innerhalb der Atmosphäre. Auf dem Boden: W/A/S/D laufen (kamerarelativ, 3,5 m/s
   nie). `updateButtons` blendet `btnFlag`/`btnFairing` gegenseitig aus.
 
 ## HUD-Kleinkram
+- ⚠️⚠️ **`#hudRight` braucht ein `max-width`** (`min(640px, calc(100vw − 380px))`): Sobald ein
+  Reiseziel gewählt ist, hängt `travelPanel` unten einen langen Tipp an (»Ziel: unter 6.066 km
+  (Einflusssphäre) …«). Ohne Deckel wächst das rechte Panel einzeilig nach LINKS und schiebt
+  sich über die Info-Tafel oben links (Bug-Report Simon, Screenshot Minzi-Anflug). Die 380 px
+  sind die Breite der linken Tafel plus Rand, der zweite Wert deckelt die Zeilenlänge auf
+  breiten Schirmen. Gemessene Lücke zwischen beiden Tafeln: 1000 px → 142 · 1280 px → 402 ·
+  1440 px → 562.
 - **Crew-Porträts (`#crewCam` / `drawCrew`) sitzen UNTEN RECHTS und klein** (`CREW_ICON_SCALE`
   0,62; darunter wird aus »Dr. Luca« ein grauer Strich). Oben rechts lagen sie über dem
   Reiseplaner – auf einem 13"-Laptop war von Transferfenster, Δv und Begegnung nichts mehr
