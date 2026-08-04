@@ -1236,10 +1236,10 @@ const PARTS = {
            info:"Riesige Glocke, Isp 380 s im Vakuum – das effizienteste Oberstufen-Triebwerk überhaupt."},
   superheavy:{name:"Superheavy-Booster",     type:"superheavy", mass:3600, fuel:26000, thrust:4600000, isp:330, w:14,h:68, tech:"raptorSL", raptor:true,
            info:"Riesentank + 33 Raptoren in EINEM Teil (26 t Treibstoff, 4600 kN). Mit Gitterflossen ausrüsten – dann landet ihn der Autopilot!"},
-  starship:{name:"Starship",                 type:"starship", mass:5200, fuel:9500, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:900, flaps:true, bay:2500, raptor:true, navcomp:true,
-           info:"Das ultimative Schiff: 6 Crew ODER große Nutzlast, Hitzeschutz-Kacheln, Bellyflop-Landung mit [C] (mindestens 200 m Höhe!). Frachtraum: 2,5 t Satelliten (PEZ-Dispenser, seitlicher Auswurf mit [N]). Bordcomputer für Planeten-Transfers ist eingebaut."},
-  starshipTank:{name:"Tanker-Starship",      type:"starship", mass:4400, fuel:16000, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:400, tanker:true, bay:0, raptor:true, navcomp:true,
-           info:"Starship ohne Flaps, dafür voller Tanks: Im Orbit parken (Flug dort beenden) – dort heißt er dann »Tanker ⛽ #1«, »#2« … und ist mit [Z] anwählbar. Jedes Schiff tankt bei ihm auf (< 60 m, < 4 m/s), und zwar genau so viel, wie er noch HAT – der Rest bleibt im Orbit stehen. Wer selbst einen Tanker fliegt, kann umgekehrt andere Tanker und geparkte Schiffe volltanken. Unbemannt, keine Bellyflop-Landung, KEIN Frachtraum – da sitzen die Tanks!"}
+  starship:{name:"Starship",                 type:"starship", mass:5200, fuel:9500, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:900, flaps:true, bay:2500, raptor:true, navcomp:true, solar:2,
+           info:"Das ultimative Schiff: 6 Crew ODER große Nutzlast, Hitzeschutz-Kacheln, Bellyflop-Landung mit [C] (mindestens 200 m Höhe!). Frachtraum: 2,5 t Satelliten (PEZ-Dispenser, seitlicher Auswurf mit [N]). Bordcomputer für Planeten-Transfers ist eingebaut. Batterie 900 ⚡ und fest eingebaute Solarpanele (+6 ⚡/s im Sonnenlicht) – nichts auszufahren."},
+  starshipTank:{name:"Tanker-Starship",      type:"starship", mass:4400, fuel:16000, thrust:1450000, isp:365, w:14,h:52, tech:"starshipT", charge:400, tanker:true, bay:0, raptor:true, navcomp:true, solar:1,
+           info:"Starship ohne Flaps, dafür voller Tanks: Im Orbit parken (Flug dort beenden) – dort heißt er dann »Tanker ⛽ #1«, »#2« … und ist mit [Z] anwählbar. Jedes Schiff tankt bei ihm auf (< 60 m, < 4 m/s), und zwar genau so viel, wie er noch HAT – der Rest bleibt im Orbit stehen. Wer selbst einen Tanker fliegt, kann umgekehrt andere Tanker und geparkte Schiffe volltanken. Unbemannt, keine Bellyflop-Landung, KEIN Frachtraum – da sitzen die Tanks! Batterie 400 ⚡ und fest eingebaute Solarpanele (+3 ⚡/s im Sonnenlicht)."}
 };
 /* Radialteile (Flossen, Seitenbooster): hängen seitlich am Nachbartank
    und belegen KEINE eigene Höhe im Stack – wie in echt. */
@@ -1289,6 +1289,25 @@ function crewCapacity(stack){
   return Math.min(cap, 6);
 }
 function isCrewedStack(stack){ return crewCapacity(stack) > 0; }
+/* ---------- Solarleistung eines Stacks (EINE Quelle) ----------
+   Eine "Einheit" = 1 Panel = 3 ⚡/s im vollen Sonnenlicht. Zwei Sorten:
+   - `deploy`: das ausfahrbare Bauteil (type "solar") – braucht [G], klappt
+     unter PANEL_SAFE_ALT nicht aus und kann im Fahrtwind abreißen.
+   - `fixed`:  fest eingebaute Panele über das Flag `solar:<n>` (Starship &
+     Tanker-Starship, wie navcomp/raptor auch). Sie sitzen INNEN, also gibt es
+     nichts auszufahren und nichts abzureißen – sie liefern immer, sobald die
+     Sonne scheint.
+   ⚠️ Ohne das war ein Starship nach ein paar Wochen Reise schlicht tot: 900 ⚡
+   Batterie, kein Nachschub, [G] antwortete "Keine Solarpanele an Bord!". */
+function solarPanels(stack){
+  let deploy = 0, fixed = 0;
+  for(const id of stack){
+    const p = PARTS[id];
+    if(p.type==="solar") deploy++;
+    fixed += p.solar || 0;
+  }
+  return {deploy, fixed, total: deploy + fixed};
+}
 /* ---------- Preise (Karriere): jedes Bauteil kostet 🪙 ----------
    Balancing: Startbudget 3500 · erste Rakete ~700 · Missionen zahlen 150+10×🧪 ·
    Nebenverdienste (SIDE_JOBS) einmalig 2×1000 + 2×1500.
@@ -10700,6 +10719,8 @@ const Flight = {
     this.charge = this.maxCharge;
     this.panelsOut = false; this.panelsBroken = false; this.powerDead = false;
     this.solarLit = 1;
+    // aktive Panel-Einheiten (ausgefahrene + fest eingebaute), s. solarPanels()
+    this.solarOn = solarPanels(vessel.stack).fixed;
     this.legsOut = false; this.legsAnim = LEG_IN; this._legMsg = false;
     this._patchKey = null;   // Nahfeld-Kachel neu bestimmen (s. updateSurfPatch)
     this.bayOpen = false; this.bayAnim = 0;
@@ -11467,8 +11488,15 @@ const Flight = {
   },
   togglePanels(){
     if(this.crashed||this.ended) return;
-    if(!this.v.stack.some(id=>PARTS[id].type==="solar")){
-      this.showMsg("Keine Solarpanele an Bord! ☀️",2); return;
+    const sp = solarPanels(this.v.stack);
+    if(!sp.deploy){
+      // Fest eingebaute Panele (Starship) gibt es zwar – auszufahren ist da aber
+      // nichts. Das muss die Meldung auch sagen, sonst liest sie sich wie
+      // "dieses Schiff bekommt nie wieder Strom".
+      this.showMsg(sp.fixed
+        ? "☀️ Die Solarpanele sind fest eingebaut (+"+(3*sp.fixed)+" ⚡/s im Sonnenlicht) – nichts auszufahren."
+        : "Keine Solarpanele an Bord! ☀️", sp.fixed ? 3 : 2);
+      return;
     }
     if(this.panelsBroken){ this.showMsg("Die Panele sind abgerissen… 😬",2); return; }
     // In der dichten Luft unter Leibniz gar nicht erst ausfahren (s. PANEL_SAFE_ALT).
@@ -13927,11 +13955,11 @@ const Flight = {
     //    danach zieht nur noch die Sondensteuerung. Wer ohne Solarpanele
     //    springen will, bekommt gesagt, woran es liegt, statt einer Leiche.
     const hasPod = isCrewedStack(this.v.stack);
-    const nSolar = this.v.stack.filter(id=>PARTS[id].type==="solar").length;
+    const sp = solarPanels(this.v.stack);
     const tut = typeof Tut!=="undefined" && Tut.active;
     if(this.sas !== "off") this.sas = "off";
     if(!tut){
-      const gen = (this.panelsOut && !this.panelsBroken && nSolar) ? 1 : 0;
+      const gen = (sp.fixed || (this.panelsOut && !this.panelsBroken && sp.deploy)) ? 1 : 0;
       const use = hasPod ? 0 : 0.25;
       if(!gen && use*dt > this.charge){
         this.showMsg("🪫 So lange reicht der Strom nicht ("+fmtDur(this.charge/use)+
@@ -14095,12 +14123,16 @@ const Flight = {
       this.powerDead = false;
     } else {
       const hasPod = isCrewedStack(this.v.stack);
-      const nSolar = this.v.stack.filter(id=>PARTS[id].type==="solar").length;
+      const sp = solarPanels(this.v.stack);
       // ⚠️ Solarstrom NUR im Sonnenlicht – im Planetenschatten liefern die
       // Panele nichts, und genau dafür ist die Batterie da (s. sunlit()).
-      const lit = nSolar ? this.sunlit() : 0;
+      const lit = sp.total ? this.sunlit() : 0;
       this.solarLit = lit;
-      const gen = (this.panelsOut && !this.panelsBroken) ? 3*nSolar*lit : 0;
+      // Ausfahrbare Panele nur ausgefahren und heil; fest eingebaute (Starship)
+      // liefern immer – sie sitzen innen und lassen sich weder aus- noch abreißen.
+      const nOn = ((this.panelsOut && !this.panelsBroken) ? sp.deploy : 0) + sp.fixed;
+      this.solarOn = nOn;          // fürs HUD (☀️ / 🌑 Schatten)
+      const gen = 3*lit*nOn;
       let use = 0;
       if(!hasPod && !this.landed) use += 0.25;       // Sondensteuerung
       if(this.sas!=="off") use += 0.3;               // SAS
@@ -16558,7 +16590,7 @@ const Flight = {
       <small style="color:var(--muted)">W/S nicken · A/D gieren · Q/E rollen<br>
       ↑/↓ Schub · ⇧X voll · X aus · T = SAS<br>Z = Ziel wählen · Maus = Kamera · Rad = Zoom</small>
       ${this.sas!=="off"?'<br><b style="color:var(--green)">SAS: '+(this.sas==="pro"?"PROGRADE ▲":"RETROGRADE ▼")+'</b>':""}
-      <br>⚡ ${this.charge.toFixed(0)}/${this.maxCharge}${this.panelsOut?(this.solarLit>0.05?" ☀️":' <span style="color:var(--muted)">🌑 Schatten</span>'):""}${this.powerDead?' <b style="color:var(--red)">STROM LEER</b>':""}
+      <br>⚡ ${this.charge.toFixed(0)}/${this.maxCharge}${this.solarOn?(this.solarLit>0.05?" ☀️":' <span style="color:var(--muted)">🌑 Schatten</span>'):""}${this.powerDead?' <b style="color:var(--red)">STROM LEER</b>':""}
       ${this.infinite?'<br><b style="color:var(--green)">∞ Endlos-Treibstoff</b>':""}
       ${this.sats.length?'<br>📡 Satelliten: '+this.sats.length:""}
       ${(()=>{ // ☄️ Anflughilfe: nächster noch ungescannter Kleinkörper

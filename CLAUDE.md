@@ -1414,6 +1414,28 @@ Reaktionsräder und darf nicht pusten (verifiziert: 0 Partikel, Zischen 0).
     Terminator (Sonnenhöhe −0,66 = Rand der Kugel aus 200 km), Tagseite +2,75 ⚡/s,
     Nachtseite −0,25 ⚡/s. `Flight.solarLit` treibt zugleich die HUD-Anzeige
     (☀️ ↔ 🌑 Schatten), Reset in `start()`.
+- ⚠️⚠️ **Das Starship hat FEST EINGEBAUTE Panele** (`solarPanels(stack)` ist die EINE Quelle):
+  Flag **`solar:<n>`** an einem Teil = n fest verbaute Panel-Einheiten (à 3 ⚡/s), genau wie
+  `navcomp`/`raptor` – `starship` 2 (6 ⚡/s), `starshipTank` 1. Sie sitzen INNEN: kein [G],
+  kein `panelsOut`, kein Abriss im Fahrtwind, kein `PANEL_SAFE_ALT`. Ohne sie war ein
+  Starship auf einer Interplanetarreise nach ein paar Wochen schlicht tot – 900 ⚡ Batterie,
+  kein Nachschub, und [G] antwortete »Keine Solarpanele an Bord!« (Bug-Report Simon,
+  Screenshot: ⚡ 0/900 auf dem Weg nach Minzi, Missionszeit 26,8 Tage).
+  - `solarPanels()` liefert `{deploy, fixed, total}`; **`deploy`** (Teile mit `type:"solar"`)
+    zählt nur ausgefahren und heil, **`fixed`** immer. Beide gehen durch dasselbe `sunlit()`.
+    Wer eine der drei Stellen anfasst (Bilanz in `step()`, Guard in `warpToEvent`,
+    `togglePanels`), fasst sie über diese Funktion an – vorher stand dreimal ein eigenes
+    `filter(type==="solar")` da, und genau eine davon kannte den Sonderfall nicht.
+  - ⚠️ `btnPanels` hängt weiter an `has("solar")` – der Knopf ist zum AUSFAHREN da, und beim
+    Starship gibt es nichts auszufahren. [G] sagt das dort auch (»fest eingebaut«) statt
+    »keine an Bord«; ganz ohne Panele bleibt die alte Meldung.
+  - ⚠️ Die HUD-Anzeige (☀️ / 🌑 Schatten) hängt jetzt an `Flight.solarOn` (aktive Einheiten,
+    gesetzt in `step()`, Reset in `start()`), NICHT mehr an `panelsOut` – sonst zeigt ein
+    Starship seinen Ladezustand nie an.
+  - Verifiziert: Starship im Sonnenraum (dominanter Körper SONNE, 14,4 Mio. km) lädt mit
+    exakt **6 ⚡/s**, 0 → 900 ⚡ in 150 s; Zeitsprung [⇧.] mit 5 ⚡ Restladung springt 34,7 Tage
+    und kommt voll an (vorher verweigert). Regression klassische Sonde unverändert:
+    eingeklappt −0,25 · ausgefahren +2,75 · ausgefahren im Schatten −0,25 ⚡/s.
 - **Solarpanele nur im Vakuum** (`PANEL_SAFE_ALT` = 50 km über Leibniz): `togglePanels` verweigert
   das Ausfahren darunter, `step()` klappt sie beim Sinkflug automatisch ein. Der alte
   Abriss-Mechanismus (`panelsBroken` bei `rho·v² > 12000`, greift ~35–40 km) bleibt als letzte
