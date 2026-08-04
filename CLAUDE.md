@@ -1047,12 +1047,49 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
   »Begegnung« allein sagt nicht, WEN man da trifft – bei mehreren Bahnen im Bild ist das die
   eigentliche Frage (Bug-Report Simon). ⚠️ Nur bei WECHSEL neu zeichnen (`_encFor`), nicht
   pro Frame – das wäre ein Canvas + Textur-Upload alle 16 ms.
-- ⚠️ **Die Bahnlinie des GEWÄHLTEN Reiseziels leuchtet hell-lila** (`RING_TGT_COL` 0xc9a0ff,
-  Deckkraft 0,95; alle anderen `RING_COL` 0x8fa0c0 / 0,4), gesetzt pro Frame in `frame()` –
-  wie in KSP. Zwischen neun gleich grauen Ellipsen war sonst nicht zu erkennen, welche davon
-  die eigene Reise meint (Wunsch Simon). Kostet nichts: Jeder Ring hat sein EIGENES
+  - ⚠️⚠️ **Und er sagt die WAHRHEIT: »Begegnung« nur INNERHALB der Sphäre**, sonst
+    »nächster Punkt zu …« (grau). Vorher hieß jede noch so weite Annäherung »Begegnung«.
+- ⚠️⚠️ **`findEncounter` liefert `full` – ohne das erfindet die Karte Begegnungen.** Die
+  Schrittweite ist an den örtlichen Umlauf gekoppelt (`localT/400`), die Schrittzahl aber auf
+  4 200 gedeckelt: In einem 5 300-s-Parkorbit sind das 13-s-Schritte, die Suche kommt damit
+  **0,29 von 120 Tagen** weit (Horizont = 1,6 × Hohmann-Flugzeit nach Minzi). Sie verließ den
+  Parkorbit also nie und meldete als »dichteste Annäherung« den Punkt der eigenen Kreisbahn,
+  der Minzi zufällig am nächsten lag – gemessen **25,94 Mio. km**, mit Marker mitten im Nichts:
+  »eine Begegnung, die physikalisch nicht sein kann« (Bug-Report Simon, Screenshot aus dem
+  Leibniz-Orbit mit Ziel Minzi). `full` ist false, wenn die Schleife am Schrittzähler endet
+  statt am Horizont (ein Einschlag zählt als vollständig). Ausgewertet in `updateEncounter`
+  (Marker + HUD-Zahl), `warpToEvent` (sonst springt man auf einen erfundenen Zeitpunkt),
+  im `miss()`-Abstieg des Auto-Knotens und in `captureSituation`. Statt der Zahl steht im
+  HUD jetzt, WARUM es noch keine gibt. Verifiziert: Parkorbit → kein Marker · nach dem
+  Ejection-Burn wieder da (966 272 km, `full` true) · Auto-Knoten-Kette unverändert
+  (Monti 1296, Minzi 2275 m/s).
+- ⚠️ **Die Bahnlinie des GEWÄHLTEN Reiseziels leuchtet KNALLIG MAGENTA** (`RING_TGT_COL`
+  0xff2fb8, Deckkraft 0,95; alle anderen `RING_COL` 0x8fa0c0 / 0,4), gesetzt pro Frame in
+  `frame()` – wie in KSP. Zwischen neun gleich grauen Ellipsen war sonst nicht zu erkennen,
+  welche davon die eigene Reise meint (Wunsch Simon). ⚠️ Das frühere Hell-Lila (0xc9a0ff) war
+  dafür zu nah am blaugrauen Grundton – Magenta kommt im Spiel sonst nirgends vor (Vorbild:
+  Principia-Bahnfarben, Bildvorlage Simon). Kostet nichts: Jeder Ring hat sein EIGENES
   `LineBasicMaterial`, und Farbe/Opacity lösen keine Shader-Neuübersetzung aus. Verifiziert:
-  genau ein lila Ring, folgt [Z] sofort, wird bei Ziel »Station« wieder grau.
+  genau ein magenta Ring, folgt [Z] sofort, wird bei Ziel »Station« wieder grau.
+- **🔭 Kartenfilter »Nur Ziel« (`Flight.mapFocus` / `focusKeeps`, [⇧M] + Knopf):** blendet in
+  der Karte alles aus außer der eigenen Bahn, der Bahn des Ziels und der des Körpers, in
+  dessen Sphäre man steckt (Wunsch Simon). Weg sind: fremde Planetenringe und -marker,
+  Kleinkörper samt Bahnen UND Kometenschweif (⚠️ `updateCometFx` setzt `visible` selbst –
+  erst rechnen lassen, dann ausblenden), Station, geparkte Objekte, Missions-Zielringe.
+  ⚠️ Die Bahn des eigenen Bezugskörpers bleibt bewusst stehen: Startbahn und Zielbahn
+  NEBENEINANDER sind der ganze Sinn, daran liest man den Phasenwinkel ab.
+- **Δ Bahnebene im Ziel-Infofenster** (`Flight.relInc`, in `targetInfo`): Winkel zwischen den
+  Bahnnormalen von eigener und Zielbahn – die Zahl, ohne die kein Rendezvous und kein
+  Transfer klappt (Wunsch Simon). Grün < 0,5°, orange < 5°, sonst rot.
+  - ⚠️⚠️ **Auf 0…90° gefaltet, und das ist kein Schönheitsfehler-Fix:** Beim Nachmessen kam
+    heraus, dass die beiden Umlaufsinne im Spiel GEGENLÄUFIG definiert sind – Planeten laufen
+    um die Sonne mit Bahnnormale **−Y** (Leibniz gemessen: (0,−1,0)), jeder Orbit um Leibniz
+    dagegen mit **+Y** (Station: (0,1,0)). Der rohe Winkel meldete für einen normalen
+    20°-Parkorbit deshalb **157°** statt 23°. Gefaltet stimmen alle Fälle: äquatorial → 3° zu
+    Minzi (dessen echte Bahnneigung!), 20° → 23°, polar → 87°.
+  - ⚠️ Für Station und Tanker (gemeinsamer Bezugskörper) bleibt »GEGENLÄUFIG!« erhalten – dort
+    ist ein retrograder Orbit eine echte Warnung, kein Konventions-Artefakt. Verifiziert:
+    umgekehrte Bahn → 0,0° + GEGENLÄUFIG.
 - ⚠️ **Sonne, Planeten und Monde haben eigene Marker** (`Flight.bodyMarkers`, Farbe aus
   `shade2D[0]`, Faktor `cd*0.042`). Vorher zeigte die Karte von einem Planeten nur die
   BAHNLINIE – wo er darauf gerade steht, ist bei 1e11 Zoom nicht zu sehen (seine Kugel ist
@@ -1555,6 +1592,32 @@ innerhalb der Atmosphäre. Auf dem Boden: W/A/S/D laufen (kamerarelativ, 3,5 m/s
   Höhe – sonst steht die Crew bei einem 200-m-Träger 70 m entfernt. Einstiegs-Schwelle
   entsprechend `max(60, H/2 + 40)`: gemessen wird zur Schiffs-MITTE, mit den alten festen
   60 m käme man von einem großen Träger nie wieder an Bord.
+
+### 🫁 Sauerstoff im Anzug (`EVA_O2` / `Flight.evaO2` / `evaO2Out`)
+**5 Minuten draußen** (Wunsch Simon) – lang genug für Flagge, Rundgang oder den Weg zu einem
+zweiten Schiff, kurz genug, dass der Anzug spürbar eine Flasche ist und kein Zuhause.
+- ⚠️⚠️ **Der Vorrat gehört zum SCHIFF, nicht zum einzelnen Ausstieg:** `evaO2` überlebt Ein-
+  und Aussteigen und füllt sich NUR an Bord wieder auf (`EVA_O2_REFILL` 90 s von leer auf
+  voll, gerechnet im Strom-Block von `step()`). Sonst wäre »kurz rein, kurz raus« ein
+  Gratis-Nachschub und die Anzeige bedeutungslos. Unter 30 s Rest verweigert [V] den
+  Ausstieg und nennt die Nachfüllzeit.
+- ⚠️⚠️ **Zeitraffer bei EVA hart auf 2×** (`canWarp` + Deckel in `toggleEVA`, wie bei
+  Docking- und Booster-Autopilot): Bei 1000× wären die 5 Minuten in 0,3 Bildschirmsekunden
+  weg – die Person stürbe, bevor irgendeine Warnung lesbar ist.
+- Warnkette `EVA_O2_WARN` bei 2 min / 1 min / 30 s, Balken 🫁 in der Anzeigenleiste (unter
+  60 s rot) und eine mm:ss-Zeile im linken HUD. `_o2Warned` wird an Bord wieder scharf gestellt.
+- **Bei 0 ist die Person verloren** (`evaO2Out`): raus aus `crew`/`crewObjs`, im Kader Status
+  **`verschollen`** (rot, gesperrt – dieselbe Mechanik wie »gestrandet«, nur ohne
+  Rettungsmission: hier gibt es kein Wrack zum Anfliegen). Ehrliche Physik wie überall im
+  Spiel; davor stehen drei Warnungen, der Balken und der Warp-Deckel. Verifiziert: 6 → 5
+  Crew, EVA beendet, Nachfüllen an Bord 0 → voll in 90 s.
+- ⚠️ **Die Knopfleiste wird bei EVA gefiltert** (Block am Ende von `updateButtons`): Als
+  Astronaut*in steuert man kein Schiff – Stufen, SAS, Bellyflop, ∞-Tank, Knoten, Ziel,
+  Zeitraffer & Co. sind dort Quatsch (Bug-Report Simon, Screenshot mit »Bellyflop« neben dem
+  laufenden Männchen). Übrig bleiben [V] einsteigen, 🚩 Flagge (am Boden), Karte, ⚙️ und
+  »Flug beenden«. ⚠️ Der Block steht am ENDE und überschreibt die Zeilen darüber; da
+  `updateButtons` pro Frame läuft, stellt sich nach dem Einsteigen alles von selbst wieder
+  her – nur `infBtn` braucht die explizite Sandbox-Zeile, weil es sonst niemand zurücksetzt.
 - **Flagge** `buildFlagMesh()` + `flagTexture()`: ⚠️ Das Logo wird auf ein Canvas GEMALT und
   nicht aus `LMGTECHlogo.png` geladen – per file:// darf WebGL keine Datei-Bilder als Textur
   benutzen (derselbe Grund wie bei `nebulae.js`). ⚠️ Die Fahne hängt an einer **Querstrebe**,
@@ -1591,7 +1654,7 @@ innerhalb der Atmosphäre. Auf dem Boden: W/A/S/D laufen (kamerarelativ, 3,5 m/s
 ## Tastenkürzel
 (Im Spiel nachschlagbar: ⚙️ Optionen → **⌨️ Tastenbelegung**, `KEYMAP` in index.html.
 Wer hier etwas ändert, ändert es dort UND in tutorials.js mit.)
-Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp, **⇧. = Zeitsprung zum Knoten/Startfenster** · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
+Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · **M Karte, ⇧M Kartenfilter »nur Ziel«** · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp, **⇧. = Zeitsprung zum Knoten/Startfenster** · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
 - ⚠️⚠️ **[Z] war bis August 2026 im Flug VOLLGAS und die Zielwahl brauchte ⇧Z** – »zu
   umständlich und verwirrend« (Simon), weil dieselbe Taste je nach Flugzustand etwas völlig
   anderes tat. Jetzt liegt der Schub komplett auf **[X]** (aus / ⇧ voll) und [Z] ist überall

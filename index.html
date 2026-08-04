@@ -364,6 +364,9 @@ input[type=file]{display:none;}
     </div><label>Tank</label></div>
     <div class="gauge" id="boostGauge" style="display:none"><div class="bar"><div id="boostFill" class="fill" style="background:linear-gradient(180deg,#f7941d,#a85f10);"></div></div><label>Booster</label></div>
     <div class="gauge"><div class="bar"><div id="powerFill" class="fill" style="background:linear-gradient(180deg,#e8c540,#a8861a);"></div></div><label>⚡</label></div>
+    <!-- Sauerstoff des Raumanzugs: nur bei EVA und solange der Vorrat nicht
+         wieder voll ist (s. Flight.evaO2 / updateGauges). -->
+    <div class="gauge" id="o2Gauge" style="display:none"><div class="bar"><div id="o2Fill" class="fill" style="background:linear-gradient(180deg,#7fd8ff,#2a7fa8);"></div></div><label>🫁</label></div>
   </div>
   <!-- Crew-Porträts: UNTEN RECHTS und klein. Oben rechts standen sie über dem
        Reiseplaner (Transferfenster, Δv, Begegnung) – auf einem 13"-Laptop war
@@ -381,7 +384,7 @@ input[type=file]{display:none;}
     <div id="boosterCamInfo" style="padding:4px 9px;font-size:11px;color:var(--muted);background:rgba(10,16,32,.92);"></div>
   </div>
   <div id="hudControls">
-    <button class="btn" onclick="Flight.stage()">Stufe [Leer]</button>
+    <button class="btn" id="btnStage" onclick="Flight.stage()">Stufe [Leer]</button>
     <button class="btn" id="sasBtn" onclick="Flight.toggleSAS()">SAS [T]</button>
     <button class="btn" id="btnBoostR" onclick="Flight.igniteBoosters()">🔥 Booster [R]</button>
     <button class="btn" id="btnBoostJ" onclick="Flight.jettisonBoosters()">Booster ab [J]</button>
@@ -398,7 +401,7 @@ input[type=file]{display:none;}
     <button class="btn" id="btnModul" onclick="Flight.installModule()">🏗 Modul [I]</button>
     <button class="btn" id="btnBay" onclick="Flight.toggleBays()">📦 Bucht [O]</button>
     <button class="btn" id="infBtn" style="display:none" onclick="Flight.toggleInfinite()">∞ Tank [U]</button>
-    <button class="btn" onclick="Flight.addNode()">Manöver [K]</button>
+    <button class="btn" id="btnNode" onclick="Flight.addNode()">Manöver [K]</button>
     <!-- Nur mit Bordcomputer UND Planeten-/Mondziel sichtbar (s. updateButtons) -->
     <button class="btn" id="btnPlanNode" onclick="Flight.planTransferNode()">🧭 Auto-Knoten [⇧K]</button>
     <button class="btn" id="btnExp" onclick="Flight.runExperiment()">Experiment [B]</button>
@@ -407,8 +410,10 @@ input[type=file]{display:none;}
          und die abgebuchten Startkosten sind wieder da. -->
     <button class="btn" id="btnRevert" onclick="Flight.revert()">↩ Neustart</button>
     <button class="btn" onclick="Flight.toggleMap()">Karte [M]</button>
-    <button class="btn" onclick="Flight.warpDown()">⏪ [,]</button>
-    <button class="btn" onclick="Flight.warpUp()">⏩ [.]</button>
+    <!-- Kartenfilter: nur eigene Bahn + Zielbahn (nur in der Karte, s. updateButtons) -->
+    <button class="btn" id="btnMapFocus" onclick="Flight.toggleMapFocus()">🔭 Nur Ziel [⇧M]</button>
+    <button class="btn" id="btnWarpDown" onclick="Flight.warpDown()">⏪ [,]</button>
+    <button class="btn" id="btnWarpUp" onclick="Flight.warpUp()">⏩ [.]</button>
     <!-- Zeitsprung on rails; nur im freien Flug mit Ziel/Knoten (updateButtons) -->
     <button class="btn" id="btnWarpTo" onclick="Flight.warpToEvent()">⏭ Zum Startfenster [⇧.]</button>
     <!-- ⚙️ auch MITTEN IM FLUG erreichbar: Grafikstufe, Lautstärke und die
@@ -656,14 +661,17 @@ const KEYMAP = [
     ["B", "Experiment durchführen"],
     ["L", "Docken – zwischen 30 und 200 m übernimmt der Docking-Autopilot"],
     ["I", "Stationsmodul einbauen (angedockt)"],
-    ["V", "Außeneinsatz (EVA) – im All oder gelandet; zu Fuß: WASD laufen, ↑ hüpfen"],
+    ["V", "Außeneinsatz (EVA) – im All oder gelandet; zu Fuß: WASD laufen, ↑ hüpfen. "+
+          "<b>Achtung: nur 5 Minuten Sauerstoff im Anzug!</b> (Balken 🫁, füllt sich an Bord wieder auf)"],
     ["C", "Bellyflop-Autopilot (nur Starship)"]
   ]},
   {group:"Navigation & Zeit", keys:[
     ["M",   "Karte ein/aus"],
+    ["⇧ M", "Kartenfilter: <b>nur die eigene Bahn und die des Ziels</b>"],
     ["Z",   "Reiseziel wählen – auf der Rampe die Startfenster-Peilung"],
     ["K",   "Manöverknoten setzen"],
-    ["⇧ K", "<b>Auto-Knoten</b>: der Bordcomputer trägt den Transfer selbst ein"],
+    ["⇧ K", "<b>Auto-Knoten</b>: der Bordcomputer trägt den Transfer selbst ein – "+
+            "am Ziel angekommen wird daraus der <b>Einfang-Burn</b>"],
     [", .", "Zeitraffer langsamer / schneller"],
     ["⇧ .", "<b>Zeitsprung</b> zum Knoten bzw. zum Startfenster"],
     ["Esc", "Pause"]
@@ -1743,8 +1751,12 @@ const CREW_ICON_SCALE = 0.62;
    drehen würde auch den Positionspunkt aufblähen – und der markiert die
    Objektposition, der soll genau bleiben. 20 → 27 px (Wunsch Simon: zu klein). */
 const MARKER_FONT = 27;
-/* Bahnlinie des GEWÄHLTEN Reiseziels – hell-lila wie in KSP (s. frame()). */
-const RING_COL = 0x8fa0c0, RING_TGT_COL = 0xc9a0ff;
+/* Bahnlinie des GEWÄHLTEN Reiseziels (s. frame()). ⚠️ KNALLIGES MAGENTA, nicht
+   das frühere Hell-Lila (0xc9a0ff): Zwischen neun blaugrauen Ellipsen war das
+   Lila zu nah am Grundton, man musste suchen, welche Bahn die eigene Reise
+   meint. Magenta ist die einzige Farbe, die im Spiel sonst nirgends vorkommt
+   (Vorbild: die Bahnfarben in Principia, Bild-Vorlage Simon). */
+const RING_COL = 0x8fa0c0, RING_TGT_COL = 0xff2fb8;
 
 /* ---------- Synchronbahn (»geostationär«): 1 Umlauf = 1 Leibniz-Tag ----------
    Die Wolken von Leibniz drehen mit ~14.000 s – unser "Schultag". In ≈2000 km
@@ -2825,12 +2837,14 @@ function renderMissionControl(list){
     const lvl = crewLevel(a);
     const next = XP_LEVELS[lvl+1];
     const stranded = a.status==="gestrandet";
+    const gone = a.status==="verschollen";      // Sauerstoff bei EVA alle (evaO2Out)
     return `<div style="display:flex;gap:10px;align-items:baseline;margin:3px 0;">
-      <b style="min-width:120px;${stranded?"color:var(--red)":""}">${ROLES[a.role].icon} ${a.name}</b>
+      <b style="min-width:120px;${stranded||gone?"color:var(--red)":""}">${ROLES[a.role].icon} ${a.name}</b>
       <span style="min-width:120px;">${"⭐".repeat(lvl)||"–"} ${LEVEL_NAMES[lvl]}</span>
       <small style="color:var(--muted)">${a.xp} XP${next!==undefined?" (Level-Up bei "+next+")":""} ·
         ${a.flights||0} Flüge · ${ROLES[a.role].bonus}</small>
       ${stranded?'<b style="color:var(--red)">🆘 GESTRANDET – Rettungsmission!</b>':""}
+      ${gone?'<b style="color:var(--red)">💀 VERSCHOLLEN (Sauerstoff bei EVA)</b>':""}
     </div>`;
   }).join(""));
   // --- Funknetz ---
@@ -3620,6 +3634,24 @@ const SANDBOX_ORBIT_ALT = 200000;
    ein zügiger Trab – langsamer wird das Erkunden im Raumanzug zäh, schneller
    sieht es aus wie ein Fehler in der Physik. */
 const EVA_FOOT = 0.65, EVA_WALK = 3.5, EVA_JUMP = 2.2;
+/* ---------- Sauerstoff im Raumanzug (`Flight.evaO2`) ----------
+   5 Minuten draußen (Wunsch Simon) – lang genug für eine Flagge, einen
+   Rundgang oder den Weg zu einem zweiten Schiff, kurz genug, dass man nicht
+   vergisst, dass der Anzug eine Flasche ist und kein Zuhause.
+   ⚠️ Der Vorrat gehört zum SCHIFF, nicht zum Ausstieg: `evaO2` überlebt das
+   Ein- und Aussteigen und füllt sich nur an Bord wieder auf (in
+   `EVA_O2_REFILL` Sekunden von leer auf voll). Sonst wäre »kurz rein, kurz
+   raus« ein Gratis-Nachschub, und die Anzeige bedeutete nichts.
+   ⚠️ Bei EVA ist der Zeitraffer auf 2× gedeckelt (s. warpUp): Bei 1000×
+   wären die 5 Minuten in 0,3 Sekunden Bildschirmzeit weg – der Tod käme
+   schneller, als man den Balken sehen kann. */
+const EVA_O2 = 300, EVA_O2_REFILL = 90;
+/* Warnstufen (Sekunden Restsauerstoff → Meldung), absteigend geprüft. */
+const EVA_O2_WARN = [
+  [120, "🫁 Noch 2 Minuten Sauerstoff – langsam zurück zur Luke!"],
+  [60,  "🫁 Noch 1 Minute Sauerstoff! Zurück zum Schiff, [V] zum Einsteigen."],
+  [30,  "🫁 NUR NOCH 30 SEKUNDEN SAUERSTOFF!"]
+];
 /* Ein Bauteil als 3D-Gruppe; Ursprung = Unterkante, +Y = oben */
 function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radialteilen
   const p = PARTS[id], g = new THREE.Group();
@@ -10015,7 +10047,8 @@ const Flight = {
         if(e.shiftKey) this.planTransferNode(); else this.addNode();
       }
       if(e.key==="b"||e.key==="B") this.runExperiment();
-      if(e.key==="m"||e.key==="M") this.toggleMap();
+      // [M] Karte · [⇧M] Kartenfilter »nur Ziel« (s. toggleMapFocus)
+      if(e.key==="m"||e.key==="M"){ if(e.shiftKey) this.toggleMapFocus(); else this.toggleMap(); }
       /* ⚠️ `e.code` statt `e.key`: Auf einer deutschen Tastatur liefert
          Umschalt+Punkt ein ":" – mit e.key wäre der Zeitsprung dort nicht
          erreichbar. */
@@ -10697,7 +10730,7 @@ const Flight = {
     // wird weiter unten aus `padQ` gesetzt (Ost/hoch/Süd) – sonst zeigt die
     // Steuerung in eine willkürliche Himmelsrichtung, s. Kommentar dort.
     this.q = new THREE.Quaternion().setFromUnitVectors(V3(0,1,0), pd);
-    this.t = 0; this.throttle = 1; this.warpI = 0; this.map = false;
+    this.t = 0; this.throttle = 1; this.warpI = 0; this.map = false; this.mapFocus = false;
     this.landed = true; this.crashed=false; this.ended=false; this.flew=false;
     this.chuteOpen=false; this.infinite=false;
     this.sats.forEach(s=>this.world.remove(s.mesh));
@@ -10743,6 +10776,7 @@ const Flight = {
     this.solarLit = 1;
     // aktive Panel-Einheiten (ausgefahrene + fest eingebaute), s. solarPanels()
     this.solarOn = solarPanels(vessel.stack).fixed;
+    this.evaO2 = EVA_O2; this._o2Warned = EVA_O2 + 1;   // volle Sauerstoffflasche
     this.legsOut = false; this.legsAnim = LEG_IN; this._legMsg = false;
     this._patchKey = null;   // Nahfeld-Kachel neu bestimmen (s. updateSurfPatch)
     this.bayOpen = false; this.bayAnim = 0;
@@ -11339,6 +11373,12 @@ const Flight = {
     if(!grounded && leibnizAlt(this.pos,this.t) < LEIBNIZ.atmoH){
       this.showMsg("EVA nur im Weltraum (über 70 km) oder nach der Landung!",3); return;
     }
+    if(this.evaO2 !== undefined && this.evaO2 < 30){
+      this.showMsg("🫁 Der Anzug ist fast leer ("+this.evaO2.toFixed(0)+" s) – erst an Bord "+
+        "auffüllen lassen (dauert "+EVA_O2_REFILL+" s von leer auf voll).", 5); return;
+    }
+    // ⚠️ Zeitraffer beim Ausstieg hart auf 2× – der Sauerstoff läuft mit (s. canWarp).
+    this.warpI = Math.min(this.warpI, 1);
     const mesh = buildAstronaut();
     const legs = [], arms = [];
     mesh.traverse(o=>{ if(o.name==="leg") legs.push(o); else if(o.name==="arm") arms.push(o); });
@@ -11368,6 +11408,30 @@ const Flight = {
       this.showMsg("🧑‍🚀 "+name+" schwebt im All! Jetpack: W/A/S/D + ↑/↓ · [V] = einsteigen",5);
     }
   },
+  /* ---------- Der Sauerstoff ist alle ----------
+     Ehrliche Physik, wie überall im Spiel: Ohne Luft im Anzug überlebt niemand.
+     Deshalb steht davor die Warnkette (2 min / 1 min / 30 s), der Balken 🫁 in
+     der Anzeigenleiste und der Zeitraffer-Deckel – wer trotzdem draußen bleibt,
+     hat es dreimal gelesen. Die Person ist danach aus der Flug-Crew raus; im
+     Kader steht sie als »verschollen« und ist für weitere Flüge gesperrt
+     (dieselbe Mechanik wie »gestrandet«, nur ohne Rettungsmission – hier gibt
+     es kein Wrack, das man anfliegen könnte). */
+  evaO2Out(){
+    if(!this.eva) return;
+    const nm = (this.crew[0]||"Die Crew").replace(/^\S+\s*/,"");
+    this.world.remove(this.eva.mesh);
+    this.eva = null;
+    this.evaO2 = 0;
+    this.camDist = Math.max(35, this.height()*2.2);
+    const lost = (this.crewObjs && this.crewObjs.length) ? this.crewObjs[0] : null;
+    if(lost && !Game.sandbox){ lost.status = "verschollen"; autoSave(); }
+    if(this.crewObjs && this.crewObjs.length) this.crewObjs.shift();
+    if(this.crew.length) this.crew.shift();
+    this.showMsg("💀 Der Sauerstoff ist alle – "+nm+" ist im Anzug erstickt. "+
+      (this.crew.length
+        ? "Der Rest der Crew ist noch an Bord."
+        : "Das Schiff ist jetzt unbemannt!"), 10);
+  },
   /* EVA-Astronaut*in fortbewegen: im All Jetpack, auf einer Oberfläche zu Fuß.
      ⚠️ Der Bodenmodus regelt die Geschwindigkeit DIREKT (kein Antrieb, keine
      Reibung): Ein Kraftmodell bräuchte Haftreibung, sonst schlittert man auf
@@ -11380,6 +11444,18 @@ const Flight = {
      312 km Abstand zum eigenen Schiff nach 2 Sekunden. */
   stepEVA(dt, warp){
     if(!this.eva) return;
+    /* ---- Sauerstoff ---- Der Anzug ist eine Flasche, kein Raumschiff.
+       Gewarnt wird gestaffelt (2 min / 1 min / 30 s), damit niemand vom Ende
+       überrascht wird – der Weg zurück zur Luke dauert selten länger als das. */
+    this.evaO2 = Math.max(0, (this.evaO2 ?? EVA_O2) - dt);
+    for(const [s, txt] of EVA_O2_WARN){
+      if(this.evaO2 <= s && (this._o2Warned||EVA_O2+1) > s){
+        this._o2Warned = s;
+        this.showMsg(txt, 5);
+        break;
+      }
+    }
+    if(this.evaO2 <= 0){ this.evaO2Out(); return; }
     const ea = this.accel(this.eva.pos, this.t);
     const eb = this.eva.body;
     const k3 = this.keys, live = warp <= 2;
@@ -12314,14 +12390,69 @@ const Flight = {
      ⚠️ Der Füllstand wird LIVE aus Game.assets geholt, nicht aus dem
      targetList()-Schnappschuss – sonst zeigt das HUD nach dem Umpumpen noch
      die alte Menge an. */
+  /* ---------- Winkel zwischen der EIGENEN Bahnebene und der des Ziels ----------
+     Die Zahl, die beim Rendezvous und beim Transfer wirklich zählt (Wunsch
+     Simon): Zwei Bahnen, die sich nicht in derselben Ebene bewegen, treffen
+     sich nie – egal wie gut das Timing ist. Gerechnet als Winkel zwischen den
+     Drehimpulsvektoren (Bahnnormalen), also unabhängig davon, wie die Bahnen
+     im Raum gedreht sind.
+     ⚠️ Beide Vektoren entstehen im selben INERTIALSYSTEM, aber jeweils
+     relativ zum eigenen Bezugskörper: die eigene Bahn um den Körper, in
+     dessen Sphäre wir stecken, die Zielbahn um dessen Mutterkörper. Für
+     Station und Tanker (beide um Leibniz) ist das die klassische relative
+     Inklination; für einen Planeten ist es der Winkel, den man beim Transfer
+     wegdrehen muss – bei Minzi die berühmten 3°. */
+  relInc(tg){
+    if(!tg) return null;
+    const hOwn = new THREE.Vector3().crossVectors(
+      this.pos.clone().sub(this.bodyCenter(this.body())),
+      this.vel.clone().sub(bodyVel(this.body(), this.t)));
+    let hT;
+    if(tg.kind === "body"){
+      const b = tg.body, par = b.parent;
+      if(!par) return null;
+      hT = new THREE.Vector3().crossVectors(
+        bodyPos(b, this.t).sub(bodyPos(par, this.t)),
+        bodyVel(b, this.t).sub(bodyVel(par, this.t)));
+    } else {
+      hT = new THREE.Vector3().crossVectors(
+        tg.pos(this.t).sub(bodyPos(LEIBNIZ, this.t)),
+        tg.vel(this.t).sub(bodyVel(LEIBNIZ, this.t)));
+    }
+    if(hOwn.lengthSq() < 1e-6 || hT.lengthSq() < 1e-6) return null;
+    const a = Math.acos(Math.min(1, Math.max(-1,
+      hOwn.normalize().dot(hT.normalize()))))*180/Math.PI;
+    /* ⚠️⚠️ Auf 0…90° falten – das ist der Winkel der EBENEN, und nur der ist
+       hier gemeint. Grund ist eine Eigenheit des Spiels, die beim Nachmessen
+       herauskam: Die Planeten laufen um die Sonne mit der Bahnnormalen −Y,
+       jeder Orbit um Leibniz dagegen mit +Y (Station gemessen: (0,1,0),
+       Leibniz um die Sonne: (0,−1,0)). Die beiden Konventionen sind also
+       gegenläufig, und der rohe Winkel zwischen den Normalen kam für einen
+       ganz normalen 20°-Parkorbit auf **157°** statt der erwarteten 23°
+       heraus (180 − 23). Für die Frage »wie weit muss ich meine Bahnebene
+       drehen« zählt der gefaltete Wert – und für Station und Tanker, wo beide
+       Bahnen denselben Bezugskörper haben, ist er ohnehin identisch.
+       ⚠️ Genau DORT bleibt »gegenläufig« aber eine echte Information (ein
+       retrograder Orbit trifft die Station nie), deshalb wird sie für Ziele
+       mit gemeinsamem Bezugskörper mitgegeben – bei Planeten nicht, da ist
+       das > 90° nur die Konvention. */
+    return {deg: a > 90 ? 180 - a : a, retro: a > 90 && tg.kind !== "body"};
+  },
   targetInfo(tg){
     if(!tg) return "";
+    /* Ebenen-Differenz: unter 0,5° ist man »in der Ebene«, darüber lohnt der
+       Hinweis auf den Normal-Burn (bzw. beim Transfer auf die Korrektur). */
+    const di = this.landed ? null : this.relInc(tg);
+    const incTxt = !di ? "" :
+      " · <b style=\"color:"+(di.deg < 0.5 && !di.retro ? "var(--green)"
+                            : (di.deg < 5 && !di.retro ? "var(--orange)" : "var(--red)"))+
+      "\">Δ Bahnebene "+di.deg.toFixed(1)+"°"+(di.retro ? " GEGENLÄUFIG!" : "")+"</b>";
     if(tg.kind==="body"){
       const b = tg.body;
       return (b.parent===SUN ? "Sonnenbahn " : "Bahn um "+b.parent.name+" ")+
-        fmtBig(b.orbitR)+" · Ø "+fmtBig(2*b.R)+" · Einflusssphäre "+fmtBig(b.soi);
+        fmtBig(b.orbitR)+" · Ø "+fmtBig(2*b.R)+" · Einflusssphäre "+fmtBig(b.soi)+incTxt;
     }
-    let s = "Ap "+Math.round(tg.ap/1000)+" km · Pe "+Math.round(tg.pe/1000)+" km (Kreisbahn)";
+    let s = "Ap "+Math.round(tg.ap/1000)+" km · Pe "+Math.round(tg.pe/1000)+" km (Kreisbahn)"+incTxt;
     if(tg.kind==="tanker"){
       const a = (Game.assets||[]).find(x=>x.kind==="tanker" && x.name===tg.name);
       const f = a ? assetFuel(a) : tg.fuel, cap = a ? tankCapacity(a.stack) : tg.cap;
@@ -12562,6 +12693,13 @@ const Flight = {
     // rechnet predict() sie – s. updateEncounter).
     if(!this.map){
       out += '<br><small style="color:var(--muted)">💡 Karte [M] zeigt die Begegnung + Knoten [K] zum Feinjustieren · 🧭 [⇧K] setzt ihn automatisch</small>';
+    } else if(!this.encounter && !cap && this.body() !== tb){
+      /* Keine belastbare Vorhersage (s. `full` in findEncounter): im Parkorbit
+         reicht die Rechnung nicht über Wochen. Vorher stand hier trotzdem eine
+         Zahl – und in der Karte ein Begegnungs-Marker mitten im Nichts. */
+      out += '<br><small style="color:var(--muted)">◇ Noch keine Begegnung berechenbar – '+
+        'die Vorhersage reicht aus dem Parkorbit nicht bis '+tb.name+'. '+
+        'Erst den Abflug-Burn zünden, dann zeigt die Karte die Annäherung.</small>';
     } else if(this.encounter){
       const e = this.encounter, hit = e.d < tb.soi;
       const enRoute = this.onTransferTo(tb);       // schon auf dem Weg?
@@ -12648,7 +12786,7 @@ const Flight = {
         this.showMsg("🎯 ZIELORBIT ERREICHT: "+(gr.g.label||"Missionsorbit")+" – der Ring in der Karte [M] ist jetzt GRÜN!", 5);
       gr.wasMet = met;
       gr.line.material.color.set(met ? 0x5fc46a : 0x39c2ff);
-      gr.line.visible = this.map;
+      gr.line.visible = this.map && !this.mapFocus;   // Kartenfilter: nur Ziel
       if(this.map){
         const b = BODY_BY_NAME()[gr.g.body] || LEIBNIZ;
         gr.line.position.copy(bodyPos(b, this.t));
@@ -13099,7 +13237,7 @@ const Flight = {
     const e = (cheap ? (this.encounter && this.encounter.body === tb ? this.encounter : null)
                      : this.findEncounter(this.pos, this.vel, this.t, tb,
                          Math.max(3600, dist/Math.max(1, this.vel.distanceTo(bodyVel(tb,this.t)))*4)));
-    return e && e.d < tb.soi ? {body:tb, kind:"capture", enc:e} : null;
+    return e && e.full !== false && e.d < tb.soi ? {body:tb, kind:"capture", enc:e} : null;
   },
   /* ---------- Einfang-/Rundungs-Burn setzen (Bordcomputer) ----------
      Gebremst wird IMMER an der Periapsis – dort ist das Schiff am schnellsten,
@@ -13240,7 +13378,7 @@ const Flight = {
          eine bereits getroffene Sphäre würde er also immer weiter zur
          Aufschlagbahn hin »verbessern«, und das für Treibstoff. Stattdessen
          der nächste Schritt der Kette: heranspringen, dann bremsen. */
-      if(e0 && e0.d < tb.soi){
+      if(e0 && e0.full && e0.d < tb.soi){
         this.showMsg("🧭 Kurs sitzt: Begegnung mit "+(BODY_ICON[tb.name]||"")+" "+tb.name+
           " in "+fmtBig(e0.d)+" (Sphäre "+fmtBig(tb.soi)+"), in "+fmtDur(e0.t-this.t)+". "+
           "Jetzt mit ⏭ [⇧.] zur Ankunft springen – dort setzt [⇧K] den Einfang-Burn.", 10);
@@ -13266,7 +13404,9 @@ const Flight = {
         evals++;
         const dv = this.nodeDeltaV(st.p, st.v, st.t, c);
         const e = this.findEncounter(st.p.clone(), st.v.clone().add(dv), st.t, tb, hor);
-        return e ? {s: Math.abs(e.d - rAim), d: e.d} : {s: Infinity, d: Infinity};
+        // ⚠️ Unvollständige Suchen (s. `full`) sind wertlos – gegen sie zu
+        // optimieren hieße, einem Zufallswert hinterherzulaufen.
+        return e && e.full ? {s: Math.abs(e.d - rAim), d: e.d} : {s: Infinity, d: Infinity};
       };
       const m0 = miss(cand); bd = m0.s; bDist = m0.d;
       /* ⚠️⚠️ Der INTERPLANETARE Ejection-Burn (`tw.dep`) bekommt den
@@ -14055,6 +14195,28 @@ const Flight = {
     }
     this.camDist = this.map ? LEIBNIZ.R*3.2 : Math.max(35, this.height()*2.2);
   },
+  /* ---------- Kartenfilter »Nur Ziel« ([⇧M]) ----------
+     In der Gesamtansicht liegen neun Bahnellipsen, vier Kleinkörper, die
+     Station, jedes geparkte Objekt und alle Missionsringe übereinander – die
+     zwei Linien, auf die es beim Transfer wirklich ankommt (die eigene und
+     die des Ziels), gehen darin unter (Wunsch Simon). Der Filter blendet
+     alles andere aus.
+     ⚠️ Die Bahn des Körpers, in dessen Sphäre man steckt, bleibt bewusst
+     stehen: Startbahn und Zielbahn NEBENEINANDER sind der ganze Sinn – daran
+     liest man den Phasenwinkel ab. */
+  toggleMapFocus(){
+    this.mapFocus = !this.mapFocus;
+    if(this.mapFocus && !this.map) this.toggleMap();
+    this.showMsg(this.mapFocus
+      ? "🔭 Kartenfilter AN – nur die eigene Bahn und die des Ziels. [⇧M] zurück."
+      : "🔭 Kartenfilter aus – wieder alle Bahnen.", 3);
+  },
+  /* Bleibt dieser Körper im Kartenfilter sichtbar? (s. toggleMapFocus) */
+  focusKeeps(b){
+    if(!this.mapFocus) return true;
+    const tb = this.target && this.target.kind === "body" ? this.target.body : null;
+    return b === tb || b === this.body();
+  },
   warpUp(){ if(this.canWarp(this.warpI+1)) this.warpI=Math.min(this.warpI+1,WARPS.length-1); },
   warpDown(){ this.warpI=Math.max(0,this.warpI-1); },
   /* ---------- Zweikörper-Sprung »on rails« (Lagrange f & g) ----------------
@@ -14143,7 +14305,9 @@ const Flight = {
       if(tb && tw && this.onTransferTo(tb)){
         const e = this.findEncounter(this.pos, this.vel, this.t, tb,
           Math.min(6e7, Math.max(6*3600, tw.tT*1.8)));
-        if(e && e.t > this.t + 240){ tEv = e.t; what = "Begegnung"; lead = 120; }
+        // ⚠️ `full`: nur eine Suche, die das ganze Fenster abgedeckt hat (s.
+        // findEncounter) – sonst springt man auf einen frei erfundenen Zeitpunkt.
+        if(e && e.full && e.t > this.t + 240){ tEv = e.t; what = "Begegnung"; lead = 120; }
       }
       if(tEv === null && tw){ tEv = this.t + tw.wait; what = "Startfenster"; }
     }
@@ -14222,6 +14386,14 @@ const Flight = {
     if(i<=1) return true;
     // In der Atmosphäre maximal 50× – im Vakuum unbegrenzt.
     // AUF DER RAMPE frei: da steht die Rakete sicher (Startfenster abwarten!)
+    /* ⚠️ Bei EVA höchstens 2× (wie Docking- und Booster-Autopilot): Der
+       Sauerstoff reicht 5 Minuten, bei 1000× wären die in einem Drittel einer
+       Bildschirmsekunde weg – der Balken 🫁 stünde auf voll und die Person
+       wäre tot, bevor irgendeine Warnung lesbar ist. */
+    if(this.eva && WARPS[i] > 2){
+      this.showMsg("🧑‍🚀 Bei EVA höchstens 2× Zeitraffer – der Sauerstoff läuft mit!",3);
+      return false;
+    }
     if(this.landed) return true;
     if(leibnizAlt(this.pos, this.t) < LEIBNIZ.atmoH && WARPS[i] > 50){
       this.showMsg("In der Atmosphäre maximal 50× Zeitraffer!",2); return false;
@@ -14347,6 +14519,12 @@ const Flight = {
       const nOn = ((this.panelsOut && !this.panelsBroken) ? sp.deploy : 0) + sp.fixed;
       this.solarOn = nOn;          // fürs HUD (☀️ / 🌑 Schatten)
       const gen = 3*lit*nOn;
+      // 🫁 Sauerstoff füllt sich NUR an Bord wieder auf (s. EVA_O2_REFILL) –
+      // draußen zieht ihn stepEVA ab.
+      if(!this.eva && this.evaO2 < EVA_O2){
+        this.evaO2 = Math.min(EVA_O2, this.evaO2 + dt*EVA_O2/EVA_O2_REFILL);
+        this._o2Warned = EVA_O2 + 1;      // Warnkette für den nächsten Ausstieg schärfen
+      }
       let use = 0;
       if(!hasPod && !this.landed) use += 0.25;       // Sondensteuerung
       if(this.sas!=="off") use += 0.3;               // SAS
@@ -15315,13 +15493,14 @@ const Flight = {
      ⚠️ Läuft gedrosselt (s. predict) – 4 ms pro Frame wären zu teuer. */
   findEncounter(p0, v0, t0, tb, horizon){
     let p = p0.clone(), v = v0.clone(), t = t0;
-    let d = Infinity, bt = 0, bp = null, prev = null, best = null;
+    let d = Infinity, bt = 0, bp = null, prev = null, best = null, hitBody = false;
     const tEnd = t0 + horizon;
     /* Schrittweiten-Deckel: klein genug, dass die Sonnenbahn über Monate
        nicht wegdriftet (der Fehler von RK2 wächst mit dt²), groß genug, dass
        4200 Schritte bis zum Ziel reichen. */
     const capDt = Math.min(12000, Math.max(600, horizon/1200));
-    for(let i=0;i<4200 && t<tEnd;i++){
+    let i = 0;
+    for(;i<4200 && t<tEnd;i++){
       const b = this.bodyAt(p, t);
       const r = Math.max(1e3, p.distanceTo(bodyPos(b, t)));
       const localT = 2*Math.PI*Math.sqrt(r*r*r/b.mu);
@@ -15334,9 +15513,21 @@ const Flight = {
       v.addScaledVector(a2, dt); t += dt;
       const dd = p.distanceTo(bodyPos(tb, t));
       if(dd < d){ d = dd; bt = t; bp = p.clone(); prev = st; best = dt; }
-      if(p.length() < SUN.R) break;
-      if(MOONS.some(m=>p.distanceTo(bodyPos(m,t)) < m.R*0.98)) break;
+      if(p.length() < SUN.R){ hitBody = true; break; }
+      if(MOONS.some(m=>p.distanceTo(bodyPos(m,t)) < m.R*0.98)){ hitBody = true; break; }
     }
+    /* ⚠️⚠️ Hat die Suche den Horizont überhaupt ERREICHT? Die Schrittweite ist
+       an den örtlichen Umlauf gekoppelt (`localT/400`), die Schrittzahl aber
+       gedeckelt: In einem 5 300-s-Parkorbit sind das 13-s-Schritte, also nach
+       4 200 Schritten gerade **0,6 Tage** – bei einem Horizont von 120 Tagen
+       (1,6 × Hohmann-Flugzeit nach Minzi). Die Suche kam damit nie aus dem
+       Parkorbit heraus und meldete als »dichteste Annäherung« schlicht den
+       Punkt der eigenen Kreisbahn, der Minzi zufällig am nächsten lag – Millionen
+       km entfernt, aber mit Marker in der Karte: »eine Begegnung, die es
+       physikalisch nicht geben kann« (Bug-Report Simon, Screenshot aus dem
+       Leibniz-Orbit). Ohne dieses Flag ist so ein Ergebnis nicht von einer
+       echten Vorhersage zu unterscheiden. */
+    const full = t >= tEnd - 1 || hitBody;
     /* Feinsuche um das grobe Minimum: Im Sonnenraum liegen zwei Schritte
        ~60 000 s auseinander, das Schiff legt dazwischen 600 000 km zurück –
        ohne Nachrechnen meldet die Anzeige »weit daneben«, obwohl der Kurs
@@ -15354,7 +15545,7 @@ const Flight = {
         if(dd < d){ d = dd; bt = t2; bp = p2.clone(); }
       }
     }
-    return bp ? {body:tb, d, t:bt, pos:bp} : null;
+    return bp ? {body:tb, d, t:bt, pos:bp, full} : null;
   },
   /* Geisterkörper an der Begegnungsstelle einblenden (nur Kartenansicht). */
   showGhost(g){
@@ -15494,15 +15685,6 @@ const Flight = {
     if(!tb || !this.map || this.body() === tb){
       this.encounter = null; this.encMarker.visible = false; return;
     }
-    /* ⚠️ Der Marker trägt den ZIELNAMEN: »Begegnung« allein sagt nicht, WEN
-       man da trifft – bei mehreren Bahnen im Bild ist das die eigentliche
-       Frage (Wunsch Simon). Nur bei WECHSEL neu zeichnen, nicht pro Frame:
-       das wäre ein Canvas + Textur-Upload alle 16 ms. */
-    if(this._encFor !== tb){
-      this._encFor = tb;
-      this.setMarkerLabel(this.encMarker,
-        "Begegnung mit "+(BODY_ICON[tb.name]||"•")+" "+tb.name, "#39ffd0");
-    }
     const now = performance.now();
     if(now - (this._encAt||0) > 200){
       this._encAt = now;
@@ -15511,9 +15693,27 @@ const Flight = {
       // Horizont: gut die anderthalbfache Hohmann-Flugzeit – so weit MUSS
       // die Suche schauen, sonst findet sie die Begegnung nie.
       const hor = Math.min(6e7, Math.max(6*3600, (tw ? tw.tT : 1.2e7)*1.6));
-      this.encounter = this.findEncounter(src.p, src.v, src.t, tb, hor);
+      const r = this.findEncounter(src.p, src.v, src.t, tb, hor);
+      /* ⚠️⚠️ Nur eine Vorhersage, die das Ziel-Zeitfenster wirklich ABGEDECKT
+         hat, zählt (s. `full` in findEncounter). Sonst zeigte die Karte aus
+         dem Parkorbit heraus einen »Begegnung mit Minzi«-Marker, obwohl die
+         Rechnung nie über den nächsten halben Tag hinauskam. */
+      this.encounter = r && r.full ? r : null;
     }
     const e = this.encounter;
+    /* ⚠️ Der Marker trägt den ZIELNAMEN – »Begegnung« allein sagt nicht, WEN
+       man da trifft (Wunsch Simon) –, und er sagt die WAHRHEIT: »Begegnung«
+       nur innerhalb der Einflusssphäre, sonst »nächster Punkt zu …«. Beides
+       nur bei WECHSEL neu zeichnen, nicht pro Frame: das wäre ein Canvas +
+       Textur-Upload alle 16 ms. */
+    const hit = !!e && e.d < (tb.soi||0);
+    const key = tb.name + (hit ? "!" : "");
+    if(this._encFor !== key){
+      this._encFor = key;
+      this.setMarkerLabel(this.encMarker,
+        (hit ? "Begegnung mit " : "nächster Punkt zu ")+(BODY_ICON[tb.name]||"•")+" "+tb.name,
+        hit ? "#39ffd0" : "#8fa0c0");
+    }
     // Vom Weltpunkt in den GEZEICHNETEN Rahmen (gleiche Anker-Logik wie in
     // traceOrbit: Patch um den Mutterkörper an seiner echten Stelle,
     // Abstieg in einen Mond an der Geisterstelle).
@@ -15910,7 +16110,7 @@ const Flight = {
        Shader-Neuübersetzung aus. */
     const tgtRing = this.target && this.target.kind==="body" ? this.target.body : null;
     for(const [b, ring] of this.moonRings){
-      ring.visible = this.map;
+      ring.visible = this.map && this.focusKeeps(b);
       const on = b === tgtRing;
       ring.material.color.setHex(on ? RING_TGT_COL : RING_COL);
       ring.material.opacity = on ? 0.95 : 0.4;
@@ -16195,7 +16395,9 @@ const Flight = {
       o.mesh.position.copy(ap3);
       o.mesh.visible = !this.map;
       if(o.marker){
-        o.marker.visible = this.map;
+        // Kartenfilter: geparkte Objekte nur, wenn genau dieses das Ziel ist
+        o.marker.visible = this.map &&
+          (!this.mapFocus || !!(this.target && this.target.name === (o.d.name||"")));
         if(this.map){
           o.marker.position.copy(ap3);
           this.scaleMarker(o.marker, (this._cd||this.camDist)*0.03);
@@ -16205,7 +16407,8 @@ const Flight = {
     // Raumstation »Große Pause« auf ihrer Bahn + Kartenmarker
     this.stationMesh.position.copy(stationPos(this.t));
     this.stationMesh.visible = !this.map;
-    this.stationMarker.visible = this.map;
+    this.stationMarker.visible = this.map &&
+      (!this.mapFocus || (this.target && this.target.kind==="station"));
     if(this.map){
       this.stationMarker.position.copy(this.stationMesh.position);
       const sms = this._cd ? this._cd*0.045 : this.camDist*0.045;
@@ -16217,17 +16420,23 @@ const Flight = {
       ao.mesh.position.copy(ap2);
       ao.mesh.rotation.y = this.t*0.05; ao.mesh.rotation.x = this.t*0.02;
       ao.mesh.visible = !this.map;
-      ao.ring.visible = this.map;
+      ao.ring.visible = this.map && !this.mapFocus;
       /* ⚠️ Der NAME hängt an der Entdeckung (»Rundumblick«), die BAHNLINIE
          nicht. Wer noch kein Durchmusterungs-Teleskop hat, sieht in der Karte
          also weiterhin, dass da eine Bahn läuft – aber nicht, was darauf
          fliegt. Genau so ist es in echt: Die Bahn eines Kleinkörpers steht
          erst fest, wenn man ihn gefunden hat, und der ???-Nebel der Karriere
          soll nicht über die Kartenbeschriftung unterlaufen werden. */
-      ao.marker.visible = this.map && smallBodyKnown();
+      ao.marker.visible = this.map && !this.mapFocus && smallBodyKnown();
       // Der Schweif bleibt in BEIDEN Ansichten stehen – in der Karte ist er
       // der einzige Hinweis darauf, wo der Komet gerade steckt.
-      if(ao.fx) updateCometFx(ao.fx, ao.a, ap2, this.t, 1);
+      // ⚠️ updateCometFx setzt `visible` selbst – im Kartenfilter deshalb erst
+      // rechnen lassen und danach hart ausblenden (sonst steht der Schweif als
+      // einziger Fremdkörper in der aufgeräumten Karte).
+      if(ao.fx){
+        updateCometFx(ao.fx, ao.a, ap2, this.t, 1);
+        if(this.map && this.mapFocus) ao.fx.visible = false;
+      }
       if(this.map){
         ao.marker.position.copy(ap2);
         const ams = (this._cd||this.camDist)*0.04;
@@ -16246,7 +16455,7 @@ const Flight = {
       const bms = (this._cd||this.camDist)*0.042;
       for(const bm of this.bodyMarkers){
         const b = bm.b;
-        let show = this.map && (b===SUN || bodyKnown(b));
+        let show = this.map && (b===SUN || bodyKnown(b)) && this.focusKeeps(b);
         const bp = b===SUN ? V3(0,0,0) : bodyPos(b, this.t);
         if(show && b.parent && b.parent!==SUN)
           show = bp.distanceTo(bodyPos(b.parent, this.t)) > bms*1.3;
@@ -16729,6 +16938,30 @@ const Flight = {
     // der bereits abgebuchten Startkosten. Wer in der Karriere neu anfangen will,
     // beendet den Flug ganz normal (mit Konsequenzen) und baut wieder auf.
     show("btnRevert", Game.sandbox || !!(typeof Tut!=="undefined" && Tut.active));
+    /* ---------- Draußen im Anzug ----------
+       ⚠️ Als Astronaut*in steuert man kein Schiff: Stufen, SAS, Bellyflop,
+       Knoten, Zeitraffer & Co. sind dort schlicht Quatsch (Bug-Report Simon,
+       Screenshot mit »Bellyflop« und »∞ Tank« neben dem laufenden Männchen).
+       Übrig bleibt, was die Person selbst tun kann: einsteigen, Flagge
+       aufstellen, Karte lesen – dazu ⚙️ und »Flug beenden«.
+       Der Block steht am ENDE und überschreibt die Zeilen darüber; alle
+       betroffenen Knöpfe werden im nächsten Frame regulär wiederhergestellt,
+       weil updateButtons pro Frame läuft. */
+    for(const id of ["btnStage","sasBtn","btnNode","btnWarpUp","btnWarpDown"])
+      show(id, !this.eva);
+    // 🔭 Kartenfilter: nur in der Karte und nur mit gewähltem Ziel sinnvoll
+    show("btnMapFocus", this.map && !!this.target && !this.eva);
+    const mf = document.getElementById("btnMapFocus");
+    const mft = this.mapFocus ? "🔭 Alle Bahnen [⇧M]" : "🔭 Nur Ziel [⇧M]";
+    if(mf && mf.textContent !== mft) mf.textContent = mft;
+    if(this.eva){
+      for(const id of ["btnBoostR","btnBoostJ","btnChute","btnFairing","btnSat","btnPanels",
+                       "btnLegs","btnBelly","btnTarget","btnDock","btnModul","btnBay",
+                       "btnPlanNode","btnExp","btnWarpTo","btnRevert","infBtn"])
+        show(id, false);
+      show("btnEva", true);          // [V] = einsteigen – der wichtigste Knopf da draußen
+      show("btnFlag", evaGround);
+    } else if(Game.sandbox) show("infBtn", true);
   },
   drawHUD(){
     this.updateButtons();
@@ -16784,6 +17017,9 @@ const Flight = {
       <div class="row"><span>Periapsis</span><span>${
         o.pe < -o.body.R*0.99 ? "–" : fmtPe(o.pe)}</span></div>
       ${!this.landed ? `<div class="row"><span>Inklination</span><span>${this.orbitInc().toFixed(0)}°</span></div>` : ""}
+      ${this.eva ? `<div class="row"><span>🫁 Sauerstoff</span><span style="${
+        this.evaO2<60?'color:var(--red);font-weight:700':''}">${
+        Math.floor(this.evaO2/60)}:${Math.floor(this.evaO2%60).toString().padStart(2,"0")}</span></div>` : ""}
       <div class="row"><span>Stufen übrig</span><span>${this.v.segs.length}</span></div>
       <div class="row"><span>Treibstoff (Stufe)</span><span>${(s&&s.fuel)?fuelPct.toFixed(0)+" %":"–"}</span></div>
       ${s && s.srbFuel ? `<div class="row"><span>Feststoffbooster</span><span>${
@@ -16904,6 +17140,17 @@ const Flight = {
         (!Game.sandbox && !Tut.active ? '<br><small style="color:var(--muted)">Keine Mission angenommen</small>' : "")}`;
     document.getElementById("throttleFill").style.height=(this.throttle*100)+"%";
     document.getElementById("fuelFill").style.height=((s&&s.fuel)?fuelPct:0)+"%";
+    /* 🫁 Sauerstoff: nur zeigen, wenn er gerade zählt – draußen oder solange er
+       sich an Bord noch auffüllt. Unter einer Minute wird der Balken rot. */
+    const o2 = this.evaO2 ?? EVA_O2;
+    const o2El = document.getElementById("o2Gauge");
+    if(this.eva || o2 < EVA_O2 - 0.5){
+      o2El.style.display = "";
+      const f = document.getElementById("o2Fill");
+      f.style.height = (o2/EVA_O2*100)+"%";
+      f.style.background = o2 < 60 ? "linear-gradient(180deg,#ff6b6b,#a82a2a)"
+                                   : "linear-gradient(180deg,#7fd8ff,#2a7fa8)";
+    } else o2El.style.display = "none";
     // Gitterflossen an Bord? Orange Marke = Restsprit für den Landing Burn
     // (RTLS braucht MEHR: der Boostback-Burn zurück zur Rampe kostet extra)
     const fm = document.getElementById("fuelMark");
