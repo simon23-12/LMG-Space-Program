@@ -1755,6 +1755,28 @@ const GEO_ALT = GEO_R - LEIBNIZ.R;                    // ≈ 1998 km über Grund
 const GEO_MIN = 1.85e6, GEO_MAX = 2.15e6;             // Toleranzband der Missionen
 function isGeoOrbit(pe, ap){ return pe>GEO_MIN && ap>0 && ap<GEO_MAX; }
 
+/* ---------- Ankunft an einer fremden Welt (Bordcomputer, s. planCaptureNode) ----
+   `CAPTURE_AP_FRAC`: Ziel-Apoapsis des EINFANG-Brennens als Anteil der
+   Einflusssphäre. Nicht sofort zirkularisieren, weil Bremsen tief unten am
+   billigsten ist (Oberth) – gemessen bei Monti: Einfang auf 0,25 Sphäre
+   139 m/s, direkt rund 201 m/s. Bei Minzi ist der Unterschied dagegen fast
+   null (812 gegen 833 m/s), weil dort die Fluchtgeschwindigkeit an der
+   Periapsis (84 m/s) neben v∞ (889 m/s) verschwindet – deshalb ist es EINE
+   Formel für alle Welten, und wo die Sphäre eng ist (Huygens-Monde: 0,25·SOI
+   liegt dort fast auf der Oberfläche), fällt sie von selbst auf »rund«
+   zurück (`max(rPe, …)`).
+   `CAPTURE_RANGE`: Ab dieser Entfernung – in Sphärenradien – plant der
+   Computer den Einfang statt einer Kurskorrektur. Das ist die Reihenfolge,
+   um die es geht: Ein Bremsburn lässt sich nicht sinnvoll ausrechnen,
+   solange man noch bei Leibniz hängt. Der Zeitsprung ⏭ [⇧.] setzt einen
+   knapp vor der Sphäre ab (gemessen bei Minzi: 7 017 km bei 6 066 km
+   Sphäre), also innerhalb dieser Schwelle. */
+const CAPTURE_AP_FRAC = 0.25, CAPTURE_RANGE = 5;
+/* Ab diesem Verhältnis Apoapsis/Periapsis gilt eine Bahn als »noch eine
+   Ellipse« und der Computer bietet das Rundbremsen an. 1,15 ist bewusst
+   streng genug, dass eine fertige Kreisbahn in Ruhe gelassen wird. */
+const ROUND_RATIO = 1.15;
+
 /* Zielorbit-Check für die blauen/grünen Missions-Ringe in der Orbitkarte:
    grün, sobald die AKTUELLE Bahn alle Bedingungen des Ziels erfüllt. */
 function orbitGoalMet(g, o, inc){
@@ -12499,11 +12521,26 @@ const Flight = {
       '<br>Entfernung: <b>'+fmtBig(d)+'</b>'+
       '<br><small style="color:var(--muted)">'+this.targetInfo(this.target)+'</small>';
     const tw = this.transferWindow(tb);
+    // ⚠️ `cheap`: travelPanel läuft in JEDEM Frame – keine eigene Begegnungssuche.
+    const cap = this.captureSituation(true);
     if(this.leavingSphereTo(tb)){
       // Fluchthyperbel: ein »Startfenster« gibt es hier nicht mehr, der Abflug LÄUFT.
       out += '<br><b style="color:var(--green)">🚀 Abflug läuft – raus aus der Sphäre von '+
         this.body().name+'</b><br><small style="color:var(--muted)">Mit [.] weiterfliegen; '+
         'sobald oben »Sonne« steht, 🧭 [⇧K] für die Bahnkorrektur.</small>';
+    } else if(cap){
+      /* Angekommen: Jetzt zählt nicht mehr das Transferfenster, sondern der
+         Bremsburn – sonst stünde hier »kein Transferfenster, erst zurück nach
+         Leibniz«, während der Computer längst den Einfang rechnen kann. */
+      out += '<br><b style="color:var(--green)">'+(cap.kind === "round"
+          ? '🌀 Eingefangen – Bahn noch eine Ellipse'
+          : cap.kind === "late" ? '⚠️ Periapsis passiert' : '🛑 Ankunft – jetzt bremsen!')+'</b>'+
+        '<br><small style="color:var(--muted)">'+(cap.kind === "late"
+          ? 'Ein Einfangbrennen wirkt nur AN der Periapsis. Jetzt hilft nur noch Bremsen von Hand.'
+          : (cap.kind === "round"
+             ? 'An der Periapsis noch einmal retrograde, dann wird die Bahn rund. '
+             : 'Retrograde an der Periapsis bremsen, sonst fliegst du vorbei. ')+
+            '🧭 <b>[⇧K]</b> rechnet den Burn aus und setzt den Knoten.')+'</small>';
     } else if(!tw){
       out += '<br><small style="color:var(--muted)">💡 Von hier aus gibt es kein Transferfenster – '+
         'erst zurück in einen Orbit um '+(tb.parent===SUN ? "Leibniz" : tb.parent.name)+'.</small>';
@@ -12994,6 +13031,159 @@ const Flight = {
     // abgebrochen (dann ist `t` der letzte Zeitpunkt davor).
     return {p, v, t, fine: fine && !hit && t >= tEnd-1, stepsFine: fine, stopped: hit};
   },
+  /* ---------- Wunsch-Periapsis für einen Anflug ----------
+     ⚠️⚠️ Eine Kurskorrektur darf NICHT auf den Mittelpunkt zielen. Genau das
+     tat der Koordinatenabstieg bisher (er minimiert `findEncounter().d`) –
+     gemessen im Minzi-Anflug lief er auf **51 km** herunter, bei einem
+     Körperradius von 60 km. Das ist ein Volltreffer, kein Vorbeiflug, und mit
+     dem Einfang-Burn fällt es sofort auf: gebremst wird an der Periapsis, und
+     die läge dann unter der Oberfläche. Echte Sonden zielen deshalb auf eine
+     ZIELPERIAPSIS, und das tut der Computer jetzt auch.
+     Die Formel: tief genug für den Oberth-Effekt, hoch genug, dass die
+     Streuung des Anflugs (~1000 km bei Minzi) nicht in den Boden führt.
+     `R*1.5` als Untergrenze, `0,08·Sphäre` als Maß für die Anflug-Unschärfe,
+     `R*4` als Deckel – sonst zielte ein Newton-Anflug (Sphäre 618 000 km) auf
+     49 000 km Höhe, wo ein Bremsburn fast nichts mehr bringt.
+     Ergibt: Minzi 180 km · Monti 100 km · Cassini 130 km · Newton 2700 km. */
+  aimPeriapsis(b){
+    return Math.max(b.R*1.5 + b.atmoH, Math.min(0.08*(b.soi||b.R*10), b.R*4));
+  },
+  /* ---------- Steht ein Einfang- oder Rundungs-Burn an? ----------
+     Die Reihenfolge ist hier alles (Wunsch Simon): Einen Bremsburn kann man
+     nicht ausrechnen, solange man noch bei Leibniz hängt – erst muss der
+     Kurs stehen. Genau in dieser Kette liefert die Funktion:
+       "capture" – die Bahn führt in die Sphäre einer fremden Welt (oder wir
+                   stecken schon drin und fallen auf sie zu): Bremsburn an
+                   der Periapsis, sonst fliegt man einfach vorbei.
+       "late"    – die Periapsis ist schon passiert. Bewusst KEIN Knoten:
+                   Ein Einfangbrennen abseits der Periapsis zirkularisiert
+                   nicht (nachgerechnet im Monti-Anflug: an der Periapsis
+                   373 m/s → Ap 1988 / Pe 329 km, dieselbe Bremsung 1500 km
+                   zu früh 603 m/s → Pe −183 km, also mitten durch den Mond).
+       "round"   – schon eingefangen, aber die Bahn ist noch eine lange
+                   Ellipse: an der nächsten Periapsis rund bremsen.
+     ⚠️ LEIBNIZ ist absichtlich AUSGENOMMEN. Sonst kollidiert das mit dem
+     Ejection-Fall (im Parkorbit soll [⇧K] den ABFLUG planen, nicht das
+     Zirkularisieren), und der Aufstieg gehört didaktisch in die Hand der
+     Schüler*innen – dafür gibt es die Tutorials.
+     ⚠️ `cheap` = ohne eigene Begegnungssuche (für updateButtons, das pro
+     Frame läuft): dann zählt nur die schon berechnete `this.encounter`. */
+  captureSituation(cheap){
+    const b = this.body();
+    const tb = this.target && this.target.kind === "body" ? this.target.body : null;
+    if(b !== SUN && b !== LEIBNIZ && b.soi){
+      const rel  = this.pos.clone().sub(this.bodyCenter(b));
+      const vrel = this.vel.clone().sub(bodyVel(b, this.t));
+      const o = this.orbit();
+      const rPe = o.pe + b.R, rAp = o.ap > 0 ? o.ap + b.R : Infinity;
+      /* ⚠️ Ein FREMDES Reiseziel schlägt alles außer dem Zufallen: Wer im
+         Monti-Orbit sitzt und Minzi eingestellt hat, will abfliegen und nicht
+         seine Bahn runden – und wer gerade AUS Montis Sphäre heraussteigt,
+         darf nicht die Meldung »Periapsis schon vorbei« bekommen. Fällt das
+         Schiff dagegen auf den Körper zu, ist Bremsen dringlicher als jeder
+         Abflugplan, egal was eingestellt ist. */
+      const heim = !tb || tb === b;
+      // Noch nicht (brauchbar) eingefangen: Fluchtbahn oder eine Ellipse,
+      // die fast bis an den Rand der Sphäre reicht – dort stören die
+      // Gezeitenkräfte des Mutterkörpers so stark, dass das kein Orbit ist.
+      if(rAp > b.soi*0.5)
+        return rel.dot(vrel) < 0 ? {body:b, kind:"capture"}
+                                 : (heim ? {body:b, kind:"late"} : null);
+      if(heim && rAp > rPe*ROUND_RATIO) return {body:b, kind:"round"};
+      return null;                       // die Bahn ist schon rund genug
+    }
+    // Noch unterwegs: Bremsburn erst, wenn das Ziel wirklich in Reichweite ist.
+    if(!tb || !tb.soi || tb === b) return null;
+    const dist = this.pos.distanceTo(bodyPos(tb, this.t));
+    if(dist > tb.soi*CAPTURE_RANGE) return null;
+    const e = (cheap ? (this.encounter && this.encounter.body === tb ? this.encounter : null)
+                     : this.findEncounter(this.pos, this.vel, this.t, tb,
+                         Math.max(3600, dist/Math.max(1, this.vel.distanceTo(bodyVel(tb,this.t)))*4)));
+    return e && e.d < tb.soi ? {body:tb, kind:"capture", enc:e} : null;
+  },
+  /* ---------- Einfang-/Rundungs-Burn setzen (Bordcomputer) ----------
+     Gebremst wird IMMER an der Periapsis – dort ist das Schiff am schnellsten,
+     und dieselbe Δv-Menge ändert die Bahnenergie dort am stärksten (Oberth).
+     Ziel ist eine Ellipse mit Apoapsis `CAPTURE_AP_FRAC`·Sphäre; ist die
+     Ankunfts-Periapsis schon weiter draußen als das (enge Sphären), wird
+     direkt zirkularisiert.
+     ⚠️ Der Δv-Wert ist rein analytisch (Vis-Viva) und braucht keinen
+     Koordinatenabstieg wie die Kurskorrektur: Hier gibt es nichts zu
+     TREFFEN, die Zielgröße ist die eigene Bahn. Gemessen weicht die
+     tatsächlich erreichte Apoapsis nur um wenige Prozent ab – das ist die
+     n-Körper-Störung, kein Rechenfehler, und mit den ±-Knöpfen in Sekunden
+     nachjustiert. */
+  planCaptureNode(cap){
+    const b = cap.body, nm = (BODY_ICON[b.name]||"")+" "+b.name;
+    if(cap.kind === "late"){
+      this.showMsg("🧭 Die Periapsis an "+nm+" ist schon vorbei – ein Bremsburn "+
+        "wirkt jetzt kaum noch (abseits der Periapsis wird die Bahn nicht rund, "+
+        "sondern nur schief). Entweder JETZT von Hand retrograde bremsen, so viel "+
+        "geht, oder den Vorbeiflug mitnehmen und beim nächsten Anlauf früher planen.", 10);
+      return;
+    }
+    // Periapsis suchen – dieselbe Routine wie die Begegnungsanzeige.
+    let e = cap.enc;
+    if(!e){
+      const o = this.orbit();
+      const per = o.ap > 0 ? this.orbitHorizon(this.pos, this.vel, this.t, b).per : 0;
+      const vr = this.vel.distanceTo(bodyVel(b, this.t));
+      const hor = per > 0 ? per*1.05 : Math.max(3600, b.soi*4/Math.max(1, vr));
+      e = this.findEncounter(this.pos, this.vel, this.t, b, hor);
+      /* ⚠️ Direkt NACH dem Einfang-Burn steht das Schiff auf seiner Periapsis –
+         die Suche findet dann genau diesen Punkt, und der Knoten läge ein paar
+         Sekunden voraus (gemessen: 4 s). Ausrichten und zünden geht darin
+         nicht. Beim Runden zählt deshalb die NÄCHSTE Periapsis, einen Umlauf
+         später; beim Einfang gibt es dagegen nur diese eine Gelegenheit. */
+      if(e && cap.kind === "round" && per > 0 && e.t - this.t < 180){
+        const st2 = this.propagateTo(this.t + per*0.6);
+        const e2 = this.findEncounter(st2.p, st2.v, st2.t, b, per*1.05);
+        if(e2) e = e2;
+      }
+    }
+    if(!e){ this.showMsg("🧭 Der Computer findet keinen Anflugpunkt an "+nm+".", 4); return; }
+    const st = this.propagateTo(e.t);
+    if(!st.fine || this.bodyAt(st.p, st.t) !== b){
+      this.showMsg("🧭 Bis dahin ist die Vorhersage noch zu grob. Mit ⏭ [⇧.] näher "+
+        "heranspringen (oder [.] vorspulen) und dann nochmal [⇧K] – dann rechnet der "+
+        "Computer den Bremsburn genau aus.", 8); return;
+    }
+    const rv = st.p.clone().sub(bodyPos(b, st.t));
+    const vv = st.v.clone().sub(bodyVel(b, st.t));
+    const r = rv.length(), v = vv.length();
+    const floor = b.R + (b.kind === "gas" ? b.atmoH + 50000 : Math.max(b.atmoH, 5000));
+    if(r < floor){
+      this.showMsg("🧭 Achtung: Dieser Kurs führt in "+nm+" HINEIN (Periapsis "+
+        Math.round((r-b.R)/1000)+" km). Erst die Bahn anheben – Knoten [K] ein Stück "+
+        "vor der Ankunft setzen und RADIAL drehen, bis die Annäherung über "+
+        fmtBig(floor-b.R)+" liegt. Bremsen lohnt erst danach.", 10); return;
+    }
+    /* Zielbahn: Der EINFANG bremst nur so weit, dass die Bahn gebunden ist
+       (Apoapsis bei CAPTURE_AP_FRAC der Sphäre) – das RUNDEN holt danach die
+       Apoapsis ganz auf die Periapsis herunter. Zwei Schritte wie in der
+       echten Raumfahrt (Orbit Insertion, dann Zirkularisierung), und in der
+       Summe nicht teurer als sofort rund zu bremsen. */
+    const rAp = cap.kind === "round"
+      ? r
+      : Math.max(r, Math.min(CAPTURE_AP_FRAC*b.soi, r + b.soi));
+    const vAim = Math.sqrt(b.mu*(2/r - 2/(r+rAp)));
+    const dv   = vAim - v;                       // < 0 = bremsen
+    if(dv > -1){
+      this.showMsg("🧭 Kein Bremsburn nötig – die Bahn um "+nm+" ist schon gebunden.", 5); return;
+    }
+    this.node = {t: e.t, pro: Math.round(dv), nor: 0, rad: 0};
+    this.nodeBurned = 0; this.nodeSnap = null; this._encAt = 0;
+    if(!this.map) this.toggleMap();
+    this.updateNodeUI();
+    const rund = rAp <= r*ROUND_RATIO;   // dieselbe Schwelle, die captureSituation benutzt
+    this.showMsg("🧭 "+(cap.kind === "round" ? "Bahn runden" : "Einfang-Burn")+" an "+nm+
+      ": in "+fmtDur(e.t-this.t)+", "+Math.round(-dv)+" m/s RETROGRADE an der Periapsis ("+
+      Math.round((r-b.R)/1000)+" km Höhe). Ergibt "+(rund
+        ? "eine runde Bahn."
+        : "eine Bahn "+Math.round((r-b.R)/1000)+" × "+Math.round((rAp-b.R)/1000)+" km – "+
+          "danach an der Periapsis nochmal [⇧K], dann wird sie rund.")+
+      " Mit [T] auf Knoten stellen und zünden!", 10);
+  },
   /* ---------- Automatischer Transfer-Knoten (Bordcomputer »Rechenknecht«) ----
      Bis hierher rechnete der Computer den Zündzeitpunkt und das Δv nur AUS –
      eintragen musste man beides von Hand über die ±-Knöpfe, und ein
@@ -13021,6 +13211,14 @@ const Flight = {
       this.showMsg("Einen Transfer-Knoten gibt es nur im Flug!", 2); return; }
     if(!this.hasNavComp()){
       this.showMsg("🧭 Dafür fehlt der Bordcomputer »Rechenknecht« an Bord!", 4); return; }
+    /* ⚠️⚠️ ANKUNFT ZUERST. Wer schon an der fremden Welt ist, will kein neues
+       Transferfenster, sondern den Bremsburn – und umgekehrt darf ein Kurs,
+       der noch quer durchs Sonnensystem läuft, hier nicht schon als »Ankunft«
+       durchgehen (dafür die Reichweiten- und `fine`-Prüfungen in
+       captureSituation/planCaptureNode). Genau diese Reihenfolge ist der
+       ganze Punkt: erst Kurs, dann Bremsen. */
+    const cap = this.captureSituation();
+    if(cap) return this.planCaptureNode(cap);
     const tb = this.target && this.target.kind === "body" ? this.target.body : null;
     if(!tb){ this.showMsg("Erst mit [Z] ein Reiseziel (Planet/Mond) wählen!", 3); return; }
     if(this.leavingSphereTo(tb)){
@@ -13037,6 +13235,17 @@ const Flight = {
     let tN;
     if(enRoute){
       const e0 = this.findEncounter(this.pos, this.vel, this.t, tb, hor);
+      /* ⚠️ Sitzt der Kurs schon, wird NICHT weiter korrigiert. Der
+         Koordinatenabstieg unten minimiert den Abstand zum MITTELPUNKT –
+         eine bereits getroffene Sphäre würde er also immer weiter zur
+         Aufschlagbahn hin »verbessern«, und das für Treibstoff. Stattdessen
+         der nächste Schritt der Kette: heranspringen, dann bremsen. */
+      if(e0 && e0.d < tb.soi){
+        this.showMsg("🧭 Kurs sitzt: Begegnung mit "+(BODY_ICON[tb.name]||"")+" "+tb.name+
+          " in "+fmtBig(e0.d)+" (Sphäre "+fmtBig(tb.soi)+"), in "+fmtDur(e0.t-this.t)+". "+
+          "Jetzt mit ⏭ [⇧.] zur Ankunft springen – dort setzt [⇧K] den Einfang-Burn.", 10);
+        return;
+      }
       tN = this.t + Math.max(600, ((e0 ? e0.t : this.t+tw.tT) - this.t)*0.5);
     } else {
       tN = this.t + Math.max(20, tw.wait + this.ejectionWait(tw, this.t + tw.wait));
@@ -13046,15 +13255,20 @@ const Flight = {
     const cand = {pro: enRoute ? 0 : (tw.vInf < 0 ? -tw.dv : tw.dv), nor: 0, rad: 0};
     // 3) Feinschliff: Koordinatenabstieg auf die dichteste Annäherung –
     //    aber NUR, wenn der Zustand am Knoten überhaupt belastbar ist.
-    let bd = Infinity, evals = 0;
+    let bd = Infinity, bDist = Infinity, evals = 0;
     if(st.fine){
+      /* Bewertet wird der Abstand zur WUNSCH-Periapsis (s. aimPeriapsis) –
+         nicht der zum Mittelpunkt. Weit draußen ist das dasselbe (|d−rAim| ≈ d,
+         solange d in Millionen km liegt), im Endanflug ist es der Unterschied
+         zwischen Orbit und Einschlag. */
+      const rAim = this.aimPeriapsis(tb);
       const miss = c => {
         evals++;
         const dv = this.nodeDeltaV(st.p, st.v, st.t, c);
         const e = this.findEncounter(st.p.clone(), st.v.clone().add(dv), st.t, tb, hor);
-        return e ? e.d : Infinity;
+        return e ? {s: Math.abs(e.d - rAim), d: e.d} : {s: Infinity, d: Infinity};
       };
-      bd = miss(cand);
+      const m0 = miss(cand); bd = m0.s; bDist = m0.d;
       /* ⚠️⚠️ Der INTERPLANETARE Ejection-Burn (`tw.dep`) bekommt den
          analytischen Hohmann-Wert ungeschliffen. Das ist keine Faulheit,
          sondern gemessen: Rund um die 1002 m/s ist die dichteste Annäherung
@@ -13084,8 +13298,8 @@ const Flight = {
             for(const s of [1,-1]){
               const trial = Object.assign({}, cand);
               trial[ax] = cand[ax] + s*step;
-              const d = miss(trial);
-              if(d < bd*0.999){ bd = d; cand[ax] = trial[ax]; moved = true; break; }
+              const m = miss(trial);
+              if(m.s < bd*0.999){ bd = m.s; bDist = m.d; cand[ax] = trial[ax]; moved = true; break; }
               if(evals >= budget) break;
             }
             if(!moved) step *= 0.35;
@@ -13102,7 +13316,7 @@ const Flight = {
     this.showMsg("🧭 Knoten gesetzt: in "+fmtDur(tN-this.t)+", "+
       (enRoute ? "Bahnkorrektur " : "Zündung ")+Math.round(this.nodeDvTotal())+" m/s. "+
       (st.fine
-        ? (isFinite(bd) ? "Dichteste Annäherung "+fmtBig(bd)+". " : "")+
+        ? (isFinite(bDist) ? "Dichteste Annäherung "+fmtBig(bDist)+". " : "")+
           "Mit [T] auf Knoten stellen und zünden – nachjustieren geht weiter von Hand!"
         : "Der Zündpunkt liegt noch weit voraus – mit [.] vorspulen und [⇧K] "+
           "kurz davor nochmal drücken, dann rechnet der Computer ihn genau aus."), 9);
@@ -16492,7 +16706,13 @@ const Flight = {
     // 🧭 Auto-Knoten: nur mit Bordcomputer, im Flug und mit gewähltem
     // Planeten-/Mondziel – sonst gäbe es nichts zu berechnen.
     const bodyTgt = !!(this.target && this.target.kind === "body");
-    show("btnPlanNode", !this.landed && !evaGround && this.hasNavComp() && bodyTgt);
+    /* 🧭 auch OHNE gewähltes Ziel: In der Sphäre der fremden Welt fällt das
+       Ziel aus der Liste (targetList lässt den Körper weg, in dem man steckt) –
+       dort ist der Knopf aber am wichtigsten, denn jetzt kommt der Einfang-Burn.
+       ⚠️ `cheap`, weil updateButtons in JEDEM Frame läuft: keine eigene
+       Begegnungssuche (14 ms), nur die schon berechnete `this.encounter`. */
+    show("btnPlanNode", !this.landed && !evaGround && this.hasNavComp() &&
+      (bodyTgt || !!this.captureSituation(true)));
     // ⏭ Zeitsprung: braucht ein Ziel in der Zukunft (Knoten oder Zündpunkt)
     const hasNode = !!(this.node && this.node.t > this.t + 5);
     show("btnWarpTo", !this.landed && !this.eva && !this.docked &&

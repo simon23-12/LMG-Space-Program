@@ -578,8 +578,10 @@ Knopf »🧭 Auto-Knoten [⇧K]« (nur mit Bordcomputer, im Flug, mit Planeten-/
   Abflug-Burns – »der Computer funktioniert nicht, trifft Monti nicht und packt zu
   wenig Δv rein« (Bug-Report Simon). `onTransferTo` prüft, ob die eigene Bahn die
   ZIELBAHN überhaupt schon erreicht (`rAp > 0,85·orbitR && rPe < 1,15·orbitR`).
-  Verifiziert: Monti aus dem Parkorbit → 777 m/s prograde, Annäherung **186 km**
+  Verifiziert: Monti aus dem Parkorbit → 780 m/s prograde, Annäherung **311 km**
   (Sphäre 2 430 km); schon auf dem Transfer → Korrekturzweig, 11 m/s.
+  (Die Annäherung war vor der Zielperiapsis, s. `aimPeriapsis`, 186 km – der
+  Computer zielt jetzt bewusst nicht mehr auf den Mittelpunkt.)
 - ⚠️ **`Flight.leavingSphereTo(tb)`**: Direkt nach dem Ejection-Burn steckt das Schiff
   noch auf einer Fluchthyperbel IN Leibniz' Sphäre. `transferWindow` rechnet den
   Parkorbit dort als Kreisbahn und schlug ein neues Fenster in **231,8 Tagen** vor.
@@ -590,8 +592,20 @@ Knopf »🧭 Auto-Knoten [⇧K]« (nur mit Bordcomputer, im Flug, mit Planeten-/
   Minzis 3°-Bahnneigung ist. Ein Koordinatenabstieg auf diesem flachen, verrauschten Tal
   wanderte im Test auf **1243 m/s = 24 % mehr Treibstoff für nichts** – und im HUD stünde
   eine andere Zahl als im Reiseplaner daneben. Also: analytischer Hohmann-Wert, 11 ms.
-  Die Korrektur unterwegs ist der Hebel: gemessen **956 836 km → 653 km** (Minzis Sphäre ist
-  6 066 km) mit 326 m/s, ~0,5 s Rechenzeit, Achsen nor/pro/rad in zwei Durchgängen.
+  Die Korrektur unterwegs ist der Hebel: gemessen **975 193 km → 238 km** (Minzis Sphäre ist
+  6 066 km) mit 432 m/s, ~0,5 s Rechenzeit, Achsen nor/pro/rad in zwei Durchgängen.
+- ⚠️⚠️ **Der Abstieg zielt auf `aimPeriapsis(b)`, NICHT auf den Mittelpunkt.** Bewertet wird
+  `|d − rAim|` statt `d`. Vorher lief die Korrektur im Minzi-Anflug auf **51 km** herunter –
+  bei einem Körperradius von 60 km, also ein Volltreffer statt eines Vorbeiflugs. Solange es
+  nur ums Ankommen ging, fiel das nicht auf; mit dem Einfang-Burn (s. u.) wird daraus sofort
+  eine Bremsung in den Boden, denn gebremst wird an genau dieser Periapsis. Weit draußen
+  ändert sich nichts (|d − rAim| ≈ d, wenn d in Millionen km liegt) – der Zielwert wirkt erst
+  im Endanflug. Formel: `max(R·1,5 + Atmo, min(0,08·SOI, R·4))`, also tief genug für den
+  Oberth-Effekt und hoch genug für die Anflug-Streuung (~1000 km bei Minzi); der `R·4`-Deckel
+  verhindert, dass ein Newton-Anflug (Sphäre 618 000 km) auf 49 000 km Höhe zielt, wo ein
+  Bremsburn fast nichts mehr bringt. Ergibt: Minzi 180 km · Monti 100 km · Cassini 130 km ·
+  Newton 2700 km. ⚠️ Die angezeigte »Dichteste Annäherung« bleibt die ECHTE Distanz
+  (`bDist`), nicht der Bewertungswert – sonst stünde im HUD eine Zahl, die niemand versteht.
 - ⚠️⚠️ **`propagateTo(tEnd)` liefert `fine` mit – ohne das optimiert man gegen Müll.** Die
   Schrittzahl ist gedeckelt (2200, sonst friert ein Knopfdruck das Spiel ein), also wächst
   die Schrittweite mit dem Vorhersagefenster. Steht das Schiff im 40-Minuten-Parkorbit und
@@ -604,6 +618,65 @@ Knopf »🧭 Auto-Knoten [⇧K]« (nur mit Bordcomputer, im Flug, mit Planeten-/
   Computer eine Annäherung, die im HUD dann nicht auftaucht.
 - ⚠️ `Flight.nodeDeltaV(p,v,t,node)` ist die EINE Quelle für »Prograde/Normal/Radial → Welt-
   vektor« (Optimierer UND grüne Vorschau). Normal bleibt eine reine Ebenen-DREHUNG.
+
+### 🛑 Ankunft: Einfang- und Rundungs-Burn (`captureSituation` / `planCaptureNode`, **[⇧K]**)
+Der Computer rechnete bisher nur den HINWEG (Ejection + Korrektur). Am Ziel angekommen
+stand man mit einer Fluchtbahn da und musste den Bremsburn von Hand bauen – und [⇧K]
+antwortete dort sogar »Von hier aus gibt es kein Transferfenster, erst zurück nach
+Leibniz« (Wunsch Simon). Jetzt ist [⇧K] durchgehend derselbe Knopf: **erst Kurs, dann
+Bremsen.** `planTransferNode` fragt deshalb ZUERST `captureSituation()`.
+- **Die Reihenfolge ist die eigentliche Logik**, nicht ein Detail: Einen Bremsburn kann man
+  nicht ausrechnen, solange man noch bei Leibniz hängt. Drei Zustände:
+  - **`capture`** – Fluchtbahn (oder Ellipse bis fast an den Sphärenrand) um eine fremde
+    Welt UND das Schiff fällt auf sie zu (`r·v < 0`). Auch schon von außen, sobald der
+    Abstand unter **`CAPTURE_RANGE` = 5 Sphärenradien** liegt und eine Begegnung INNERHALB
+    der Sphäre verzeichnet ist. Genau dort setzt der Zeitsprung ⏭ [⇧.] einen ab (gemessen
+    bei Minzi: 6 750 km bei 6 066 km Sphäre) – die Kette [⇧.] → [⇧K] greift also ineinander.
+  - **`late`** – Periapsis schon passiert. **Bewusst KEIN Knoten**, nur eine Erklärung: Ein
+    Einfangbrennen abseits der Periapsis macht die Bahn nicht rund, sondern schief (steht so
+    schon bei `fmtPe`: an der Periapsis 373 m/s → Ap 1988 / Pe 329 km, dieselbe Bremsung
+    1500 km zu früh 603 m/s → **Pe −183 km**, mitten durch den Mond).
+  - **`round`** – eingefangen, aber die Bahn ist noch eine Ellipse (`rAp > rPe·ROUND_RATIO`,
+    1,15): an der nächsten Periapsis rund bremsen.
+- ⚠️⚠️ **LEIBNIZ ist ausgenommen.** Sonst kollidiert der Rundungs-Fall mit dem Ejection-Fall
+  (im Parkorbit soll [⇧K] den ABFLUG planen), und der Zirkularisierungs-Burn nach dem
+  Aufstieg gehört didaktisch in die Hand der Schüler*innen – dafür gibt es die Tutorials.
+  Verifiziert: Leibniz-Ellipse 80 × 200 km ohne Ziel → kein Knoten.
+- ⚠️⚠️ **Ein FREMDES Reiseziel schlägt `late` und `round`.** Wer im Monti-Orbit sitzt und
+  Minzi eingestellt hat, will abfliegen und nicht seine Bahn runden; und wer gerade AUS
+  Montis Sphäre heraussteigt, darf nicht »Periapsis schon vorbei« lesen. Nur `capture`
+  (Zufallen) gilt immer – da ist Bremsen dringlicher als jeder Abflugplan. Verifiziert:
+  Monti-Ellipse 60 × 600 km → `round`, dieselbe Bahn mit Ziel Minzi → nichts.
+- ⚠️ **Zwei Burns, nicht einer** – wie in echt (Orbit Insertion, dann Zirkularisierung):
+  Der Einfang bremst nur auf eine Ellipse mit Apoapsis `CAPTURE_AP_FRAC` (0,25) der Sphäre,
+  das Runden holt sie danach herunter. Gemessen bei Monti: 415 + 101 = 516 m/s gegen 201 m/s
+  fürs sofortige Zirkularisieren aus DIESER Bahn – der Unterschied ist die viel tiefere
+  Endbahn (45 × 47 km statt 400 km). Bei Minzi ist der Einfang fast alles (846 + 3 m/s),
+  weil dort die Fluchtgeschwindigkeit an der Periapsis (84 m/s) neben v∞ (889 m/s)
+  verschwindet – **eine** Formel deckt beide Extreme ab. Wo die Sphäre eng ist
+  (Huygens-Monde: 0,25·SOI liegt fast auf der Oberfläche), fällt sie über `max(rPe, …)` von
+  selbst auf »sofort rund« zurück – bei Cassini gemessen genau so.
+- ⚠️ **Der Knoten liegt an der PERIAPSIS**, gefunden über `findEncounter` (dieselbe Routine
+  wie die Begegnungsanzeige – kein zweiter Integrator). Beim Runden zählt die NÄCHSTE
+  Periapsis, wenn die aktuelle unter 180 s voraus liegt: Direkt nach dem Einfang-Burn steht
+  das Schiff genau auf ihr, der Knoten lag sonst **4 s** voraus und war unbrennbar.
+- ⚠️ **Δv rein analytisch (Vis-Viva), kein Koordinatenabstieg.** Anders als bei der
+  Kurskorrektur gibt es hier nichts zu TREFFEN, die Zielgröße ist die eigene Bahn. Gemessen
+  weicht die erreichte Apoapsis um < 1 % ab (Minzi: geplant 1457, erreicht 1466 km) – das
+  ist die n-Körper-Störung, kein Rechenfehler.
+- ⚠️ Ist die Vorhersage bis zur Periapsis nicht `fine` (oder liegt der Knoten gar nicht in
+  der Sphäre), wird **kein** Knoten gesetzt, sondern der Hinweis, mit ⏭ näher heranzuspringen.
+  Genauso, wenn der Kurs unterwegs schon sitzt: dann korrigiert [⇧K] NICHT weiter (der
+  Abstieg würde die Periapsis nur immer tiefer legen – für Treibstoff), sondern nennt den
+  nächsten Schritt.
+- ⚠️ `updateButtons` und `travelPanel` rufen `captureSituation(**true**)` – ohne eigene
+  Begegnungssuche (14 ms), es zählt nur die schon berechnete `this.encounter`. Beide laufen
+  pro Frame; gemessen 0,001 ms bzw. 0,041 ms. Der 🧭-Knopf erscheint dadurch auch OHNE
+  gewähltes Ziel: In der Sphäre fällt der Körper aus `targetList()`, dort ist der Knopf aber
+  am wichtigsten.
+- **Ganze Reise gemessen** (Starship, Sandbox, ∞-Tank): Monti 780 → Einfang 415 → Runden 101
+  = **1296 m/s**, Endbahn 45 × 47 km · Minzi 1002 → Korrektur 432 → Einfang 846 → Runden 3
+  = **2275 m/s**, Endbahn 1042 × 1054 km. Beide Male reine [⇧.]/[⇧K]-Abfolge ohne Handarbeit.
 
 ### ⏭ Zeitsprung zum Ereignis (`warpToEvent` / `keplerAdvance`, **[⇧.]**)
 ⚠️⚠️ **Der Zeitraffer allein REICHT NICHT, und das ist gemessen, nicht gefühlt:** In
