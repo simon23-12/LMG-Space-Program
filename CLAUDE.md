@@ -22,8 +22,35 @@ LMG-Branding (orange `--orange` / blau `--blue`).
 - `.claude/launch.json` – Preview: `npx serve -l 8642` (Name `lmg-space-program`). Eintrag `lmgsongrodeo` gehört dem User – nicht anfassen.
 
 ## Optionen & Grafikstufen (`Settings` / `GFX_PRESETS` / `applyGraphics`)
-Screen `#options` (Hauptmenü »⚙️ Optionen«, im VAB der ⚙️-Knopf), gerendert von
-`renderOptions()`. Drei Regler: **Grafik** (niedrig/mittel/hoch), **Musik**, **Geräusche**.
+Screen `#options` (Hauptmenü »⚙️ Optionen«, im VAB **und im FLUG** der ⚙️-Knopf), gerendert
+von `renderOptions()`. Drei Regler: **Grafik** (niedrig/mittel/hoch), **Musik**, **Geräusche**
+– dazu die Karte **⌨️ Tastenbelegung** (`KEYMAP` → `renderKeymap()`).
+- ⚠️ Die Tastentabelle ist bewusst **READ-ONLY**: In der AG sitzen zwei bis drei Kinder an
+  einem Rechner, und eine still verstellte Belegung sieht man dem Spiel von außen nicht an –
+  die nächste Gruppe hält es schlicht für kaputt. Außerdem nennen Tutorials, Hinweistexte und
+  die Knopfbeschriftungen die Tasten im Klartext; frei belegbar müsste das alles mitziehen.
+  `KEYMAP` ist eine **Beschreibung, keine zweite Quelle** – die Belegung selbst steht im
+  keydown-Handler in `Flight.init()`. Wer dort etwas ändert, ändert es hier UND in
+  tutorials.js mit. (So gefunden: der Hinweistext `flight3d` nannte noch »Z = voll«, obwohl
+  Vollgas seit August 2026 auf ⇧X liegt.)
+- ⚠️ `renderKeymap()` baut nur EINMAL (`if(box.childElementCount) return`) – `renderOptions()`
+  läuft bei jedem Reglerklick.
+### ⚙️ auch mitten im Flug (`UI.openOptions` / `UI.optFrom`)
+Grafikstufe, Lautstärke und die Tastentabelle braucht man genau dann, wenn es ruckelt oder
+eine Taste fehlt – und nicht erst nach dem Flug. Der ⚙️-Knopf steht deshalb in der
+Flug-Knopfleiste direkt vor »Flug beenden«.
+- ⚠️⚠️ **Dafür braucht es ein EIGENES Rücksprungziel `UI.optFrom`.** `UI.show()` schreibt
+  `prev` absichtlich NICHT, wenn die Flugansicht aktiv ist (sonst landete jedes »Zurück« im
+  Cockpit statt in der Halle) – ohne `optFrom` fiel man aus dem laufenden Flug in die
+  Montagehalle, der Flug wäre weg gewesen. `back()` prüft es zuerst, `show()` leert es bei
+  jedem anderen Screen. Verifiziert: Flug→⚙️→Zurück landet im Flug (Bahn und Missionszeit
+  laufen weiter), Halle→⚙️→Zurück in der Halle, Menü→⚙️→Zurück im Menü.
+- ⚠️ **Die Simulation steht solange still, und zwar von selbst**: Die Frame-Schleife ruft
+  `Flight.frame()` nur bei aktivem Flug-Screen, und die Schrittweite dort ist `warp/60`,
+  kommt also NICHT aus der Uhr – beim Zurückkommen gibt es keinen Zeitsprung. Der
+  keydown-Handler prüft ebenfalls auf den aktiven Screen.
+- ⚠️ `updateMusic()` behandelt »Optionen aus dem Flug« als Flug (`eff`): sonst startet beim
+  Öffnen der Einstellungen die Hallenmusik und bricht beim Zurückspringen wieder ab.
 - ⚠️ **Bewusst im localStorage (`lmgSettings`), NICHT im Spielstand.** Einstellungen gehören
   zum RECHNER – die Kinder tauschen Saves als Datei aus, sonst erbt der lahme Schulrechner
   die »Hoch«-Stufe vom Gaming-PC.
@@ -1311,6 +1338,16 @@ Alles danach läuft über **Uniforms** – kein Puffer wird je neu hochgeladen (
 ### RCS-Steuerdüsen: Gasstöße & Zischen (`rcsPuff` / `ensureRcsAudio` / `setRcsHiss`)
 Nur wenn `type:"rcs"` im Stack liegt – ohne Düsen dreht die Rakete über Flossen und
 Reaktionsräder und darf nicht pusten (verifiziert: 0 Partikel, Zischen 0).
+- ⚠️⚠️ **Und NUR IM VAKUUM** (`leibnizAlt(...) >= LEIBNIZ.atmoH` am Ende der &&-Kette von
+  `_rcsWasRot`, Wunsch Simon): In der Lufthülle lenkt eine Rakete über Gitterflossen und das
+  schwenkbare Triebwerk, die kleinen Kaltgasdüsen kämen gegen den Fahrtwind kaum an, und ihr
+  Gas wäre sofort verweht – ein Weißnebel-Stoß auf der Rampe sah entsprechend falsch aus.
+  ⚠️ Das ist **bewusst nur Optik + Ton**: `agility` bleibt unangetastet, sonst fiele die
+  Wendigkeit im Aufstieg von 0,90 auf 0,12 rad/s (7,5× träger) und jedes Aufstiegs-Tutorial
+  flöge sich anders. Verifiziert: Drehrate 103,13°/2 s bodennah **und** im Orbit identisch;
+  Stöße 0,1/30/69 km aus · 71/200 km an · Monti-Orbit an (luftlos, `leibnizAlt` dort riesig).
+  ⚠️ Die Höhenabfrage steht am ENDE der Kette, damit sie nur bei tatsächlicher Drehung
+  ausgewertet wird und nicht in jedem Substep.
 - ⚠️⚠️ **Erzeugt wird in `frame()`, nicht in `step()`.** In step() ist `this.pos` der Zustand
   VOR der Integration – die Fahnen säßen konstant ein Frame hinter dem Schiff (gemessen 178 m
   bei 11 km/s). Außerdem läuft step() im Zeitraffer mehrfach pro Frame und würde den Pool
@@ -1431,6 +1468,8 @@ innerhalb der Atmosphäre. Auf dem Boden: W/A/S/D laufen (kamerarelativ, 3,5 m/s
   wurde sonst »9 min 60 s«, und das fällt in jeder vollen Minute eines Countdowns auf.
 
 ## Tastenkürzel
+(Im Spiel nachschlagbar: ⚙️ Optionen → **⌨️ Tastenbelegung**, `KEYMAP` in index.html.
+Wer hier etwas ändert, ändert es dort UND in tutorials.js mit.)
 Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · M Karte · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp, **⇧. = Zeitsprung zum Knoten/Startfenster** · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
 - ⚠️⚠️ **[Z] war bis August 2026 im Flug VOLLGAS und die Zielwahl brauchte ⇧Z** – »zu
   umständlich und verwirrend« (Simon), weil dieselbe Taste je nach Flugzustand etwas völlig

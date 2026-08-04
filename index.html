@@ -183,6 +183,15 @@ button{cursor:pointer;font-family:inherit;}
   background:linear-gradient(90deg,var(--blue),var(--orange));outline:none;cursor:pointer;}
 .opt-slider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;
   width:20px;height:20px;border-radius:50%;background:#e8ecf5;border:2px solid var(--orange);cursor:pointer;}
+/* Tastenbelegung: reine Nachschlagetabelle, nichts davon ist anklickbar. */
+.keymap h4{color:#7fa9f0;font-size:13.5px;letter-spacing:.04em;text-transform:uppercase;
+  margin:16px 0 6px;border-bottom:1px solid #2a3a64;padding-bottom:4px;}
+.keymap h4:first-child{margin-top:0;}
+.keymap .row{display:flex;align-items:baseline;gap:12px;padding:3px 0;font-size:13.5px;line-height:1.4;}
+.keymap .row .k{flex:0 0 132px;text-align:right;color:var(--orange);font-weight:700;
+  font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;}
+.keymap .row .d{color:var(--muted);}
+.keymap .row .d b{color:var(--text);font-weight:600;}
 .opt-slider input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;
   background:#e8ecf5;border:2px solid var(--orange);cursor:pointer;}
 input[type=file]{display:none;}
@@ -208,7 +217,7 @@ input[type=file]{display:none;}
   <button class="btn" onclick="UI.startSandbox()">🛠️ Sandbox</button>
   <button class="btn" onclick="UI.show('tutorial')">🎓 Tutorials</button>
   <button class="btn" onclick="UI.show('universe')">🪐 Universum ansehen</button>
-  <button class="btn" onclick="UI.show('options')">⚙️ Optionen</button>
+  <button class="btn" onclick="UI.openOptions()">⚙️ Optionen</button>
   <button class="btn" onclick="UI.saveGame()" title="Lädt eine Datei mit Fortschritt UND allen gespeicherten Raketen herunter – zum Mitnehmen auf einen anderen PC">💾 Spielstand speichern</button>
   <button class="btn" onclick="document.getElementById('loadFile').click()" title="Spielstand-Datei laden – gespeicherte Raketen wandern dabei zurück in den Hangar">📂 Spielstand laden</button>
   <button class="btn" style="font-size:12px;padding:6px 14px;opacity:.7" onclick="resetProgress()">🗑 Fortschritt zurücksetzen</button>
@@ -250,6 +259,13 @@ input[type=file]{display:none;}
       Starship), hörst du zusätzlich den Originalmitschnitt eines echten Raptor-Triebwerks
       samt Turbopumpen-Spin-up beim Zünden.</div>
   </div>
+  <div class="opt-card">
+    <h3>⌨️ Tastenbelegung</h3>
+    <div class="sub">Nur zum <b>Nachschlagen</b> – die Tasten liegen fest und lassen sich
+      nicht umlegen. So funktioniert an jedem Rechner der AG dieselbe Taste gleich,
+      und ein Hilferuf am Nebentisch ist in einem Satz erklärt.</div>
+    <div class="keymap" id="optKeys"></div>
+  </div>
 </div>
 
 <!-- VAB -->
@@ -265,7 +281,7 @@ input[type=file]{display:none;}
       <button class="btn" onclick="VAB.saveRocket()">💾 Speichern</button>
       <button class="btn" onclick="VAB.openHangar()">📂 Hangar</button>
       <button class="btn" id="musicBtnVab" onclick="toggleMusic()">🔊 Musik</button>
-      <button class="btn" onclick="UI.show('options')" title="Grafik & Lautstärke">⚙️</button>
+      <button class="btn" onclick="UI.openOptions()" title="Grafik, Lautstärke &amp; Tastenbelegung">⚙️</button>
       <button class="btn" onclick="UI.show('menu')">☰ Menü</button>
       <button class="btn orange" onclick="UI.launch()">🚀 START</button>
     </div>
@@ -387,6 +403,11 @@ input[type=file]{display:none;}
     <button class="btn" onclick="Flight.warpUp()">⏩ [.]</button>
     <!-- Zeitsprung on rails; nur im freien Flug mit Ziel/Knoten (updateButtons) -->
     <button class="btn" id="btnWarpTo" onclick="Flight.warpToEvent()">⏭ Zum Startfenster [⇧.]</button>
+    <!-- ⚙️ auch MITTEN IM FLUG erreichbar: Grafikstufe, Lautstärke und die
+         Tastentabelle braucht man genau dann, wenn es ruckelt oder eine Taste
+         fehlt – und nicht erst nach dem Flug. Die Simulation steht solange
+         still (s. UI.openOptions). -->
+    <button class="btn" onclick="UI.openOptions()" title="Grafik, Lautstärke &amp; Tastenbelegung">⚙️</button>
     <button class="btn orange" onclick="Flight.endFlight()">Flug beenden</button>
   </div>
 </div>
@@ -596,8 +617,70 @@ const Settings = {
   }
 };
 Settings.load();
+/* ---------- Tastenbelegung (NUR zum Nachschlagen) ----------------------
+   ⚠️ Bewusst READ-ONLY: In der AG sitzen zwei bis drei Kinder an einem
+   Rechner, und eine still verstellte Belegung sieht man dem Spiel von außen
+   nicht an – die nächste Gruppe hält es schlicht für kaputt. Außerdem nennen
+   Tutorials, Hinweistexte und die Knopfbeschriftungen die Tasten im Klartext;
+   frei belegbar müsste das alles mitziehen.
+   ⚠️ Das hier ist eine BESCHREIBUNG, keine zweite Quelle: Die Belegung selbst
+   steht im keydown-Handler in Flight.init(). Wer dort etwas ändert, ändert es
+   auch hier (und in tutorials.js). */
+const KEYMAP = [
+  {group:"Steuern & Triebwerk", keys:[
+    ["W A S D", "Nase neigen – auf der Rampe zeigt <b>D nach Osten</b> (Orbit-Richtung!), A nach Westen, W nach Süden, S nach Norden"],
+    ["Q E",     "um die Längsachse rollen"],
+    ["↑ ↓",     "Schub feinfühlig rauf/runter"],
+    ["X",       "Schub sofort <b>aus</b>"],
+    ["⇧ X",     "<b>Vollgas</b>"],
+    ["Leertaste", "nächste Stufe zünden bzw. abtrennen"],
+    ["T",       "SAS: aus → Prograde → Retrograde → Knoten → Ziel-Bremse"],
+    ["R",       "Seitenbooster zünden"],
+    ["J",       "Seitenbooster abwerfen"]
+  ]},
+  {group:"Bordsysteme", keys:[
+    ["P", "Fallschirm öffnen"],
+    ["F", "Nutzlastverkleidung absprengen – <b>beim Außeneinsatz zu Fuß: Flagge setzen</b>"],
+    ["N", "Satellit aussetzen"],
+    ["G", "Solarpanele aus-/einfahren"],
+    ["Y", "Landebeine aus-/einfahren"],
+    ["O", "Servicebuchten öffnen/schließen"],
+    ["B", "Experiment durchführen"],
+    ["L", "Docken – zwischen 30 und 200 m übernimmt der Docking-Autopilot"],
+    ["I", "Stationsmodul einbauen (angedockt)"],
+    ["V", "Außeneinsatz (EVA) – im All oder gelandet; zu Fuß: WASD laufen, ↑ hüpfen"],
+    ["C", "Bellyflop-Autopilot (nur Starship)"]
+  ]},
+  {group:"Navigation & Zeit", keys:[
+    ["M",   "Karte ein/aus"],
+    ["Z",   "Reiseziel wählen – auf der Rampe die Startfenster-Peilung"],
+    ["K",   "Manöverknoten setzen"],
+    ["⇧ K", "<b>Auto-Knoten</b>: der Bordcomputer trägt den Transfer selbst ein"],
+    [", .", "Zeitraffer langsamer / schneller"],
+    ["⇧ .", "<b>Zeitsprung</b> zum Knoten bzw. zum Startfenster"],
+    ["Esc", "Pause"]
+  ]},
+  {group:"Ansicht", keys:[
+    ["Maus ziehen", "Kamera um das Schiff drehen"],
+    ["Mausrad",     "heran- und herauszoomen"],
+    ["H",           "Knopfleiste umschalten (voll → schmal → aus)"]
+  ]},
+  {group:"Nur im Training", keys:[
+    ["U", "∞ Tank – unbegrenzter Treibstoff (Sandbox & Tutorials)"]
+  ]}
+];
+function renderKeymap(){
+  const box = document.getElementById("optKeys");
+  if(!box || box.childElementCount) return;      // einmal bauen reicht – ändert sich nie
+  box.innerHTML = KEYMAP.map(g =>
+    "<h4>" + g.group + "</h4>" +
+    g.keys.map(([k, d]) =>
+      '<div class="row"><span class="k">' + k + '</span><span class="d">' + d + "</span></div>"
+    ).join("")).join("");
+}
 /* Optionen-Screen zeichnen (Auswahlzustand + Schieberegler-Beschriftung) */
 function renderOptions(){
+  renderKeymap();
   const box = document.getElementById("optGfx");
   if(!box) return;
   box.innerHTML = "";
@@ -1995,7 +2078,7 @@ function resetProgress(){
    UI / Screens
    ================================================================= */
 const UI = {
-  prev:"menu", inGame:false,
+  prev:"menu", inGame:false, optFrom:null,
   show(id){
     const cur = document.querySelector(".screen.active");
     if(cur && cur.id!=="flight") this.prev = cur.id;
@@ -2006,7 +2089,7 @@ const UI = {
     if(id==="missions") renderMissions();
     if(id==="universe"){ renderUniverse(); showHint("universe"); }
     if(id==="tutorial") renderTutorials();
-    if(id==="options") renderOptions();
+    if(id==="options") renderOptions(); else this.optFrom = null;
     /* ⚠️⚠️ Im Hauptmenü endet die SITZUNG – und damit auch der Sandbox-Modus.
        `Game.sandbox` ist ein Sitzungs-Zustand, kein Fortschritt: Es blieb aber
        nach »🛠️ Sandbox« stehen, und weil `telescopeUp()`/`surveyUp()` in der
@@ -2026,8 +2109,27 @@ const UI = {
       Flight.stopRaptor();
     }
   },
+  /* ⚙️ Optionen von überall – auch MITTEN IM FLUG.
+     ⚠️⚠️ Dafür braucht es ein EIGENES Rücksprungziel: `prev` merkt sich die
+     Flugansicht bewusst nicht (sonst landete jedes »Zurück« im Cockpit statt
+     in der Halle), und ohne `optFrom` fiel man aus dem laufenden Flug in die
+     Montagehalle – der Flug wäre weg gewesen.
+     ⚠️ Die Simulation steht solange still, und zwar von selbst: Die
+     Frame-Schleife ruft `Flight.frame()` nur bei aktivem Flug-Screen auf, und
+     die Schrittweite dort kommt aus dem Warp-Faktor (`warp/60`), NICHT aus der
+     Uhr – es gibt beim Zurückkommen also keinen Zeitsprung. Der keydown-
+     Handler prüft ebenfalls auf den aktiven Screen, es kann also nichts
+     durchrutschen. */
+  openOptions(){
+    const cur = document.querySelector(".screen.active");
+    this.optFrom = cur ? cur.id : null;
+    this.show("options");
+  },
   back(){
     const cur = document.querySelector(".screen.active");
+    if(cur && cur.id==="options" && this.optFrom){
+      const t = this.optFrom; this.optFrom = null; this.show(t); return;
+    }
     const target = (!this.prev || this.prev==="flight" || (cur && this.prev===cur.id)) ? "menu" : this.prev;
     this.show(target);
   },
@@ -2220,12 +2322,13 @@ const HINTS = {
      das deine Rakete für einen Orbit braucht. Warum ist Monti so viel leichter? 🤔`},
   flight3d:{title:"🧭 3D-Flugsteuerung", text:
     `<b>W/S</b> = nicken · <b>A/D</b> = gieren · <b>Q/E</b> = rollen ·
-     <b>↑/↓</b> = Schub (Z = voll, X = aus)<br><br>
+     <b>↑/↓</b> = Schub (<b>⇧X</b> = Vollgas, <b>X</b> = aus)<br><br>
      Der <b>Navball</b> unten zeigt deine Fluglage: blau = Himmel, braun = Boden.
      Das grüne Symbol ist dein <b>Prograde</b> (Flugrichtung).<br><br>
      <b>[T]</b> schaltet das <b>SAS</b> durch: Prograde halten → Retrograde halten → aus.
      Perfekt zum Zirkularisieren und Bremsen!<br>
-     Maus ziehen = Kamera, Mausrad = Zoom, <b>[M]</b> = Orbitkarte.`}
+     Maus ziehen = Kamera, Mausrad = Zoom, <b>[M]</b> = Orbitkarte.<br>
+     Alle Tasten auf einen Blick: <b>⚙️</b> unten in der Knopfleiste.`}
 };
 function showHint(id){
   if(!HINTS[id] || localStorage.getItem("lmgHint_"+id)) return;
@@ -14050,8 +14153,20 @@ const Flight = {
        Frame hinter dem Schiff (gemessen 178 m bei 11 km/s); (2) step() läuft
        im Zeitraffer mehrfach pro Frame und würde den Partikel-Pool leerpusten.
        Genauso machen es Abgasstrahl und Plasmaschweif. */
+    /* ⚠️⚠️ Sichtbare Stöße und Zischen gibt es NUR IM VAKUUM (Wunsch Simon).
+       In der Lufthülle lenkt eine Rakete über Gitterflossen und das
+       schwenkbare Triebwerk – die kleinen Kaltgasdüsen kämen gegen den
+       Fahrtwind ohnehin kaum an, und ihr Gas wäre im Flugwind sofort
+       verweht. Ein Weißnebel-Stoß auf der Rampe sah entsprechend falsch aus.
+       ⚠️ Das ist BEWUSST nur Optik + Ton: `agility` oben bleibt unangetastet,
+       der Aufstieg und alle Tutorials fliegen sich exakt wie vorher.
+       ⚠️ Die Höhenabfrage steht am ENDE der &&-Kette – so kostet sie nur dort
+       etwas, wo wirklich gedreht wird, und nicht in jedem Substep. Maßgeblich
+       ist Leibniz: alle anderen Körper im Spiel haben `atmoH` 0, weit draußen
+       ist `leibnizAlt` ohnehin riesig. */
     this._rcsWasRot = nRcs > 0 && !!this._rcsAxis && warp <= 2 && !this.eva &&
-                      !this.powerDead && !this.commDead && !this.landed;
+                      !this.powerDead && !this.commDead && !this.landed &&
+                      leibnizAlt(this.pos, this.t) >= LEIBNIZ.atmoH;
     const m = this.mass(), s = this.activeSeg();
     // Ingenieur*innen an Bord sparen Treibstoff
     const fuelEff = 1 + 0.04*this.crewLvl("ing");
@@ -15676,8 +15791,9 @@ const Flight = {
       }
     }
     /* RCS-Steuerdüsen: Gasstöße + Zischen (Zustand kommt aus step(), gezeichnet
-       wird hier – s. Kommentar dort). In der Karte bleibt es sichtbar still,
-       das Zischen läuft aber weiter: man steuert dort durchaus. */
+       wird hier – s. Kommentar dort; dort steckt auch die Vakuum-Bedingung:
+       in der Atmosphäre pustet und zischt nichts). In der Karte bleibt es
+       sichtbar still, das Zischen läuft aber weiter: man steuert dort durchaus. */
     this.setRcsHiss(this._rcsWasRot ? 1 : 0);
     if(this._rcsWasRot){
       this.ensureRcsAudio();
@@ -16535,13 +16651,17 @@ function updateMusic(){
   if(!document.getElementById("loader")){
     const act = document.querySelector(".screen.active");
     if(act){
-      if(act.id === "flight"){
+      /* ⚠️ Optionen MITTEN IM FLUG zählen als Flug: Sonst startet beim Öffnen
+         der Einstellungen die Hallenmusik und bricht beim Zurückspringen
+         sofort wieder ab – mitten im Orbit ein hörbarer Aussetzer. */
+      const eff = (act.id === "options" && UI.optFrom === "flight") ? "flight" : act.id;
+      if(eff === "flight"){
         // Im Flug: Musik erst, wenn der Weltraum erreicht ist
         const inSpace = Flight.v && !Flight.landed && !Flight.crashed &&
           leibnizAlt(Flight.pos, Flight.t) >= LEIBNIZ.atmoH;
         want = inSpace ? "space" : null;
       }
-      else if(act.id === "vab") want = "hangar";
+      else if(eff === "vab") want = "hangar";
       else if(UI.inGame) want = "hangar";   // Forschung/Missionen aus der Halle heraus
       else want = "menu";
     }
