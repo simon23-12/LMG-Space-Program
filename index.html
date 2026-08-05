@@ -1252,6 +1252,44 @@ const PARTS = {
 /* Radialteile (Flossen, Seitenbooster): hängen seitlich am Nachbartank
    und belegen KEINE eigene Höhe im Stack – wie in echt. */
 function isRadial(id){ const t = PARTS[id] && PARTS[id].type; return t==="fin" || t==="sideboost" || t==="gridfin" || t==="legs"; }
+/* ⚠️⚠️ STARSHIP AUF SUPERHEAVY BRAUCHT KEINEN STUFENTRENNER.
+   Die beiden sind füreinander gebaut: Der Trennmechanismus sitzt im
+   Interstage-Gitterring oben am Booster (den `buildPartMesh` dort auch malt),
+   ein separater Stufentrenner wäre bei SpaceX ein Teil zu viel. [Leertaste]
+   trennt sie deshalb wie an einer echten Stufengrenze.
+   ⚠️ Ein Superheavy unter einer SELBST GEBAUTEN Oberstufe bleibt dagegen auf
+   den Stufentrenner angewiesen – dort gibt es keine passende Naht, und die
+   Regel »eine Stufengrenze sieht man am Bauteil« soll sichtbar bleiben.
+   Rückgabe: Index des OBERSTEN Teils der Booster-Stufe (darüber, Richtung
+   Spitze, beginnt die nächste Stufe) oder -1.
+   ⚠️⚠️ Festgemacht wird der Index am STARSHIP, nicht am Superheavy: Radialteile
+   dazwischen – vor allem die Gitterflossen! – gehören zum Booster. Sonst nimmt
+   das Starship sie bei der Trennung mit und der Booster hat auf dem Rückweg
+   nichts mehr zum Steuern. */
+function autoSepIdx(stack){
+  for(let i=stack.length-1;i>=0;i--){
+    if(!PARTS[stack[i]] || PARTS[stack[i]].type!=="superheavy") continue;
+    let j = i-1;
+    while(j>=0 && isRadial(stack[j])) j--;   // Flossen zählen zum Booster
+    if(j>=0 && PARTS[stack[j]] && PARTS[stack[j]].type==="starship") return j+1;
+  }
+  return -1;
+}
+/* Ist Teil i das OBERSTE Teil seiner Stufe? (Stufentrenner ODER die
+   Superheavy/Starship-Naht) – darüber beginnt die nächste Stufe.
+   `sep` ist der vorberechnete `autoSepIdx` (spart den Scan in Schleifen). */
+function isStageBreak(stack, i, sep){
+  const p = PARTS[stack[i]];
+  return !!p && (p.type==="decoupler" ||
+                 i === (sep===undefined ? autoSepIdx(stack) : sep));
+}
+/* Liegt IRGENDWO unter Teil i eine Stufengrenze? (= i gehört zu einer
+   Oberstufe: Flammen bleiben bis zur Trennung aus) */
+function hasStageBelow(stack, i){
+  const sep = autoSepIdx(stack);
+  for(let j=i+1;j<stack.length;j++) if(isStageBreak(stack, j, sep)) return true;
+  return false;
+}
 /* Unterkante JEDES Stack-Teils über der Stack-Unterkante (Index wie im Stack,
    0 = Spitze). EINE Quelle für buildRocketGroup, die Landebein-Geometrie und
    alles andere, was wissen muss, wie hoch ein Teil sitzt. */
@@ -1340,6 +1378,7 @@ const DRONESHIP_FEE = 50;
 function launchFee(stack){
   if(Game.sandbox) return 0;
   if(!stack.some(id=>PARTS[id].type==="gridfin")) return 0;   // ohne Gitterflossen landet nichts
+  if(stack.some(id=>PARTS[id].type==="superheavy")) return 0; // fährt nie zur See (s. boosterSiteEff)
   if((Game.boosterSite||"rtls")!=="ship") return 0;
   if(!Game.unlocked.includes("droneship")) return 0;
   return DRONESHIP_FEE;
@@ -3590,8 +3629,9 @@ const LEG_PIVOT = 1.5, LEG_CLEAR = 4, LEG_DROP_MAX = 22, LEG_DROP_DEF = 12;
    die Normallänge zurück: ausgerechnet der klassische Lander auf der Oberstufe
    bekam Beine, die nicht bis zum Boden reichen. */
 function segBottomY(stack, i, yBot){
+  const sep = autoSepIdx(stack);
   for(let j=i+1;j<stack.length;j++)
-    if(PARTS[stack[j]] && PARTS[stack[j]].type==="decoupler") return yBot[j-1];
+    if(isStageBreak(stack, j, sep)) return yBot[j-1];
   return 0;
 }
 function legDrop(stack, i, yBot){
@@ -4232,7 +4272,7 @@ function buildRocketGroup(stack, fairingIntact){
       mesh.position.y = hIdx>=0 ? yBot[hIdx] : y;
       // Booster einer OBEREN Stufe (Stufentrenner darunter): Flammen bleiben aus,
       // bis ihre Stufe nach der Trennung die unterste ist (analog zu "flame idle")
-      if(p.type==="sideboost" && stack.slice(i+1).some(x=>PARTS[x].type==="decoupler"))
+      if(p.type==="sideboost" && hasStageBelow(stack, i))
         mesh.traverse(o=>{ if(o.name==="bflame") o.userData.upper = true; });
       grp.add(mesh);
       continue;
@@ -4243,7 +4283,7 @@ function buildRocketGroup(stack, fairingIntact){
     // Triebwerke in Oberstufen (Stufentrenner darunter) zünden noch nicht –
     // ihre Flammen bleiben aus, bis sie nach der Trennung unterste Stufe sind
     if(["engine","srb","superheavy","starship"].includes(p.type) &&
-       stack.slice(i+1).some(x=>PARTS[x].type==="decoupler"))
+       hasStageBelow(stack, i))
       mesh.traverse(o=>{ if(o.name==="flame") o.userData.idle = true; });
     grp.add(mesh);
     if(p.type==="bay" && bayMap.has(i)){
@@ -8917,10 +8957,10 @@ const VAB = {
   },
   segments(stack){
     const segs = [[]];
+    const sep = autoSepIdx(stack);   // Superheavy/Starship-Naht = Stufengrenze ohne Trenner
     for(let i=stack.length-1;i>=0;i--){
-      const id = stack[i];
-      if(PARTS[id].type==="decoupler"){ segs[segs.length-1].push(id); segs.push([]); }
-      else segs[segs.length-1].push(id);
+      segs[segs.length-1].push(stack[i]);
+      if(isStageBreak(stack, i, sep)) segs.push([]);
     }
     return segs.filter(s=>s.length);
   },
@@ -9003,6 +9043,15 @@ const VAB = {
     }
     if(id==="ship" && !has("droneship")){
       alert("🔒 Erst die Forschung »Droneship« abschließen!"); return;
+    }
+    if(id==="ship" && this.stack.some(x=>PARTS[x].type==="superheavy")){
+      alert("🚢 Der Superheavy fährt nicht zur See! 🦾\n\n" +
+            "Er wird am Raumhafen vom Mechazilla-Turm aus der Luft GEFANGEN – " +
+            "so ein Fangturm passt auf keine Barge. Deshalb fliegt er immer " +
+            "zurück zur Rampe (RTLS) und braucht dafür rund 30 % Restsprit " +
+            "(orange Marke an der Tankanzeige).\n\n" +
+            "Das Droneship ist für Booster mit Gitterflossen an normalen Raketen da.");
+      return;
     }
     Game.boosterSite = id; autoSave(); this.renderInfo();
   },
@@ -9087,19 +9136,26 @@ const VAB = {
       <button class="btn" style="width:100%" onclick="CFD.open()">🌬️ CFD-Analyse starten</button>
       <small style="color:var(--muted)">Strömungssimulation der aktuellen Rakete: Aufstieg & Wiedereintritt, C<sub>d</sub>, Widerstand, Hitzelast.</small>`;
     // Booster-Landeplatz: nur relevant, wenn die 1. Stufe landen kann (Gitterflossen)
-    if(this.stack.some(id=>PARTS[id].type==="gridfin")){
+    /* ⚠️ Der Superheavy landet auch OHNE Gitterflossen (der Mechazilla-Turm
+       fängt ihn), taucht hier also ebenfalls auf – und für ihn ist die
+       Droneship-Zeile gesperrt: Ein Fangturm passt auf keine Barge. */
+    const heavy = this.stack.some(id=>PARTS[id].type==="superheavy");
+    if(heavy || this.stack.some(id=>PARTS[id].type==="gridfin")){
       const has = t => Game.sandbox || Game.unlocked.includes(t);
-      const site = Game.boosterSite || "rtls";
+      const site = heavy ? "rtls" : (Game.boosterSite || "rtls");
       padHtml += `<h3>Booster-Landeplatz</h3>`;
       for(const [id, icon, name, tech, note] of [
         ["rtls", "🎯", "Landing Zone (RTLS)", "landZone", "Boostback zur Rampe · 100 %"],
         ["ship", "🚢", "Droneship (Ozean)",   "droneship", "später Cutoff · 90 % · 🪙 "+DRONESHIP_FEE]]){
-        const ok = has(tech), sel = ok && site===id;
+        const blocked = heavy && id==="ship";
+        const ok = has(tech) && !blocked, sel = ok && site===id;
         padHtml += `<div class="stat" onclick="VAB.setBoosterSite('${id}')" style="cursor:pointer;${
           sel?"color:var(--orange);font-weight:700;":""}${ok?"":"opacity:.45;"}">
-          <span>${sel?"▶ ":""}${icon} ${name}</span><span>${ok?note:"🔒"}</span></div>`;
+          <span>${sel?"▶ ":""}${icon} ${name}</span><span>${blocked?"🚫 nicht für Superheavy":(has(tech)?note:"🔒")}</span></div>`;
       }
-      if(!has("landZone"))
+      if(heavy)
+        padHtml += `<small style="color:var(--muted)">Der <b>Superheavy</b> fliegt immer zur Rampe zurück – am Raumhafen fängt ihn der Mechazilla-Turm aus der Luft. Plane rund <b>30 % Restsprit</b> für den Boostback ein (orange Marke an der Tankanzeige) und trenne früh genug!</small>`;
+      else if(!has("landZone"))
         padHtml += `<small style="color:var(--muted)">Ohne Landeplatz wassert der Booster downrange im Ozean (50 % Bergung). Forschung: »Landing Zone«.</small>`;
       else if(site==="ship" && has("droneship"))
         padHtml += `<small style="color:var(--muted)">Das Droneship fährt schon vor dem Start hinaus – Gebühr 🪙 ${DRONESHIP_FEE} (in den Kosten unten enthalten). Dafür braucht der Booster kein Boostback: Er darf länger brennen, das bringt mehr Nutzlast in den Orbit.</small>`;
@@ -9155,6 +9211,13 @@ const VAB = {
           Nutzlast ist dann schon frei, bevor [F] überhaupt drankommt. Baue es ÜBER den Stufentrenner,
           direkt unter die Nutzlast.</small></div>`;
     }
+    // Starship auf Superheavy: trennt sich ohne Stufentrenner (s. autoSepIdx)
+    if(autoSepIdx(this.stack) >= 0)
+      html += `<div class="stage-box" style="border-color:var(--blue)">
+        🔗 <b>Starship & Superheavy trennen sich automatisch.</b>
+        <small style="color:var(--muted)">Der Trennmechanismus sitzt im Interstage-Ring oben am Booster –
+        ein <b>Stufentrenner ist hier nicht nötig</b>. [Leertaste] zündet zuerst den Superheavy, beim
+        zweiten Druck trennt er sich und das Starship zündet.</small></div>`;
     html += `<h3>Stufen (von unten)</h3>`;
     for(let i=0;i<segs.length;i++){
       const st = statsArr[i], sb = segBoost[i];
@@ -11235,7 +11298,7 @@ const Flight = {
       if(canLand){
         // Landeplatz: Turm-Catch (Superheavy), RTLS-Boostback zur Landing Zone,
         // Droneship im Ozean – oder (ohne Forschung) ballistisch (= Wasserung).
-        const site = canCatch ? "catch" : this.boosterSiteEff();
+        const site = canCatch ? "catch" : this.boosterSiteEff(dropped.parts);
         this.booster = {
           pos:dPos, vel:dVel, q:this.q.clone(), mesh:dMesh,
           fuel:dropped.fuelLeft, fuelMax:Math.max(1,dropped.fuel),
@@ -11795,8 +11858,22 @@ const Flight = {
     let look = bRel.clone().addScaledVector(up, b.height*0.5);
     if((b.state==="burn" || b.state==="landed" || b.state==="caught") && b.tgt){
       const tgtRel = b.tgt.clone().add(lp).sub(this.pos);
-      want = Math.max(want, Math.min(600, bRel.distanceTo(tgtRel)*1.25 + 50));
-      look.lerp(tgtRel, 0.55);
+      /* ⚠️⚠️ …aber NUR, solange das Ziel auch wirklich mit ins Bild passt.
+         Der Abstand ist bei 600 gedeckelt, das trägt bei 50° Bildhöhe rund
+         440 m Spanne – wer zu spät trennt, landet aber gern mal KILOMETER
+         neben der Rampe. Dann schaute die Kamera auf einen Punkt weit vor dem
+         Booster: leerer Boden, Rakete außerhalb des Bildes, obwohl die
+         Statuszeile »LANDING BURN, Höhe 12 m« meldete (Bug-Report Simon).
+         `f` blendet die Ziel-Einrahmung über 260 → 520 m sanft aus, damit es
+         beim Anflug keinen Sprung gibt: Ist das Ziel zu weit, bleibt der
+         Booster allein im Bild – ihn beim Aufsetzen zu sehen ist wichtiger
+         als die leere Landestelle. */
+      const span = bRel.distanceTo(tgtRel);
+      const f = 1 - Math.min(1, Math.max(0, (span - 260)/260));
+      if(f > 0){
+        want = Math.max(want, Math.min(600, span*1.25 + 50)*f + want*(1-f));
+        look.lerp(tgtRel, 0.55*f);
+      }
     }
     b.camDist = b.camDist===undefined ? want : b.camDist + (want-b.camDist)*0.06;
     const dist = b.camDist;
@@ -11882,10 +11959,19 @@ const Flight = {
     this.surfPatch.visible = true;
   },
   /* Effektiver Booster-Landeplatz: "rtls" (Landing Zone), "ship" (Droneship)
-     oder null (keine Forschung → ballistisch downrange = Wasserung) */
-  boosterSiteEff(){
+     oder null (keine Forschung → ballistisch downrange = Wasserung).
+     ⚠️⚠️ Der SUPERHEAVY kommt IMMER zur Rampe zurück, nie aufs Droneship – er
+     wird dort ja vom Mechazilla-Turm gefangen, und ein Fangturm passt auf keine
+     Barge (bei SpaceX genauso: Falcon-Booster fahren zur See, Superheavy nicht).
+     Ohne diese Regel hing daran ein echter Fehler: Die orange Tankmarke las
+     ihren Wert aus DIESER Funktion – mit »Droneship« stand sie bei 12 % statt
+     der 30 %, die der Boostback zum Turm braucht. Wer nach der Marke trennte,
+     hatte zu wenig Sprit, kam nicht zurück und landete »im Gelände«. */
+  boosterSiteEff(parts){
     const has = t => Game.sandbox || Game.unlocked.includes(t);
-    if((Game.boosterSite||"rtls")==="ship" && has("droneship")) return "ship";
+    const st = parts || (this.v ? this.v.stack : []);
+    const heavy = st.some(id=>PARTS[id] && PARTS[id].type==="superheavy");
+    if(!heavy && (Game.boosterSite||"rtls")==="ship" && has("droneship")) return "ship";
     if(has("landZone")) return "rtls";
     return null;
   },
@@ -13961,10 +14047,11 @@ const Flight = {
     // Stack-Position → Segment-Nummer, exakt wie VAB.segments() zählt (von unten,
     // neues Segment NACH jedem Stufentrenner).
     const segOf = new Array(st.length);
+    const sep = autoSepIdx(st);
     let s = 0;
     for(let i=st.length-1;i>=0;i--){
       segOf[i] = s;
-      if(PARTS[st[i]] && PARTS[st[i]].type==="decoupler") s++;
+      if(isStageBreak(st, i, sep)) s++;
     }
     for(let i=0;i<st.length;i++){                    // 0 = Spitze
       if(!PARTS[st[i]] || PARTS[st[i]].type!=="sat") continue;
@@ -17154,9 +17241,12 @@ const Flight = {
     // Gitterflossen an Bord? Orange Marke = Restsprit für den Landing Burn
     // (RTLS braucht MEHR: der Boostback-Burn zurück zur Rampe kostet extra)
     const fm = document.getElementById("fuelMark");
+    // Der Superheavy landet auch OHNE Gitterflossen (Mechazilla fängt ihn) –
+    // und er braucht den Boostback-Sprit genauso, also bekommt er die Marke.
+    const heavy = !!s && s.parts.some(id=>PARTS[id].type==="superheavy");
     fm.style.display =
-      (s && s.thrust && s.parts.some(id=>PARTS[id].type==="gridfin")) ? "" : "none";
-    fm.style.bottom = this.boosterSiteEff()==="rtls" ? "30%" : "12%";
+      (s && s.thrust && (heavy || s.parts.some(id=>PARTS[id].type==="gridfin"))) ? "" : "none";
+    fm.style.bottom = (heavy || this.boosterSiteEff(s ? s.parts : null)==="rtls") ? "30%" : "12%";
     // Seitenbooster: eigene Tankanzeige (eigener Treibstoff-Pool!)
     // Booster-Gauge = Seitenbooster-Pool + Feststoffbooster der aktiven Stufe
     // (beide nicht drosselbar, beide getrennt vom Flüssigtank)
