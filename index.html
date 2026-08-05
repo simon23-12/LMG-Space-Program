@@ -268,6 +268,20 @@ input[type=file]{display:none;}
       samt Turbopumpen-Spin-up beim Zünden.</div>
   </div>
   <div class="opt-card">
+    <h3>🎥 Kamera</h3>
+    <div class="sub">Wie stark die Kamera bei Zündung, Stufentrennung und Wiedereintritt
+      mitzittert.</div>
+    <label class="opt-slider">
+      <span class="lab">📳 Wackeln</span>
+      <input type="range" min="0" max="100" id="optShake" oninput="Settings.setVol('shake', this.value/100)">
+      <span class="val" id="optShakeVal"></span>
+    </label>
+    <div class="opt-note">Ein startendes Triebwerk rüttelt – das macht den Schub spürbar,
+      den die Zahlen im HUD nur behaupten. Das Wackeln ist <b>rein optisch</b> und ändert
+      nichts an der Flugbahn. Wem beim Zusehen flau wird, der stellt den Regler auf
+      <b>0 %</b>: Dann steht das Bild vollkommen ruhig, ohne dass die Grafik darunter leidet.</div>
+  </div>
+  <div class="opt-card">
     <h3>⌨️ Tastenbelegung</h3>
     <div class="sub">Nur zum <b>Nachschlagen</b> – die Tasten liegen fest und lassen sich
       nicht umlegen. So funktioniert an jedem Rechner der AG dieselbe Taste gleich,
@@ -596,7 +610,13 @@ const GFX_PRESETS = {
         info:"Für kräftige Rechner: weiche Schatten überall, volle Schärfe."}
 };
 const Settings = {
-  gfx:"mid", music:0.45, sfx:0.7,
+  /* ⚠️ `shake` ist bewusst ein EIGENER Regler und kein Teil der Grafikstufe:
+     Kamerawackeln ist für manche Menschen ein Übelkeitsauslöser (Motion
+     Sickness), und in der AG sitzen zwei bis drei Kinder vor einem Schirm –
+     wer es nicht verträgt, muss es abschalten können, ohne dafür die
+     Bildqualität zu opfern. Gleiche Überlegung wie beim entschärften
+     Schweißlicht in der Halle. 0 = komplett aus. */
+  gfx:"mid", music:0.45, sfx:0.7, shake:1,
   get q(){ return GFX_PRESETS[this.gfx] || GFX_PRESETS.mid; },
   load(){
     try{
@@ -604,11 +624,12 @@ const Settings = {
       if(GFX_PRESETS[s.gfx]) this.gfx = s.gfx;
       if(typeof s.music === "number") this.music = Math.max(0, Math.min(1, s.music));
       if(typeof s.sfx   === "number") this.sfx   = Math.max(0, Math.min(1, s.sfx));
+      if(typeof s.shake === "number") this.shake = Math.max(0, Math.min(1, s.shake));
     }catch(e){}
   },
   save(){
     localStorage.setItem("lmgSettings",
-      JSON.stringify({gfx:this.gfx, music:this.music, sfx:this.sfx}));
+      JSON.stringify({gfx:this.gfx, music:this.music, sfx:this.sfx, shake:this.shake}));
   },
   setGfx(id){
     if(!GFX_PRESETS[id]) return;
@@ -712,7 +733,8 @@ function renderOptions(){
     q.info + "<br>Schatten: <b>" + (q.shadow ? "an" : "aus") +
     "</b> · Bildschärfe: <b>" + (gfxPixelRatio()/dpr*100).toFixed(0) + "%</b>" +
     " · Bäume: <b>" + q.trees + "</b>";
-  for(const [key, sl, val] of [["music","optMusic","optMusicVal"], ["sfx","optSfx","optSfxVal"]]){
+  for(const [key, sl, val] of [["music","optMusic","optMusicVal"], ["sfx","optSfx","optSfxVal"],
+                               ["shake","optShake","optShakeVal"]]){
     const s = document.getElementById(sl);
     if(s) s.value = Math.round(Settings[key]*100);
     const v = document.getElementById(val);
@@ -3580,11 +3602,330 @@ const MAT = {
   blue:   new THREE.MeshStandardMaterial({color:0x1b5faa, roughness:.4,  metalness:.3}),
   gold:   new THREE.MeshStandardMaterial({color:0xcdb84f, roughness:.4,  metalness:.6}),
   panel:  new THREE.MeshStandardMaterial({color:0x2d7ad0, roughness:.3,  metalness:.4, side:THREE.DoubleSide}),
-  flame:  new THREE.MeshBasicMaterial({color:0xffa030, transparent:true, opacity:.92}),
-  flameCore: new THREE.MeshBasicMaterial({color:0xfff0b4, transparent:true, opacity:.95})
+  // ⚠️ Die Triebwerksflamme hat KEIN MAT-Material mehr: sie ist seit August 2026
+  // ein eigenes ShaderMaterial (s. makeFlame / FLAME_FRAG weiter unten).
 };
 function cylinder(rTop,rBottom,h,mat,seg=20){
   return new THREE.Mesh(new THREE.CylinderGeometry(rTop,rBottom,h,seg), mat);
+}
+
+/* =================================================================
+   ABGASSTRAHL  (`makeFlame` / `FLAME_U` / `FLAME_VERT` / `FLAME_FRAG`)
+   -----------------------------------------------------------------
+   Vorher: ein opaker ConeGeometry mit MeshBasicMaterial – also genau
+   die harte Silhouette, die beim Plasmaschweif und beim Kometenschweif
+   schon zweimal als »Plastiktrichter« verworfen wurde. Die Flamme war
+   der letzte Ort, wo der alte Ansatz noch stand.
+   Jetzt eine Mantelfläche, deren FORM und Deckkraft der Shader rechnet:
+
+   1. ⚠️⚠️ WEICHE SILHOUETTE. Eine Flamme ist ein leuchtendes VOLUMEN;
+      ihre Helligkeit ist die Weglänge des Sehstrahls durch das Gas.
+      Für einen Zylinder ist diese Sehne genau `cos` des Winkels
+      zwischen Flächennormale und Blickrichtung – also `dot(n, V)`:
+      in der Mitte lang (hell), an der Silhouette null (unsichtbar).
+      Deshalb hat die Fahne keine sichtbare Kante mehr. Zusammen mit
+      `DoubleSide` + additivem Blending zählt auch die Rückwand mit,
+      was die Weglänge noch besser trifft.
+   2. ⚠️⚠️ HÖHENABHÄNGIGE FORM (`uVac`). Am Boden drückt der Luftdruck
+      den Strahl schlank zusammen (überexpandiert), im Vakuum fächert
+      er glockenförmig auf. Genau darum taugen Vakuumdüsen am Boden
+      nichts – das steht als Text im »Ochsen«, war aber nirgends zu
+      SEHEN. `uVac = 1 − e^(−h/H)` mit Leibniz' Skalenhöhe: 0 km → 0,
+      5,6 km → 0,63, 20 km → 0,97. Aufstiegsvideos zeigen genau das.
+   3. MACH-DIAMANTEN: die stehenden Schockrauten im überexpandierten
+      Strahl. `sin(t·f)^8`, nur bei dichter Luft, nur achsennah, und
+      mit dem Schub enger gestaffelt.
+   4. FARBFOLGE vom Düsenhals (Kernfarbe, s. `FLAME_KIND`) über Orange
+      zum dunkelroten, ausfransenden Ende.
+
+   ⚠️⚠️ EIN Material-Satz und EINE Geometrie für ALLE Flammen im Spiel:
+   Die Geometrie ist ein reiner Parameterraum (Radius 1, Länge 1, Düse
+   bei y=0, Ende bei y=−1) – die echte Größe macht `mesh.scale`, die
+   Form der Vertex-Shader. Die Uniform-OBJEKTE werden zwischen den
+   Farbvarianten geteilt (`...FLAME_U` kopiert die Referenzen, nicht
+   die Werte), ein `FLAME_U.uVac.value = …` wirkt also überall.
+   ⚠️ GLSL ES 1.00 (WebGL1, alte Schultreiber) und die logdepthbuf-
+   Chunks sind Pflicht – der Flug-Renderer hat `logarithmicDepthBuffer`.
+   ⚠️ `uTime` wird gewrappt: bei float32 zerfallen die Rausch- und
+   Sinus-Koordinaten sonst nach ein paar Stunden Spielzeit. */
+const FLAME_U = {
+  uTime:{value:0}, uVac:{value:0}, uThr:{value:1}
+};
+const FLAME_VERT = `
+attribute float aT;
+attribute float aA;
+uniform float uTime, uVac;
+varying float vT;
+varying vec3 vN, vP;
+/* WICHTIG: common MUSS vor den logdepthbuf-Chunks stehen – dort liegen
+   isPerspectiveMatrix() und EPSILON, die der Log-Z-Chunk benutzt. Bei
+   einem ShaderMaterial fügt three das nicht von selbst ein; ohne den
+   Chunk scheitert die Vertex-Shader-Kompilierung (so gemessen). Alle
+   anderen Shader im Projekt machen es genauso.
+   (Und ja: KEINE Backticks in diesem Kommentar – der Text steht in
+   einem JS-Template-Literal, ein Backtick beendet es und die ganze
+   Datei parst nicht mehr. Siehe CLAUDE.md, Ozean-Shader.) */
+#include <common>
+#include <logdepthbuf_pars_vertex>
+/* Radius der Mantellinie an der Stelle t (0 = Düse, 1 = Ende).
+   atmo: schlank, läuft spitz aus · vac: fächert glockenförmig auf */
+float flameRad(float t, float vac){
+  float atmo = pow(max(0.0, 1.0 - t), 0.55);
+  float vacS = (1.0 + 2.4*t) * pow(max(0.0, 1.0 - t*0.94), 0.75);
+  return mix(atmo, vacS, vac);
+}
+void main(){
+  vT = aT;
+  // leichtes Pulsieren, pro Azimut versetzt – sonst atmet die ganze Fahne im Takt
+  float flick = 1.0 + 0.05*sin(uTime*31.0 + aA*2.3) + 0.035*sin(uTime*19.0 + aA);
+  float r = flameRad(aT, uVac) * flick;
+  vec3 p = vec3(cos(aA)*r, -aT, sin(aA)*r);
+  // Normale analytisch aus der Mantellinie: n = normalize(cos a, r'(t), sin a)
+  float dr = (flameRad(aT+0.02, uVac) - flameRad(max(0.0,aT-0.02), uVac))/0.04;
+  vec3 n = normalize(vec3(cos(aA), dr, sin(aA)));
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  vP = mv.xyz;
+  vN = normalMatrix * n;
+  gl_Position = projectionMatrix * mv;
+  #include <logdepthbuf_vertex>
+}`;
+const FLAME_FRAG = `
+precision highp float;
+uniform float uTime, uVac, uThr;
+uniform vec3 uTint;
+uniform float uOp, uSoot;
+varying float vT;
+varying vec3 vN, vP;
+#include <common>
+#include <logdepthbuf_pars_fragment>
+void main(){
+  #include <logdepthbuf_fragment>
+  // Sehnenlänge durch das leuchtende Volumen (s. Kommentar oben)
+  float mu = abs(dot(normalize(vN), normalize(-vP)));
+  float body = pow(mu, 0.85);
+  // Längsverlauf: heiß und dicht am Hals, ausfransend am Ende
+  float fade = pow(max(0.0, 1.0 - vT), 0.8);
+  // Turbulenz: das Ende zerfasert, der Hals bleibt glatt
+  float turb = 1.0 - 0.45*vT*(0.5 + 0.5*sin(vT*34.0 - uTime*26.0 + vP.x*0.7));
+  vec3 col = mix(uTint, vec3(1.0, 0.46, 0.12), smoothstep(0.04, 0.5, vT));
+  col = mix(col, vec3(0.6, 0.12, 0.03), smoothstep(0.45, 1.0, vT));
+  // Mach-Diamanten: nur in dichter Luft, nur vorn, nur achsennah
+  float sp = vT * (5.5 + 5.0*uThr);
+  float dia = pow(max(0.0, sin(sp*3.14159)), 6.0)
+            * (1.0 - uVac) * smoothstep(0.8, 0.3, vT) * pow(mu, 2.0);
+  col += vec3(1.0, 0.93, 0.78) * dia * 2.4;
+  float a = body * fade * turb * (0.4 + 0.6*uThr) * uOp + dia*0.55;
+  // Rußiger Feststoffstrahl: am Ende schluckt der Rauch das Licht
+  col *= 1.0 - uSoot*smoothstep(0.35, 1.0, vT)*0.55;
+  gl_FragColor = vec4(col * (0.55 + 0.45*uThr), clamp(a, 0.0, 1.0));
+}`;
+/* Kernfarbe & Charakter je Triebwerksart. Methan/Wasserstoff brennt fast
+   unsichtbar blau, Kerosin gelb-orange, Feststoff grell und rußig. */
+/* ⚠️ `op` bewusst NIEDRIG (0,26–0,58): Das Material ist additiv UND
+   DoubleSide, jedes Fragment zählt also doppelt (Vorder- + Rückwand), und
+   ohne Tonemapping ist bei 1,0 Schluss. Mit den ersten Werten (0,55–0,78)
+   war der Düsenhals ein 255er-Plateau – gemessen über das Helligkeitsprofil
+   entlang der Achse –, und in einer ausgebrannten Fläche sieht man von den
+   Mach-Diamanten naturgemäß nichts. Dieselbe Lehre wie bei den Plasma-
+   Bändern: ein einzelner Beitrag darf für sich nicht hell sein. */
+const FLAME_KIND = {
+  kero:   {tint:0xffe9b0, op:0.45, soot:0.15},
+  raptor: {tint:0xcfe2ff, op:0.40, soot:0.0},
+  srb:    {tint:0xfff4d2, op:0.58, soot:0.7},
+  ion:    {tint:0x9fb8ff, op:0.26, soot:0.0}
+};
+const _flameMats = {};
+function flameMat(kind){
+  if(_flameMats[kind]) return _flameMats[kind];
+  const k = FLAME_KIND[kind] || FLAME_KIND.kero;
+  return _flameMats[kind] = new THREE.ShaderMaterial({
+    uniforms: Object.assign({}, FLAME_U, {
+      uTint:{value:new THREE.Color(k.tint)}, uOp:{value:k.op}, uSoot:{value:k.soot}}),
+    vertexShader:FLAME_VERT, fragmentShader:FLAME_FRAG,
+    transparent:true, depthWrite:false, side:THREE.DoubleSide,
+    blending:THREE.AdditiveBlending
+  });
+}
+/* Normalisierte Mantelfläche – EINMAL gebaut, von allen Flammen geteilt. */
+let _flameGeo = null;
+function flameGeometry(){
+  if(_flameGeo) return _flameGeo;
+  const RS = 18, LS = 24;
+  const pos=[], aT=[], aA=[], idx=[];
+  for(let j=0;j<=LS;j++){
+    const t = j/LS;
+    for(let i=0;i<=RS;i++){
+      const a = i/RS*Math.PI*2;
+      pos.push(Math.cos(a), -t, Math.sin(a));   // Radius kommt aus dem Shader
+      aT.push(t); aA.push(a);
+    }
+  }
+  for(let j=0;j<LS;j++) for(let i=0;i<RS;i++){
+    const p = j*(RS+1)+i;
+    idx.push(p, p+1, p+RS+1,  p+1, p+RS+2, p+RS+1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute("aT", new THREE.Float32BufferAttribute(aT,1));
+  g.setAttribute("aA", new THREE.Float32BufferAttribute(aA,1));
+  g.setIndex(idx);
+  return _flameGeo = g;
+}
+/* =================================================================
+   RAKETENHÜLLE  (`hullTexture` / `SKIN` / `skinPart`)
+   -----------------------------------------------------------------
+   Die Rakete war das einzige Objekt im Spiel OHNE eine einzige Textur:
+   Halle, Rampen, Planeten, Meer und Kleinkörper haben alle prozedurale
+   Kacheln, ausgerechnet das Ding, auf das man den ganzen Flug schaut,
+   bestand aus zehn einfarbigen Materialien. Dieselbe Rezeptur wie bei
+   `concreteTex`/`makeGroundTexture`, gecacht in `_hullTex`:
+   Blechstöße, Nietreihen, Schweißnähte, Flecken und ein paar
+   technische Marken.
+   ⚠️ FAST WEISS gemalt (Basis 250), damit `material.color` sie TÖNT –
+   genau wie die Bodenkacheln. Nur so kommt EINE Kachel für Weiß,
+   Orange, Grau, Rot, Blau und Gold aus, statt sechs Varianten.
+   ⚠️ NAHTLOS: alle Raster teilen 256 ganzzahlig, die frei gesetzten
+   Marken werden 3x3 versetzt gezeichnet (wie bei makeGroundTexture).
+   ⚠️ KEINE Beschriftung mit lesbarem Schriftzug: die Kachel wiederholt
+   sich 4–5 mal um den Rumpf, ein »LMG SPACE PROGRAM« stünde also
+   fünfmal nebeneinander. Die kleinen Marken lesen sich aus Flugdistanz
+   wie Aufkleber, ohne sich als Wiederholung zu verraten. */
+let _hullTex = null;
+function hullTexture(){
+  if(_hullTex) return _hullTex;
+  const S = 256, c = document.createElement("canvas");
+  c.width = c.height = S;
+  const x = c.getContext("2d");
+  x.fillStyle = "#fafafa"; x.fillRect(0,0,S,S);
+  // großflächige Fleckigkeit (Walzstruktur des Blechs)
+  for(let i=0;i<70;i++){
+    const px = Math.random()*S, py = Math.random()*S, rr = 12+Math.random()*40;
+    const g = x.createRadialGradient(px,py,0,px,py,rr);
+    const v = 236 + Math.random()*16;
+    g.addColorStop(0, "rgba("+v+","+v+","+(v+2)+",0.5)");
+    g.addColorStop(1, "rgba("+v+","+v+","+(v+2)+",0)");
+    x.fillStyle = g;
+    for(const dx of [-S,0,S]) for(const dy of [-S,0,S]){
+      x.save(); x.translate(dx,dy); x.beginPath(); x.arc(px,py,rr,0,7); x.fill(); x.restore();
+    }
+  }
+  /* Waagerechte Blechstöße + Nietreihen (Ringspanten).
+     ⚠️ Die Stöße sind bewusst UNTERSCHIEDLICH kräftig und nur jeder zweite
+     bekommt Nieten: bei vier identischen Fugen liest das Auge sofort das
+     Kachelraster – dieselbe Falle wie beim Oktaven-LOD des Planeten. */
+  const seam = [0.42, 0.16, 0.30, 0.12];
+  for(let k=0;k<4;k++){
+    const y = k*64, a = seam[k];
+    x.fillStyle = "rgba(120,126,140,"+a+")";        x.fillRect(0,y,S,1);
+    x.fillStyle = "rgba(255,255,255,"+(a*1.3)+")";  x.fillRect(0,y+1,S,1);
+    if(k%2) continue;                                // nur jeder zweite Spant genietet
+    for(let px=4;px<S;px+=11){
+      x.fillStyle = "rgba(150,156,168,0.34)"; x.fillRect(px,y+4,2,2);
+      x.fillStyle = "rgba(255,255,255,0.42)"; x.fillRect(px,y+3,2,1);
+    }
+  }
+  // senkrechte Schweißnähte (Längsstöße der Blechbahnen)
+  for(let px=0;px<S;px+=128){
+    x.fillStyle = "rgba(126,132,146,0.22)"; x.fillRect(px,0,1,S);
+    x.fillStyle = "rgba(255,255,255,0.34)"; x.fillRect(px+1,0,1,S);
+  }
+  /* Technische Marken (Aufkleber, Wartungsfelder).
+     ⚠️ SEHR blass: Mit 0,28–0,58 Deckkraft bildeten sie ein deutlich
+     sichtbares Gitter auf dem Rumpf – die Kachel wiederholt sich ja 4–5 mal
+     rundum, und ein kontrastreicher Fleck ist dann sofort als Muster
+     erkennbar. Aus Flugdistanz sollen sie andeuten, nicht auffallen. */
+  for(let i=0;i<5;i++){
+    const px = Math.random()*S, py = Math.random()*S;
+    const w = 4+Math.random()*9, hh = 2+Math.random()*3;
+    x.fillStyle = "rgba(108,114,130,"+(0.10+Math.random()*0.13)+")";
+    for(const dx of [-S,0,S]) for(const dy of [-S,0,S]) x.fillRect(px+dx,py+dy,w,hh);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  return _hullTex = t;
+}
+/* Texturierte Zwillinge der MAT-Farben. ⚠️ Die MAT.*-Singletons hängen auch
+   in Halle, Station und Rampe – sie dürfen NICHT mutiert werden, sonst
+   bekämen Hallenwände Raketennieten. Deshalb Klone.
+   `panel` (Solarzellen), `flame`/`flameCore` bleiben bewusst außen vor. */
+const SKIN = {};
+function skinMaterials(){
+  if(SKIN.white) return SKIN;
+  const tex = hullTexture();
+  for(const k of ["white","orange","gray","dark","red","blue","gold"]){
+    const m = MAT[k].clone();
+    m.map = tex; m.bumpMap = tex; m.bumpScale = 0.28;
+    SKIN[k] = m;
+  }
+  return SKIN;
+}
+/* Texel-Dichte in WELT-Einheiten: EIN Wert für alle Bauteile, damit ein Niet
+   am Mini-Triebwerk genauso groß ist wie am Superheavy. 8 Einheiten ≈ 3 m. */
+const HULL_TEX_M = 8;
+/* ⚠️⚠️ Skaliert wird die UV der GEOMETRIE, nicht `texture.repeat` – sonst
+   bräuchte jede Bauteilgröße ihre eigene Texturinstanz (und damit ihren
+   eigenen VRAM-Upload). So kommen alle mit derselben Kachel aus.
+   Maß ist die Bounding-Box: bei allen Rotationskörpern (Cylinder, Cone,
+   Lathe, Sphere) läuft u um den Umfang und v über die Höhe, das trifft es
+   also generisch. Box-Geometrien werden nach Breite/Höhe skaliert. */
+function skinGeoUV(geo){
+  if(!geo || !geo.attributes || !geo.attributes.uv) return;
+  if(geo.userData.skinned) return;                 // nie doppelt skalieren
+  geo.userData.skinned = true;
+  geo.computeBoundingBox();
+  const s = new THREE.Vector3(); geo.boundingBox.getSize(s);
+  const isBox = geo.type === "BoxGeometry";
+  const ru = (isBox ? s.x : Math.PI*Math.max(s.x, s.z)) / HULL_TEX_M;
+  const rv = s.y / HULL_TEX_M;
+  const uv = geo.attributes.uv;
+  for(let i=0;i<uv.count;i++)
+    uv.setXY(i, uv.getX(i)*Math.max(0.4, ru), uv.getY(i)*Math.max(0.4, rv));
+  uv.needsUpdate = true;
+}
+/* Ein fertiges Bauteil-Mesh »anziehen«: Materialien tauschen, UVs skalieren.
+   ⚠️ Nur MeshStandardMaterial – Fenster, Augen und Leuchtflächen sind
+   MeshBasicMaterial und sollen einfarbig bleiben; die Flamme hat ihr
+   eigenes ShaderMaterial. Materialien, die NICHT aus MAT stammen, werden
+   direkt bestückt: die erzeugt `buildPartMesh` pro Aufruf selbst (Stahl
+   von Superheavy/Starship, Kacheln, Sondenhülle), das Mutieren ist dort
+   also gefahrlos. */
+function skinPart(g){
+  const S = skinMaterials(), tex = hullTexture();
+  const byMat = new Map();
+  for(const k of Object.keys(S)) byMat.set(MAT[k], S[k]);
+  /* ⚠️⚠️ Der Rest von MAT ist TABU. `MAT.panel` (Solarzellen) ist ein
+     MeshStandardMaterial und wäre sonst dem »unbekannt → bestücken«-Zweig
+     unten in die Hände gelaufen – gemessen: nach einem einzigen
+     buildPartMesh hatte MAT.panel eine map, und weil es ein SINGLETON ist,
+     bekamen damit auch Station und Halle Raketennieten auf ihre
+     Solarflügel. Genau davor schützen die Klone; der Schutz muss aber
+     für ALLE MAT-Einträge gelten, nicht nur für die geklonten. */
+  const taboo = new Set(Object.values(MAT));
+  g.traverse(o=>{
+    if(!o.isMesh || !o.material) return;
+    if(o.name === "flame" || o.name === "bflame") return;
+    const rep = byMat.get(o.material);
+    if(rep) o.material = rep;
+    else if(taboo.has(o.material)) return;                  // panel & Co. unberührt
+    else if(o.material.isMeshStandardMaterial && !o.material.map){
+      o.material.map = tex; o.material.bumpMap = tex; o.material.bumpScale = 0.28;
+    } else if(!o.material.isMeshStandardMaterial) return;
+    skinGeoUV(o.geometry);
+  });
+  return g;
+}
+
+/* R = Radius am Düsenaustritt, L = Länge; Ursprung = Düsenmündung,
+   Strahl zeigt nach −Y (also nach unten aus dem Triebwerk). */
+function makeFlame(R, L, kind, name){
+  const m = new THREE.Mesh(flameGeometry(), flameMat(kind||"kero"));
+  m.scale.set(R, L, R);
+  m.userData.len = L; m.userData.rad = R;
+  m.visible = false;
+  m.name = name || "flame";
+  m.frustumCulled = false;   // die Form entsteht erst im Shader
+  return m;
 }
 /* ---------- Landebeine: RADIALTEIL am Tank (wie Flossen/Seitenbooster) ----------
    ⚠️⚠️ Beine waren früher ein Stack-Teil: eine eigene Scheibe MITTEN in der
@@ -3706,7 +4047,7 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
     eye.position.set(0, h*0.55, r*0.6); g.add(eye);
     const ant = cylinder(0.2,0.2,h*0.5,MAT.gray,6);
     ant.position.set(0, h*1.2, 0); g.add(ant);
-    return g;
+    return skinPart(g);
   }
   if(id==="probeS"){
     // Sondenbus: flache, runde Scheibe (wie die Batterie, nur runder) mit Sensorauge
@@ -3716,7 +4057,7 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
     const eye = new THREE.Mesh(new THREE.SphereGeometry(r*0.14,10,10),
       new THREE.MeshBasicMaterial({color:0x9fd8ff}));
     eye.position.set(0, h*0.45, r*0.85); g.add(eye);
-    return g;
+    return skinPart(g);
   }
   if(p.type==="sat"){
     // Komplett-Satelliten: eigenes Gesicht pro Typ, kleine Flügel (Start: eingeklappt)
@@ -3797,7 +4138,7 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       lens.position.y = h*0.94; g.add(lens);
       wing(-1, p.w*0.9); wing(1, p.w*0.9);
     }
-    return g;
+    return skinPart(g);
   }
   switch(p.type){
     case "pod":{
@@ -3862,18 +4203,17 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       add(cylinder(r*0.22, r*0.8, h*0.55, MAT.gray), h*0.26);
       add(cylinder(r*0.81, r*0.84, h*0.08, MAT.dark), h*0.04);
       // Flamme (wird im Flug ein-/ausgeblendet)
-      const fl = new THREE.Mesh(new THREE.ConeGeometry(r*0.7, h*3.2, 14), MAT.flame);
-      fl.rotation.x = Math.PI; fl.position.y = -h*1.4; fl.visible = false; fl.name = "flame";
-      const fc = new THREE.Mesh(new THREE.ConeGeometry(r*0.4, h*2.2, 12), MAT.flameCore);
-      fc.rotation.x = Math.PI; fc.position.y = -h*0.9; fc.visible = false; fc.name = "flame";
-      g.add(fl); g.add(fc);
+      // Ein Mesh genügt: Kern, Verlauf und weicher Rand stecken im Shader
+      const fl = makeFlame(r*0.7, h*3.2, p.raptor ? "raptor" : (id==="engIon" ? "ion" : "kero"));
+      fl.position.y = h*0.2;
+      g.add(fl);
       break;}
     case "srb":{
       add(cylinder(r,r,h,MAT.white), h/2);
       add(cylinder(r*1.01,r*1.01,h*0.12,MAT.red), h*0.93);
       add(cylinder(r*0.55,r*0.7,h*0.1,MAT.dark), 0.03*h);
-      const fl = new THREE.Mesh(new THREE.ConeGeometry(r*0.65, h*1.6, 14), MAT.flame);
-      fl.rotation.x = Math.PI; fl.position.y = -h*0.7; fl.visible = false; fl.name = "flame";
+      const fl = makeFlame(r*0.65, h*1.6, "srb");
+      fl.position.y = h*0.1;
       g.add(fl);
       break;}
     case "decoupler":
@@ -3905,11 +4245,9 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
         g.add(bell);
       }
       add(cylinder(0.6, 1.1, 2.6, MAT.gray, 10), 0.5);
-      const fl = new THREE.Mesh(new THREE.ConeGeometry(r*0.85, h*0.85, 16), MAT.flame);
-      fl.rotation.x = Math.PI; fl.position.y = -h*0.36; fl.visible = false; fl.name = "flame";
-      const fc = new THREE.Mesh(new THREE.ConeGeometry(r*0.5, h*0.6, 12), MAT.flameCore);
-      fc.rotation.x = Math.PI; fc.position.y = -h*0.24; fc.visible = false; fc.name = "flame";
-      g.add(fl); g.add(fc);
+      const fl = makeFlame(r*0.85, h*0.85, "raptor");
+      fl.position.y = h*0.065;
+      g.add(fl);
       break;}
     case "starship":{
       // Edelstahl + Ogiven-Nase, Flaps (nur Nicht-Tanker), Hitzeschutz-Streifen
@@ -3963,8 +4301,8 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
         bell.position.set(Math.cos(a)*r*0.35, 0.5, Math.sin(a)*r*0.35);
         g.add(bell);
       }
-      const sfl = new THREE.Mesh(new THREE.ConeGeometry(r*0.6, h*0.7, 14), MAT.flame);
-      sfl.rotation.x = Math.PI; sfl.position.y = -h*0.3; sfl.visible = false; sfl.name = "flame";
+      const sfl = makeFlame(r*0.6, h*0.7, "raptor");
+      sfl.position.y = h*0.05;
       g.add(sfl);
       break;}
     case "fin":{
@@ -4148,7 +4486,7 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       add(cylinder(r*1.02, r*1.02, h*0.08, MAT.dark, 8), h*0.94);
       break;}
   }
-  return g;
+  return skinPart(g);
 }
 /* Nutzlast-Fairing-Hülle: ovale Ogiven-Form wie echte Fairings.
    phiStart/phiLength → Halbschalen für die Absprengungs-Animation. */
@@ -4330,11 +4668,11 @@ function buildStrapOnMesh(H, withFlame){
   const nose = cylinder(0.3, 2.3, H*0.16, MAT.orange, 12); nose.position.y = H*0.92; g.add(nose);
   const noz = cylinder(1.5, 1.9, H*0.06, MAT.dark, 10); noz.position.y = H*0.02; g.add(noz);
   if(withFlame){
-    const fl = new THREE.Mesh(new THREE.ConeGeometry(1.8, H*0.85, 12), MAT.flame);
-    fl.rotation.x = Math.PI; fl.position.y = -H*0.4; fl.visible = false; fl.name = "bflame";
+    const fl = makeFlame(1.8, H*0.85, "srb", "bflame");
+    fl.position.y = H*0.025;
     g.add(fl);
   }
-  return g;
+  return skinPart(g);
 }
 /* Wirt eines Radialteils: benachbarter Tank/Booster (erst darunter, dann darüber) */
 function radialHostIdx(stack, i){
@@ -4427,9 +4765,17 @@ function setFlames(grp, on, scale){
   grp.traverse(o=>{
     if(o.name==="flame"){
       o.visible = on && !o.userData.idle;   // idle = Triebwerk einer Oberstufe
-      if(o.visible) o.scale.y = scale*(0.85+Math.random()*0.3);
+      // ⚠️ Die Geometrie ist normalisiert (Länge 1) – die echte Länge steht in
+      // userData.len und wird mit dem Schub multipliziert. Das Zucken bleibt
+      // klein: das eigentliche Flackern macht jetzt der Shader.
+      if(o.visible) o.scale.y = (o.userData.len||1) * scale * (0.93+Math.random()*0.14);
     }
   });
+}
+/* Zustand des Abgasstrahls für die Uniforms: Wie leer ist die Luft dort, wo
+   das Triebwerk brennt? (0 = Meereshöhe, 1 = Vakuum – s. makeFlame) */
+function flameVac(alt){
+  return 1 - Math.exp(-Math.max(0, alt)/LEIBNIZ.scaleH);
 }
 
 /* =================================================================
@@ -10831,6 +11177,7 @@ const Flight = {
     }
     this.sas = "off"; this._cd = 0; this.expCount = 0; this._wasSpace = undefined;
     this.heatDmg = 0; this._heatMsgT = undefined;
+    this.shake = 0; this.shakeImp = 0; this._shakeWant = 0; this._shakeT = 0;
     this.paused = false;
     // Strom: Kapazität aus Kapsel/Sonde/Batterien, Panels starten eingeklappt
     this.maxCharge = vessel.stack.reduce((a,id)=>a+(PARTS[id].charge||0), 0);
@@ -11260,11 +11607,13 @@ const Flight = {
         bo.ignited = true;   // klassischer Simultanstart – [R] zündet sie auch alleine
         this.showMsg("Zündung – Stufe + ihre Seitenbooster! 🔥🔥",2);
       } else this.showMsg("Zündung! 🔥",2);
+      this.addShake(1.0);   // der Schlag beim Hochfahren der Turbopumpen
       return;
     }
     if(this.v.segs.length>1){
       // Abgeworfene Stufe nimmt IHREN Booster-Pool mit (seg.boost hängt am Segment)
       const dropped = this.v.segs.shift();
+      this.addShake(0.85);   // die Sprengbolzen der Stufentrennung
       this.stagedOnce = true;   // ab jetzt kein Aero-Wobble mehr (Oberstufen fliegen ruhig)
       this.v.stack.splice(this.v.stack.length-dropped.parts.length, dropped.parts.length);
       // ⚠️⚠️ Saß das Fairing in der ABGEWORFENEN Stufe, ist es jetzt weg – das
@@ -11884,6 +12233,11 @@ const Flight = {
     this.pipCam.up.copy(up);
     this.pipCam.lookAt(look);
     this.setViewUniforms(this.pipCam, 230);   // Meer & Wolken auf die PiP-Kamera
+    // ⚠️ Der Booster brennt in ganz anderer Luft als das Schiff (das steht beim
+    // Landing Burn oft schon im Orbit): Abgas-Uniforms auf SEINE Höhe setzen,
+    // sonst fächert die Fahne dicht überm Wasser auf wie im Vakuum.
+    FLAME_U.uVac.value = flameVac(alt);
+    FLAME_U.uThr.value = Math.max(0.35, b.throttle || 0.35);
     this.pipRenderer.render(this.scene, this.pipCam);
   },
   /* ================================================================
@@ -13589,6 +13943,51 @@ const Flight = {
       this._audio = {ctx, gain};
     }catch(e){ this._audio = null; }
   },
+  /* ================================================================
+     KAMERAWACKELN  (`shake` / `shakeImp` / `addShake` / `applyShake`)
+     ----------------------------------------------------------------
+     Rein optisch – die Kamera wird versetzt, NICHT das Schiff. Physik,
+     Flugbahn und alle Autopiloten bleiben unberührt.
+     Zwei Quellen, die sich addieren:
+     · DAUERPEGEL `_shakeWant` (in frame() aus Schub, Luftdichte und
+       Hitze gesetzt): das Rütteln eines laufenden Triebwerks.
+     · IMPULSE `shakeImp` über `addShake()`: Zündung, Stufentrennung,
+       Aufsetzen, Explosion – klingen exponentiell ab.
+     ⚠️⚠️ Der Pegel läuft über die ECHTE Zeit (1/60), nicht über die
+     simulierte: sonst würde die Kamera im Zeitraffer rasen. Aus dem
+     gleichen Grund darf der Ausschlag NICHT pro Frame gewürfelt werden –
+     das wäre 60-Hz-Stroboskop wie beim alten Schweißlicht. Stattdessen
+     drei Sinus mit teilerfremden Frequenzen (6,1 / 11,3 / 17,7 Hz):
+     unregelmäßig genug, dass man kein Muster erkennt, und langsam genug,
+     dass bei 60 fps nichts aliast.
+     ⚠️ Die Amplitude hängt an `cd` (Kameraabstand), damit der Ausschlag
+     im BILD gleich groß bleibt – ein fester Meterwert ist bei 35 m
+     Abstand ein Erdbeben und bei 3000 m unsichtbar. */
+  addShake(v){
+    this.shakeImp = Math.min(1.8, (this.shakeImp||0) + v);
+  },
+  applyShake(cd){
+    const g = Settings.shake || 0;
+    this.shakeImp = (this.shakeImp||0) * 0.90;             // ~0,16 s Halbwertszeit
+    if(this.shakeImp < 0.004) this.shakeImp = 0;
+    const want = (this._shakeWant||0) + this.shakeImp;
+    // Anstieg schnell (die Zündung soll schlagen), Abfall träge
+    const k = want > this.shake ? 0.35 : 0.10;
+    this.shake += (want - this.shake)*k;
+    const lv = this.shake * g;
+    if(lv < 0.002) return null;
+    this._shakeT = (this._shakeT || 0) + 1/60;
+    const t = this._shakeT, TAU = Math.PI*2;
+    const w = (fr, ph) => Math.sin(t*TAU*fr + ph);
+    // drei Achsen, jede mit eigener Phasenlage → keine sichtbare Vorzugsrichtung
+    const amp = Math.min(lv, 1.4) * cd * 0.0085;
+    return {
+      off: V3((w(11.3,0)*0.6 + w(6.1,1.7)*0.4) * amp,
+              (w(17.7,2.4)*0.5 + w(6.1,4.2)*0.5) * amp,
+              (w(11.3,3.9)*0.6 + w(17.7,0.8)*0.4) * amp),
+      roll: (w(6.1,2.2)*0.6 + w(11.3,5.1)*0.4) * Math.min(lv,1.4) * 0.0045
+    };
+  },
   setRumble(level){
     // Rohpegel merken: der SFX-Regler kann mitten im Brennvorgang bewegt
     // werden und muss dann sofort greifen, ohne auf den nächsten Frame zu warten.
@@ -13918,6 +14317,7 @@ const Flight = {
     }
   },
   explode(){
+    this.addShake(1.8);
     const up = this.pos.clone().normalize();
     for(let i=0;i<55;i++){
       const dir = V3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
@@ -13936,6 +14336,7 @@ const Flight = {
   },
   jettisonFairing(){
     if(!this.v || !this.v.fairingIntact || this.crashed || this.ended) return;
+    this.addShake(0.5);
     // Zwei Halbschalen fliegen seitlich weg – wie bei echten Fairings
     const stack = this.v.stack;
     const fIdx = stack.findIndex(id=>PARTS[id].type==="fairing");
@@ -14196,6 +14597,7 @@ const Flight = {
       this.chuteOpen = true;
       this.chuteOpenT = this.t;
       this.attachChute();
+      this.addShake(0.75);   // der Ruck, wenn die Kappe fasst
       this.showMsg("Fallschirm ausgelöst! 🪂",2);
     }
   },
@@ -15116,6 +15518,7 @@ const Flight = {
             " Zurück ans Reißbrett!",99);
         } else if(!this.landed){
           this.landed = true;
+          this.addShake(Math.min(1.2, 0.25 + vrel*0.10));   // Aufsetzstoß
           this.showMsg("🛬 Gelandet auf "+b.name+"! ("+vrel.toFixed(1)+" m/s)"+
             (this.crew.length?" Die Crew ist wohlauf! 👋":""),5);
           this.onLanded(b);
@@ -16213,6 +16616,21 @@ const Flight = {
       (s.fuelLeft>0&&s.thrust&&this.throttle>0 || s.srbLeft>0&&s.srbThrust);
     const boB = s && s.boost;
     const boosterBurn = boB && boB.attached && boB.ignited && boB.fuelLeft>0 && warp<=2;
+    /* Dauer-Wackelpegel (s. applyShake). Ein Feststoffbooster rüttelt spürbar
+       stärker als ein geregeltes Flüssigtriebwerk – das ist einer der Gründe,
+       warum bemannte Raketen ungern auf ihnen fliegen. In dichter Luft kommt
+       das Buffeting dazu, beim Wiedereintritt die Bremsung selbst. */
+    this._shakeWant =
+        (burning ? (0.30 + 0.45*this.throttle) * (0.45 + 0.55*f) : 0)
+      + (s && s.srbLeft>0 && s.srbThrust && burning ? 0.28 : 0)
+      + (boosterBurn ? 0.30 : 0)
+      + Math.min(0.55, Math.max(0, ((this.shipTemp||0) - 700)/1100));
+    /* Abgasstrahl-Uniforms für den HAUPT-Render. Die Booster-PiP setzt sie vor
+       ihrem eigenen render() erneut (der Booster steht ja ganz woanders in der
+       Atmosphäre) – s. updateBoosterCam. */
+    FLAME_U.uTime.value = (performance.now()/1000) % 600;
+    FLAME_U.uVac.value  = flameVac(leibnizAlt(this.pos, this.t));
+    FLAME_U.uThr.value  = burning ? Math.max(0.35, this.throttle) : 1;
     if(this.rocketGroup){
       this.rocketGroup.visible = !this.crashed && (!this.map);
       const hh = this.height()/2;
@@ -16622,6 +17040,15 @@ const Flight = {
     this.camera.position.copy(focus).addScaledVector(cdir, cd);
     this.camera.up.copy(fr.up);
     this.camera.lookAt(focus);
+    /* Kamerawackeln NACH lookAt: Der Versatz verschiebt das Bild, ohne den
+       Blickpunkt zu verdrehen – genau das, was eine mitgerüttelte Kamera tut.
+       ⚠️ In der KARTE aus: dort ist die Kamera kein Standpunkt im Raum,
+       sondern ein Kartenausschnitt, und eine zitternde Bahnlinie macht das
+       Ablesen von Ap/Pe unmöglich. Bei Pause ebenfalls. */
+    if(!this.map && !this.paused){
+      const sh = this.applyShake(cd);
+      if(sh){ this.camera.position.add(sh.off); this.camera.rotateZ(sh.roll); }
+    } else { this.shake = 0; this.shakeImp = 0; }
     this.renderer.setSize(w,h,false);
     this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
     this.setViewUniforms(this.camera, h);   // Meer & Wolken auf die Hauptkamera

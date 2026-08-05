@@ -23,8 +23,37 @@ LMG-Branding (orange `--orange` / blau `--blue`).
 
 ## Optionen & Grafikstufen (`Settings` / `GFX_PRESETS` / `applyGraphics`)
 Screen `#options` (Hauptmenü »⚙️ Optionen«, im VAB **und im FLUG** der ⚙️-Knopf), gerendert
-von `renderOptions()`. Drei Regler: **Grafik** (niedrig/mittel/hoch), **Musik**, **Geräusche**
-– dazu die Karte **⌨️ Tastenbelegung** (`KEYMAP` → `renderKeymap()`).
+von `renderOptions()`. Vier Regler: **Grafik** (niedrig/mittel/hoch), **Musik**, **Geräusche**,
+**📳 Kamera-Wackeln** – dazu die Karte **⌨️ Tastenbelegung** (`KEYMAP` → `renderKeymap()`).
+
+### 📳 Kamerawackeln (`Settings.shake` / `Flight.addShake` / `applyShake`)
+Rein optisch – versetzt wird die KAMERA, nicht das Schiff; Flugbahn, Autopiloten und
+Physik bleiben unberührt. Zwei Quellen addieren sich:
+- **Dauerpegel** `_shakeWant`, in `frame()` gesetzt: Schub × Luftdichte, dazu ein Aufschlag
+  für Feststoffbooster (die rütteln berüchtigt stärker als geregelte Flüssigtriebwerke –
+  einer der Gründe, warum bemannte Raketen ungern auf ihnen fliegen) und die Bremsung beim
+  Wiedereintritt (über `shipTemp`). Gemessen: Rampe vor Zündung 0 · Vollschub bodennah 0,75 ·
+  30 % Schub 0,43 · Triebwerk aus 0.
+- **Impulse** `shakeImp` über `addShake()`: Zündung 1,0 · Stufentrennung 0,85 · Fallschirm
+  0,75 · Aufsetzen 0,25 + 0,10·v · Fairing 0,5 · Explosion 1,8. Abklingen ×0,90 pro Frame
+  ⇒ nach 0,8 s vorbei (gemessen).
+- ⚠️⚠️ **EIGENER Regler, nicht Teil der Grafikstufe.** Kamerawackeln ist ein
+  Übelkeitsauslöser (Motion Sickness), und in der AG sitzen zwei bis drei Kinder vor einem
+  Schirm – wer es nicht verträgt, muss es abschalten können, ohne dafür Bildqualität zu
+  opfern. Dieselbe Überlegung wie beim entschärften Schweißlicht in der Halle. Verifiziert:
+  Regler 100 % → Ausschlag 1,43 % der halben Bildhöhe, 50 % → 0,60 %, **0 % → exakt 0,00**.
+- ⚠️⚠️ **Der Pegel läuft über die ECHTE Zeit (1/60), nicht über die simulierte** – sonst
+  rast die Kamera im Zeitraffer. Und der Ausschlag wird **NICHT pro Frame gewürfelt**: das
+  wäre 60-Hz-Stroboskop, genau der Fehler des alten Schweißlichts. Stattdessen drei Sinus
+  mit teilerfremden Frequenzen (6,1 / 11,3 / 17,7 Hz) und pro Achse eigener Phase –
+  unregelmäßig genug ohne erkennbares Muster, langsam genug, dass bei 60 fps nichts aliast.
+- ⚠️ **Amplitude ∝ `cd` (Kameraabstand)**, damit der Ausschlag im BILD gleich bleibt: ein
+  fester Meterwert ist bei 35 m Abstand ein Erdbeben und bei 3000 m unsichtbar.
+- ⚠️ **In der KARTE aus** (und bei Pause): Dort ist die Kamera kein Standpunkt im Raum,
+  sondern ein Kartenausschnitt – eine zitternde Bahnlinie macht das Ablesen von Ap/Pe
+  unmöglich. Verifiziert: `shake` fällt in der Karte auf 0.
+- ⚠️ Angewandt wird der Versatz NACH `camera.lookAt()`: eine reine Translation verschiebt
+  das Bild, ohne den Blickpunkt zu verdrehen – genau das tut eine mitgerüttelte Kamera.
 - ⚠️ Die Tastentabelle ist bewusst **READ-ONLY**: In der AG sitzen zwei bis drei Kinder an
   einem Rechner, und eine still verstellte Belegung sieht man dem Spiel von außen nicht an –
   die nächste Gruppe hält es schlicht für kaputt. Außerdem nennen Tutorials, Hinweistexte und
@@ -1130,6 +1159,90 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
 
 ## Bauteile & Stack
 `PARTS` (Reihenfolge im Stack: Index 0 = SPITZE; die Zuordnung zu den Rubriken der Teileliste steht in `CATS[].ids`, NICHT mehr als `cat`-Feld am Teil – s. »Teileauswahl im KSP-Stil«). **Radialteile** (`isRadial`: fin, sb2/sb4, gridfin, **legs**) belegen KEINE Stack-Höhe (`stackHeight()` statt Summe!) und werden in `buildRocketGroup` an den benachbarten Tank montiert (`radialHost`: erst darunter, dann darüber; `buildPartMesh(id, {r,h})`). **Sidebooster = Pool PRO STUFE** (`seg.boost` in buildVessel, kein globales v.boost mehr!): zünden mit IHRER Stufe (Zündung/Stufentrennung setzt `n.boost.ignited`) oder [R] (aktive Stufe), [J] wirft NUR die Booster der aktiven Stufe ab (nächstes [J] nach der Trennung = nächste Stufe); abgeworfene Stufen nehmen ihren Pool automatisch mit (hängt am Segment). Physik/HUD/Gauge/Flammen lesen `activeSeg().boost`; Flammen von Oberstufen-Boostern via `bflame.userData.upper` aus (gesetzt in buildRocketGroup, wenn Decoupler darunter). Trümmer-Mesh = `buildStrapOnMesh(strapOnHeight(stack,i))` – NICHT das srb-Mesh (Formwechsel-Bug). Servicebuchten (`bayCoverage()`): `bay` = »M« verkleidet 2 Teile darüber, `bayS` 1 (`PARTS[..].covers`) – aber NUR Typen aus `BAY_FITS` (battery/solar/probe/antenna/lab), sonst "verschluckt" die Bucht z. B. Oberstufen-Triebwerke; geschlossene Bucht schützt Solarpanele vor Fahrtwind, [G] öffnet sie automatisch mit. Oberstufen-Triebwerke (Decoupler darunter) kriegen `flame.userData.idle` – `setFlames` lässt sie aus, bis sie unterste Stufe sind. VAB-Info: Seitenbooster zählen zu Gesamtmasse, TWR **und Δv** IHRER Stufe (`segBoost[]` trägt dafür `dry`/`fuel`/`isp` mit, s. »Δv einer Stufe MIT Seitenboostern«); jede Stufe zeigt Leergewicht, **Kosten (🪙 + Anteil an der Rakete, plus Notiz »mit Gitterflossen bergbar«)** und Δv/TWR, Rakete gesamt »Leergewicht (Tanks leer)«. Die Stufenkosten sind die entscheidende Zahl für Reusability-Builds: Erstattet wird immer nur der gelandete Reststack (`settleCrewAndAssets`) bzw. der geborgene Booster (`b.value = stackCost(debrisStack)`). Solarflügel (`name:"wing"`) starten eingefahren (scale.x 0.1) – für Orbit-Sats `deployWings()`. Fairing verkleidet alles darüber.
+
+### Raketenhülle: prozedurale Textur (`hullTexture` / `SKIN` / `skinPart`)
+Die Rakete war das einzige Objekt im Spiel **ohne eine einzige Textur** – Halle, Rampen,
+Planeten, Meer und Kleinkörper haben alle prozedurale Kacheln, ausgerechnet das Ding, auf
+das man den ganzen Flug schaut, bestand aus zehn einfarbigen `MAT.*`-Materialien.
+`hullTexture()` (256², gecacht) malt Blechstöße, Nietreihen, Schweißnähte, Walzflecken und
+ein paar technische Marken; `skinPart(g)` zieht sie am Ende von `buildPartMesh` und
+`buildStrapOnMesh` über das fertige Mesh.
+- ⚠️ **FAST WEISS gemalt** (Basis 250), damit `material.color` sie TÖNT – dasselbe Muster wie
+  bei `makeGroundTexture`. Nur so kommt **eine** Kachel für Weiß, Orange, Grau, Rot, Blau und
+  Gold aus statt sechs Varianten.
+- ⚠️⚠️ **Skaliert wird die UV der GEOMETRIE, nicht `texture.repeat`.** Sonst bräuchte jede
+  Bauteilgröße ihre eigene Texturinstanz und damit ihren eigenen VRAM-Upload. Maß ist die
+  Bounding-Box (`HULL_TEX_M` = 8 Einheiten ≈ 3 m je Kachel): bei allen Rotationskörpern läuft
+  u um den Umfang und v über die Höhe, das trifft Cylinder, Cone, Lathe und Sphere generisch.
+  Damit ist ein Niet am Mini-Triebwerk genauso groß wie am Superheavy – gemessen engT 2,8×0,4
+  Kacheln, tankL 4,7×5,3, superheavy 5,5×7,9. `geo.userData.skinned` verhindert doppeltes
+  Skalieren.
+- ⚠️⚠️ **`MAT.*` sind SINGLETONS und tabu – es werden KLONE texturiert** (`SKIN.*`). Sie
+  hängen auch in Halle, Station und Rampe; mutiert man sie, bekommen Hallenwände
+  Raketennieten. Der erste Wurf hatte genau dieses Leck: `MAT.panel` (Solarzellen) ist ein
+  MeshStandardMaterial und lief in den »unbekannt → bestücken«-Zweig – gemessen hatte es nach
+  einem einzigen `buildPartMesh` eine map. Deshalb ein `taboo`-Set über **alle**
+  MAT-Einträge, nicht nur über die geklonten. Solarzellen bleiben bewusst blank (14 Meshes).
+- ⚠️ Materialien, die `buildPartMesh` INLINE erzeugt (Stahl von Superheavy/Starship,
+  Sondenhülle, Hitzeschutzkacheln), werden direkt bestückt – die entstehen pro Aufruf neu,
+  Mutieren ist dort gefahrlos. `MeshBasicMaterial` (Fenster, Augen, Leuchtflächen) bleibt
+  einfarbig.
+- ⚠️⚠️ **`buildPartMesh` hat DREI frühe `return g;`** (probePod, probeS, solar) neben dem am
+  Ende – wer nur den letzten umstellt, lässt Sonden und Satelliten untexturiert. So gefunden:
+  44 blanke Meshes statt 14.
+- ⚠️ **Marken sehr blass halten** (Deckkraft 0,10–0,23) und die vier Blechstöße
+  UNTERSCHIEDLICH kräftig, Nieten nur an jedem zweiten: Die Kachel wiederholt sich 4–5 mal um
+  den Rumpf, und mit den ersten Werten (0,28–0,58) las das Auge sofort ein Gitter – dieselbe
+  Falle wie beim Oktaven-LOD des Planeten-Feinreliefs.
+- ⚠️ **Kein lesbarer Schriftzug**: bei 4–5 Wiederholungen rundum stünde »LMG SPACE PROGRAM«
+  fünfmal nebeneinander. Ein Decal-Band als eigener Zylinder wurde verworfen – auf 0,02
+  Einheiten Abstand ist das ein Tiefenstreit-Kandidat (s. Formeltafel).
+- Regression: alle 51 Teile bauen fehlerfrei, alle 51 PartIcons rendern (431–2508 nicht-
+  transparente Pixel von 5184 – deckt sich mit dem alten Referenzwert 432…2500, die geteilte
+  Textur kommt also auch im fremden Icon-GL-Kontext an). `frame()` 0,54 ms.
+
+### Abgasstrahl (`makeFlame` / `FLAME_U` / `FLAME_VERT` / `FLAME_FRAG`)
+Vorher ein opaker `ConeGeometry` mit `MeshBasicMaterial` – also genau die harte Silhouette,
+die beim Plasmaschweif und beim Kometenschweif schon zweimal als »Plastiktrichter« verworfen
+wurde; die Flamme war der letzte Ort, wo der alte Ansatz noch stand. Jetzt eine Mantelfläche,
+deren **Form und Deckkraft der Shader rechnet**.
+- ⚠️⚠️ **Weiche Silhouette über `dot(n, V)`.** Eine Flamme ist ein leuchtendes VOLUMEN, ihre
+  Helligkeit ist die Weglänge des Sehstrahls durch das Gas – und für einen Zylinder ist diese
+  Sehne exakt der Kosinus des Winkels zwischen Flächennormale und Blickrichtung: in der Mitte
+  lang (hell), an der Silhouette null (unsichtbar). Zusammen mit `DoubleSide` + additivem
+  Blending zählt die Rückwand mit, was die Weglänge noch besser trifft. Deshalb hat die Fahne
+  keine sichtbare Kante mehr.
+- ⚠️⚠️ **Höhenabhängige Form (`uVac = 1 − e^(−h/H)`).** Am Boden drückt der Luftdruck den
+  Strahl schlank zusammen, im Vakuum fächert er glockenförmig auf – genau darum taugen
+  Vakuumdüsen am Boden nichts, was als Text im »Ochsen« steht, aber nirgends zu SEHEN war.
+  Gemessene Halbbreite entlang der Achse (Düse → Ende): **Boden 18 → 0** (verjüngt monoton),
+  **Vakuum 18 → 26** (Maximum bei t ≈ 0,5). 0 km → 0 · 5,6 km → 0,63 · 20 km → 0,97.
+- **Mach-Diamanten**: `sin(t·f)^6`, nur bei dichter Luft, nur vorn, nur achsennah, mit dem
+  Schub enger gestaffelt. Gemessener Kontrast gegen dieselbe Stelle im Vakuum: **+39 %**.
+- ⚠️⚠️ **`op` niedrig halten (0,26–0,58).** Additiv UND DoubleSide heißt: jedes Fragment zählt
+  doppelt, und ohne Tonemapping ist bei 1,0 Schluss. Mit den ersten Werten (0,55–0,78) war der
+  Düsenhals ein 255er-Plateau – und in einer ausgebrannten Fläche sieht man von den Diamanten
+  naturgemäß nichts. Nach der Korrektur brennt nur noch **1 von 15** Abtastpunkten aus (der
+  Düsenhals selbst, dort ist es wirklich weißglühend). Dieselbe Lehre wie bei den Plasmabändern.
+- **Farbe je Triebwerksart** (`FLAME_KIND`): `raptor` bläulich (Methan brennt fast unsichtbar)
+  · `kero` gelb-orange · `srb` grell und rußig (`uSoot` schluckt am Ende Licht) · `ion`
+  blassblau. Zuordnung in `buildPartMesh` über `p.raptor` bzw. die Teile-ID.
+- ⚠️⚠️ **EINE Geometrie und EIN Material-Satz für ALLE Flammen.** Die Geometrie ist ein reiner
+  Parameterraum (Radius 1, Länge 1, Düse bei y=0, Ende bei y=−1) – die echte Größe macht
+  `mesh.scale`, die Form der Vertex-Shader. Die Uniform-OBJEKTE werden zwischen den
+  Farbvarianten geteilt (`Object.assign({}, FLAME_U, …)` kopiert Referenzen, nicht Werte), ein
+  `FLAME_U.uVac.value = …` wirkt also überall. Verifiziert: 2 Flammen im Stack → 1 Geometrie.
+- ⚠️ **`setFlames` multipliziert mit `userData.len`**, weil die Geometrie normalisiert ist.
+- ⚠️ **Die Booster-PiP setzt `uVac`/`uThr` vor ihrem EIGENEN render() neu** (s.
+  `updateBoosterCam`): Der Booster brennt dicht überm Wasser, während das Schiff schon im
+  Orbit steht – mit den Uniforms des Hauptbildes fächerte seine Fahne auf wie im Vakuum.
+- ⚠️⚠️ **`#include <common>` MUSS vor die logdepthbuf-Chunks** – dort liegen
+  `isPerspectiveMatrix()` und `EPSILON`. Bei einem ShaderMaterial fügt three das nicht von
+  selbst ein; ohne den Chunk scheitert die Vertex-Shader-Kompilierung (so gemessen).
+- ⚠️⚠️ **Und beim Kommentieren im GLSL-Template-Literal KEINE Backticks** – auch nicht um
+  Bezeichner. Genau das ist beim Bau passiert: ein Backtick beendet das JS-Template-Literal,
+  die ganze Datei parst nicht mehr, Symptom `UI is not defined` und weißer Bildschirm. Steht
+  seit dem Ozean-Rewrite in dieser Datei und ist trotzdem wieder passiert.
 
 ### ⚠️⚠️ Stufengrenzen: Trenner ODER Superheavy/Starship-Naht (`autoSepIdx`)
 Ein Stufentrenner ist seit August 2026 nicht mehr die einzige Stufengrenze: **Starship auf
