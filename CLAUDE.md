@@ -29,7 +29,10 @@ von `renderOptions()`. Vier Regler: **Grafik** (niedrig/mittel/hoch), **Musik**,
 ### 📳 Kamerawackeln (`Settings.shake` / `SHAKE_LIFTOFF` / `applyShake`)
 Rein optisch – versetzt wird die KAMERA, nicht das Schiff; Flugbahn, Autopiloten und Physik
 bleiben unberührt.
-- ⚠️⚠️ **NUR die ersten `SHAKE_LIFTOFF` = 3 Sekunden ab der Zündung AUF DER RAMPE.** Die
+- ⚠️⚠️ **NUR die ersten `SHAKE_LIFTOFF` = 2 Sekunden ab der Zündung AUF DER RAMPE.**
+  (Waren bis August 2026 drei – auf Wunsch von Simon verkürzt: Der Effekt soll den SCHLAG
+  der Zündung verkaufen, und der ist nach zwei Sekunden erzählt. Alles darüber liest das
+  Auge schon wieder als Dauerunruhe, s. u.) Die
   erste Fassung rüttelte durchgehend, solange ein Triebwerk brannte, plus Impulse bei
   Stufentrennung, Aufsetzen, Fallschirm, Fairing und Explosion. Ergebnis: »sieht einfach so
   aus, als würde die Rakete die ganze Zeit wackeln« (Simon) – aus einem Effekt, der den
@@ -40,15 +43,15 @@ bleiben unberührt.
 - `_shakeT0` wird in `stage()` gesetzt, aber nur wenn `this.landed` – ein Zünden im Orbit
   oder nach einer Stufentrennung rüttelt bewusst nicht. Die letzte Sekunde blendet weich aus
   (`smoothstep`), ein hart abgeschnittener Effekt fällt mehr auf als der Effekt selbst.
-  Gemessen: vor Zündung 0 · t = 1 s und 2 s → 0,95 · 2,5 s → 0,40 · ab 3,2 s → 0 ·
-  nach Stufentrennung 0.
+  Gemessen (Pegel): vor Zündung 0 · t = 0,5 s und 1,0 s → 0,95 · 1,5 s → 0,475 ·
+  1,9 s → 0,027 · **ab 2,0 s → 0** · nach Stufentrennung 0.
 - ⚠️ **EIGENER Regler, nicht Teil der Grafikstufe.** Kamerawackeln ist ein Übelkeitsauslöser
   (Motion Sickness), und in der AG sitzen zwei bis drei Kinder vor einem Schirm – wer es
   nicht verträgt, muss es abschalten können, ohne dafür Bildqualität zu opfern. Dieselbe
   Überlegung wie beim entschärften Schweißlicht. Verifiziert: 100 % → Ausschlag 1,43 % der
   halben Bildhöhe, 50 % → 0,60 %, **0 % → exakt 0,00**.
-- ⚠️⚠️ Der Pegel läuft über die SIMULIERTE Zeit (`this.t`), damit 3 Sekunden 3 Spielsekunden
-  sind. Der Ausschlag wird **nicht pro Frame gewürfelt** – das wäre 60-Hz-Stroboskop wie beim
+- ⚠️⚠️ Der Pegel läuft über die SIMULIERTE Zeit (`this.t`), damit die `SHAKE_LIFTOFF`
+  Sekunden auch Spielsekunden sind. Der Ausschlag wird **nicht pro Frame gewürfelt** – das wäre 60-Hz-Stroboskop wie beim
   alten Schweißlicht; stattdessen drei Sinus mit teilerfremden Frequenzen (6,1 / 11,3 /
   17,7 Hz). Amplitude ∝ `cd` (Kameraabstand), damit der Ausschlag im BILD gleich bleibt.
 - ⚠️ In der KARTE und bei Pause aus: dort ist die Kamera ein Kartenausschnitt, und eine
@@ -348,6 +351,54 @@ die Klötzchen nur), also kommt das fehlende Detail aus dem Fragment-Shader – 
     Luftweg vor sich – genau dort schnitt die Geometrie ihn ab (zweiter harter Bogen).
   - ⚠️ `uI` fährt unter ~150 km auf 0: von innen macht die Lufthülle die Himmelskuppel
     (SKY_FRAG), sonst liegen zwei Atmosphären übereinander.
+
+### Polarlicht über Leibniz (`AURORA_*` / `buildAurora` / `updateAurora`)
+Ein Polarlicht-**Oval um jeden Pol**, planetenfest und als KIND des Planeten-Meshes
+aufgehängt (Ursprung und Achse stimmen damit von selbst, und es wandert mit Leibniz um die
+Sonne). EIN Objekt deckt beide gewünschten Fälle ab: von der **Polarstation »Skihütte«**
+(86° N) steht es nachts hoch am Südhimmel, **beim Überflug** sieht man es von oben als
+leuchtenden Kranz um den Pol – wie auf den ISS-Fotos.
+- **Didaktik:** Teilchen des Sonnenwinds laufen entlang der MAGNETFELDLINIEN und treffen die
+  Luft dort, wo diese in den Boden tauchen – also in einem Ring um die Pole und nicht am
+  Äquator. Deshalb sind die Vorhänge nach außen geneigt (`uTilt`), leuchten unten grün
+  (Sauerstoff, ~100 km) und oben rot/violett, und ihre **Unterkante ist scharf** (dort endet
+  die Teilchenbahn in der dichteren Luft), die Oberkante fasert aus.
+- ⚠️⚠️ **Sichtbar nur auf der Nachtseite, und das entscheidet der SHADER pro Fragment**
+  (`uSunDir` gegen die Bodennormale des Punktes), nicht die CPU. Nur so stimmt beides
+  gleichzeitig: Der Ring bricht beim Überflug genau am Terminator ab, und an der Polarstation
+  geht das Licht mit der Spieluhr an und aus. Verifiziert: 00:00 Uhr Vorhänge am Himmel,
+  12:00 Uhr nichts, Äquator-Raumhafen auch nachts nichts (die Pole liegen hinterm Horizont).
+- ⚠️⚠️ **`uSunDir` ist `Flight.groundSunDir` – die SPIELUHR-Sonne, nicht die echte Richtung.**
+  Bodennah kennt das Spiel zwei Sonnenstände (s. »Sonnenstand & Licht bodennah«); mit der
+  echten Richtung leuchtete das Polarlicht an der Rampe mittags und wäre nachts aus. Exakt
+  dieselbe Falle wie bei `sunlit()`.
+- ⚠️⚠️ **Die Kolatitude ist der wichtigste Regler** (`AURORA_COL0/1` = 0,13…0,33 rad ≈
+  7,5°…18,9°). Die Polarstation liegt bei 4° Kolatitude, das Oval MUSS deutlich weiter
+  draußen liegen: Der erste Wurf (5,7°…14,9°) legte die Station praktisch mitten hinein, und
+  dann sieht man nur noch eine leuchtende DECKE über sich statt eines Vorhangs. Jetzt sind es
+  37…156 km Entfernung, der Vorhang steht 21°…58° über dem Südhorizont.
+- Höhe `AURORA_H0/H1` = 60…170 km über Grund (Leibniz' Atmosphäre endet bei 70 km – ein
+  Polarlicht leuchtet oberhalb der dichten Luft, das passt).
+- ⚠️ **Gegen die Regelmäßigkeit** (erste Fassung sah aus wie ein Strichcode über dem halben
+  Himmel): (a) die Strahlen-Phase wird mit einer groberen Welle verzogen (Domain Warping, wie
+  bei Wolken und Planetentextur), (b) zwei langsame Wellen löschen das Band streckenweise ganz
+  aus (`cover`), (c) Unter- UND Oberkante wellen entlang des Ovals – bei fester Höhe ist die
+  Unterkante ein LINEAL quer über den Himmel.
+- ⚠️ **Kantenaufhellung** (`edge = 1/(0,40 + 0,85·µ)`) ist kein Schnickschnack: Ein Vorhang
+  ist eine dünne LEUCHTSCHICHT, wer flach hindurchsieht, blickt durch mehr Gas – dieselbe
+  Rechnung wie beim Plasma-Nachlauf. Ohne sie sieht das Band aus wie bemaltes Blech.
+- ⚠️ Alpha klein halten (additiv, DoubleSide): Endfaktor **0,40**. Dieselbe Lehre wie bei
+  Flamme, Plasma und den Windkanal-Rauchfahnen.
+- ⚠️ Die Aktivität (`uI`, ~4-min-Schwebung) läuft über die **Effekt-Uhr `Flight.fxT`**
+  (Echtzeit), nicht über `this.t`: an der Simulationszeit gekoppelt würde das Polarlicht bei
+  Warp 100.000 im Sekundentakt an- und ausblitzen.
+- ⚠️ In der Karte aus, und ab 60 Planetenradien Abstand ebenfalls – dort ist der Kranz ein
+  Subpixel und kostet nur Füllrate.
+- Kosten gemessen (Polarstation, Nacht, Vorhänge formatfüllend): **0,46 ms je `frame()`
+  gegen 0,36 ms ohne**, also 0,1 ms. 2 Draw-Calls, Geometrie geteilt (3 Bänder × 168 × 12).
+- ⚠️ GLSL-Falle, hier zum zweiten Mal getreten: **`patch` ist ein reserviertes Wort** – eine
+  Variable dieses Namens lässt den Fragment-Shader gar nicht erst kompilieren (Symptom:
+  `INVALID_OPERATION: useProgram: program not valid` in Endlosschleife, Effekt unsichtbar).
 
 ### Prozedurale Planetentexturen (`paintProceduralBody` / `BODY_PAINT`)
 Alles außer Leibniz war früher gemalte Ellipsen und waagerechte Farbstreifen – daher der
@@ -1169,44 +1220,26 @@ ein paar technische Marken; `skinPart(g)` zieht sie am Ende von `buildPartMesh` 
   transparente Pixel von 5184 – deckt sich mit dem alten Referenzwert 432…2500, die geteilte
   Textur kommt also auch im fremden Icon-GL-Kontext an). `frame()` 0,54 ms.
 
-### Kondensation in der Luft (`VAPOR_*` / `makeVapor` / `addFinTrails` / `cloudCoverHere`)
-Drei Erscheinungen, EIN Shader – alle drei sind dasselbe Ereignis: Wo der Luftdruck lokal
-einbricht, kühlt die Luft ab und die Feuchtigkeit kondensiert zu sichtbarem Nebel. Die
-Geometrie ist dieselbe wie bei der Flamme (`plumeGeometry`, s. dort), nur mit anderer
-Formfunktion; die weiche Silhouette entsteht wieder über `dot(n,V)`.
-- **VAPOR CONE** (Prandtl-Glauert-Wolke) am Schiff, ausgerichtet an `airVel`.
-  ⚠️⚠️ Die Intensität hängt an BEIDEM: an einer Glocke um **Mach 1** (das ist die Physik –
-  transsonisch bricht der Druck ein) UND am **Staudruck** (das ist der Moment, den man im HUD
-  sieht). Nur Mach abzufragen ließe ihn auch in 30 km Höhe erscheinen, wo keine Feuchte mehr
-  ist. Schallgeschwindigkeit aus `ambTemp()`: `c = 20,05·√(T in K)`. Verifiziert: Maximum
-  exakt bei Mach 1,00 (2,3 km Höhe, q ≈ 43 800 Pa).
-  ⚠️ **Kurz und glockig, nicht schlauchförmig**: `taper` < 0,5 lässt ihn gleich hinter der
-  Kondensationsfront aufgehen. Die erste Fassung (taper 0,65, Länge 2,2·half) hüllte den
-  ganzen Rumpf ein und war als Form nicht mehr zu erkennen.
-- **KONDENSSTREIFEN** an Flossen- und Gitterflossenspitzen (`addFinTrails`, 4 Stück im
-  Azimutraster des jeweiligen Bauteils). ⚠️ Sie hängen als KINDER am Bauteil und zeigen nach
-  −Y: Beim Aufstieg fliegt die Rakete prograde, damit stimmt die Richtung von selbst – ohne
-  Ausrichtungsmathematik pro Frame. Schwelle breiter als beim Cone (ab ~Mach 0,55), Wirbel-
-  kerne gibt es auch subsonisch.
-  ⚠️⚠️ **Sie müssen in `PartIcons.make` mit auf die `drop`-Liste** (wie die Flammen): In
-  three r128 zählt `Box3.setFromObject` unsichtbare Kinder mit, ein 20 Einheiten langer Trail
-  an einer 15 Einheiten großen Flosse schrumpft das Icon sonst auf ein Drittel.
-- **WOLKENDURCHSTOSS**: Höhenband um die Wolkenschale (`LEIBNIZ.R*0.006` = 3600 m), ±260…850 m.
-  ⚠️⚠️ `cloudCoverHere()` fragt, ob dort ÜBERHAUPT eine Wolke steht – sonst führe man auch
-  bei blitzblauem Himmel durch Nebel. Die Deckung steckt im **ALPHA** der Wolkentextur
-  (`makeCloudTexture` malt RGB konstant 255). Maßgeblich ist die UV-Konvention von
-  `THREE.SphereGeometry` samt `flipY`, NICHT die Zeilenordnung, in der die Textur gefüllt
-  wird: über die Geometrie gerechnet ist es `py = acos(y)/π · H`. Exakt gegengeprüft gegen
-  das echte `uv`-Attribut der Kugel: **0,000 px Abweichung**. (Zwei Render-Vergleiche davor
-  waren untauglich – sie maßen die Nachtseite bzw. Land/Meer statt der Wolken.)
-  ⚠️ Nur EINMAL je Durchflug abfragen (`_cloudHitAt`), `getImageData` ist nicht gratis.
-  ⚠️ Der Nebel ist bewusst fast nur ein Hauch (`op` 0,10): Eine Wolke hat keine
-  Vorzugsrichtung, eine Röhre schon – mit 0,26 las sich der Effekt als heller Zylinder um die
-  Rakete. Die Arbeit machen die Schwaden-PARTIKEL. Deren Menge ist gedeckelt, weil der Pool
-  (170 Sprites) auch dem Abgasstrahl gehört.
-  Gemessen: LMG-Rampe Deckung **1,00** (die AG erlebt es beim Standardstart), Äquator- und
-  Polarrampe 0,00; planetenweit 27 % der Fläche über 0,3.
-- Kosten: `frame()` mit allen drei Effekten gleichzeitig **0,97 ms**.
+### ⚠️ Kondensation in der Luft ist RAUS (August 2026) – nicht wieder einbauen
+Bis August 2026 gab es drei Kondensations-Effekte aus EINEM Shader (`VAPOR_*`, `makeVapor`,
+`addFinTrails`, `cloudCoverHere`): den **Vapor Cone** um Mach 1, **Kondensstreifen** an den
+Flossenspitzen und den **Wolkendurchstoß**-Nebel samt Schwaden-Partikeln. Alles **komplett
+entfernt** (Bug-Report Simon mit Screenshot vom Aufstieg: »sieht aus wie Feenzauber, und da
+ist ne Lufthose um das Schiff rum«).
+- **Warum es nicht zu retten war:** Der Effekt ist bauartbedingt eine additiv gezeichnete
+  RÖHRE um den Rumpf. Physikalisch stimmte alles (Mach-Glocke × Staudruck, Schallgeschwindig-
+  keit aus `ambTemp()`), im BILD liest das Auge aber keine Kondensationsfront, sondern einen
+  weißen Schlauch, der die Rakete verschluckt – ausgerechnet in den Sekunden, in denen man
+  beim Aufstieg auf sie schaut. Dieselbe Falle wie beim »Plastiktrichter«-Plasmaschweif und
+  beim Kegel-Abgasstrahl, nur lässt sie sich hier NICHT durch eine weichere Silhouette
+  heilen: Ein Vapor Cone IST eine Hülle um das Fahrzeug.
+- Wer es wieder versucht, braucht einen volumetrischen Ansatz (Raymarch oder ein Partikelfeld,
+  das an der Rakete VORBEIzieht) statt einer Mantelfläche – und sollte vorher fragen, ob der
+  Aufstieg das überhaupt braucht. Die Flamme trägt den Moment schon.
+- Mit entfernt: `cloudCoverHere()` (Wolkendeckung aus dem Alpha der Wolkentextur) und der
+  `finTrail`-Sonderfall in `PartIcons.make`. `plumeGeometry()`/`FLAME_*` bleiben – die
+  gehören dem Abgasstrahl. Gegenprobe nach dem Ausbau: `frame()` im transsonischen Aufstieg
+  (Mach 1,09 in 11,5 km Höhe) zeigt **nichts** mehr um das Schiff.
 
 ### Abgasstrahl (`makeFlame` / `FLAME_U` / `FLAME_VERT` / `FLAME_FRAG`)
 Vorher ein opaker `ConeGeometry` mit `MeshBasicMaterial` – also genau die harte Silhouette,
@@ -1782,6 +1815,52 @@ zweiten Schiff, kurz genug, dass der Anzug spürbar eine Flasche ist und kein Zu
 - [F] ist doppelt belegt: bei EVA am Boden Flagge, sonst Fairing (beides gleichzeitig gibt es
   nie). `updateButtons` blendet `btnFlag`/`btnFairing` gegenseitig aus.
 
+## 📸 Fotomodus [⇧F] (`Flight.photo` / `photoPan` / `savePhoto` / `fxT`)
+Drei Dinge zusammen, sonst ist es kein Fotomodus:
+1. **Die Szene steht** – Physik (`frameT = 0`) UND die Effekt-Uhr `fxT`. Ein Bild von einer
+   Rakete, die während des Komponierens weiterfällt, ist Glückssache, kein Foto.
+2. **Die Kamera ist frei**: Maus dreht, Rad zoomt (bis 100 km statt 5 km, Minimum 1,5 statt
+   4 m), **WASD/QE schieben den Blickpunkt** (`photoPan`, Tempo ∝ Zoom, ⇧ = 4×). Ohne das
+   Schieben kreist man ewig um die eigene Rakete und bekommt Planet, Rampe oder Mechazilla
+   nie mit ins Bild.
+3. **Kein HUD** – CSS-Klasse `#flight.photo` blendet ALLE direkten Kinder aus außer
+   `#flight3d`, `#lensflare` und der Foto-Leiste `#photoBar`.
+- ⚠️ **Über die Klasse, nicht per Inline-Style:** Jeder HUD-Knopf hat schon ein eigenes
+  `style.display`, das `updateButtons()` pro Frame setzt – ein Inline-Versteck bliebe beim
+  Verlassen falsch stehen.
+- ⚠️ **Die Effekt-Uhr `fxT` ist neu und ersetzt `performance.now()` bei der Flamme.** Meer,
+  Sonne und Plasma hingen ohnehin an `this.t` (steht im Foto still), der Abgasstrahl war die
+  letzte Ausnahme und hätte im »eingefrorenen« Bild weitergeflackert. `fxT` läuft in Echtzeit
+  (1/60 pro Frame) und pausiert bei `paused || photo` – deshalb ist sie auch die richtige
+  Quelle für das Polarlicht (bei Warp darf Optik nicht mitrasen).
+- ⚠️ **Im Fotomodus fängt der keydown-Handler ALLE Tasten ab** (früher Rücksprung nach
+  `this.keys[...]`): Wer ein Bild aufbaut, will nicht mit [Leertaste] eine Stufe abwerfen
+  oder mit [W] die Rakete kippen. Verifiziert: [Leertaste] im Foto → Stack unverändert.
+  Übrig bleiben ⇧F (zurück), [Esc] (zurück) und [⏎] (speichern).
+- ⚠️ **Kein Kamerawackeln** im Fotomodus (`applyShake` übersprungen): Die Zeit steht, der
+  Pegel bliebe sonst eingefroren stehen und die Kamera zitterte endlos.
+- ⚠️ Der Kameraabstand wird beim BETRETEN nicht angefasst – in der Karte ist er 1e9 und mehr,
+  ein 5-km-Deckel würde die Kartenansicht zerreißen. Beim Verlassen kommt der gemerkte Wert
+  zurück (`_photoCd`). Verifiziert: Karte 1,92e6 → Foto → zurück 1,92e6.
+### Das Bild speichern (`savePhoto`)
+- ⚠️⚠️ Der Flug-Renderer läuft **ohne `preserveDrawingBuffer`** (das kostet auf Schulrechnern
+  jeden Frame eine Kopie). Der Browser darf den Zeichenpuffer nach dem Frame verwerfen –
+  also im Klick-Handler **neu rendern und im selben Aufruf auslesen**; zwischen `render()`
+  und `drawImage` darf nichts liegen (kein await, kein setTimeout).
+- ⚠️ Der **Lens-Flare ist ein eigenes 2D-Canvas** über der Szene und wird mitkopiert, sonst
+  fehlt im Foto genau der Effekt, der das Bild macht. Das HUD ist DOM und kann gar nicht
+  hinein – die Foto-Leiste taucht deshalb nie im PNG auf.
+- ⚠️⚠️ **Per `file://` (Doppelklick-Betrieb!) `toDataURL`, sonst `toBlob`:** Bei file:// hat
+  die Seite den Ursprung »null«, eine Blob-URL gehört dann niemandem und der Download
+  scheitert je nach Browser still. Über den Webserver bleibt es beim Blob (kein
+  Megabyte-langer String). Das ZWISCHEN-Canvas ist 2D, behält sein Bild – `toBlob` darf dort
+  asynchron sein.
+- Dateiname `lmg-foto-JJJJMMTT-hhmmss.png`, Auflösung = Puffergröße des Renderers (mit
+  Pixel-Ratio, gemessen 1167×999 auf einem 800×684-Fenster). Rückmeldung steht in der
+  Foto-Leiste, nicht in `showMsg` – das HUD ist ja aus.
+- Erreichbar per **⇧F**, über den Knopf »📸 Foto [⇧F]« in der Knopfleiste (bleibt auch bei
+  EVA stehen) und in der Tastentabelle unter »Ansicht«.
+
 ## HUD-Kleinkram
 - ⚠️⚠️ **`#hudRight` braucht ein `max-width`** (`min(640px, calc(100vw − 380px))`): Sobald ein
   Reiseziel gewählt ist, hängt `travelPanel` unten einen langen Tipp an (»Ziel: unter 6.066 km
@@ -1810,7 +1889,7 @@ zweiten Schiff, kurz genug, dass der Anzug spürbar eine Flasche ist und kein Zu
 ## Tastenkürzel
 (Im Spiel nachschlagbar: ⚙️ Optionen → **⌨️ Tastenbelegung**, `KEYMAP` in index.html.
 Wer hier etwas ändert, ändert es dort UND in tutorials.js mit.)
-Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · **M Karte, ⇧M Kartenfilter »nur Ziel«** · U ∞Tank (Sandbox) · H HUD (3-stufig) · Esc Pause · ,/. Warp, **⇧. = Zeitsprung zum Knoten/Startfenster** · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
+Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge, ⇧F 📸 Fotomodus** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · **M Karte, ⇧M Kartenfilter »nur Ziel«** · U ∞Tank (Sandbox) · H HUD (3-stufig) · **⇧F Fotomodus (Bild einfrieren, freie Kamera, [⏎] speichert PNG)** · Esc Pause · ,/. Warp, **⇧. = Zeitsprung zum Knoten/Startfenster** · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
 - ⚠️⚠️ **[Z] war bis August 2026 im Flug VOLLGAS und die Zielwahl brauchte ⇧Z** – »zu
   umständlich und verwirrend« (Simon), weil dieselbe Taste je nach Flugzustand etwas völlig
   anderes tat. Jetzt liegt der Schub komplett auf **[X]** (aus / ⇧ voll) und [Z] ist überall

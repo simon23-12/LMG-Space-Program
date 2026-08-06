@@ -144,6 +144,21 @@ button{cursor:pointer;font-family:inherit;}
 #navball{position:absolute;bottom:118px;left:50%;transform:translateX(-50%);
   border-radius:50%;border:3px solid var(--blue-dark);background:#0a0e1a;z-index:3;}
 #hudControls.hidden{display:none !important;}
+/* ---- Fotomodus [⇧F] -------------------------------------------------------
+   Alles Bediengedöns weg, übrig bleiben Bild (#flight3d + #lensflare) und die
+   kleine Foto-Leiste. ⚠️ Bewusst über die KLASSE und nicht per Inline-Style:
+   Jeder HUD-Knopf hat schon ein eigenes `style.display` (updateButtons setzt
+   es pro Frame) – das bliebe sonst beim Verlassen des Fotomodus falsch stehen.
+   Die Leiste selbst ist DOM und landet deshalb nie im PNG (das kommt aus dem
+   Canvas). */
+#flight.photo > *{display:none !important;}
+#flight.photo > #flight3d, #flight.photo > #lensflare{display:block !important;}
+#flight.photo > #photoBar{display:flex !important;}
+#photoBar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:9;
+  gap:10px;align-items:center;background:rgba(10,16,32,.86);border:1px solid var(--blue-dark);
+  border-radius:10px;padding:7px 12px;font-size:12px;color:var(--muted);white-space:nowrap;
+  max-width:calc(100vw - 24px);}
+#photoBar .btn{padding:5px 11px;font-size:12px;}
 .node-row{display:flex;align-items:center;gap:2px;margin:3px 0;}
 .node-row span{flex:1;min-width:56px;color:var(--muted);}
 .node-row b{min-width:34px;text-align:center;color:var(--green);}
@@ -434,8 +449,17 @@ input[type=file]{display:none;}
          Tastentabelle braucht man genau dann, wenn es ruckelt oder eine Taste
          fehlt – und nicht erst nach dem Flug. Die Simulation steht solange
          still (s. UI.openOptions). -->
+    <!-- Fotomodus: bleibt auch beim Außeneinsatz stehen (s. updateButtons) -->
+    <button class="btn" id="btnPhoto" onclick="Flight.togglePhoto()" title="Bild einfrieren, Kamera frei, HUD aus">📸 Foto [⇧F]</button>
     <button class="btn" onclick="UI.openOptions()" title="Grafik, Lautstärke &amp; Tastenbelegung">⚙️</button>
     <button class="btn orange" onclick="Flight.endFlight()">Flug beenden</button>
+  </div>
+  <!-- Fotomodus [⇧F]: Szene steht still, Kamera frei, HUD aus (s. Flight.togglePhoto) -->
+  <div id="photoBar" style="display:none;">
+    <b style="color:var(--orange)">📸 Fotomodus</b>
+    <span id="photoHint">Maus = drehen · Rad = Zoom · WASD/QE = Kamera fliegen · ⇧ = schneller</span>
+    <button class="btn orange" onclick="Flight.savePhoto()">Bild speichern [⏎]</button>
+    <button class="btn" onclick="Flight.togglePhoto()">Zurück [⇧F]</button>
   </div>
 </div>
 
@@ -700,7 +724,10 @@ const KEYMAP = [
   {group:"Ansicht", keys:[
     ["Maus ziehen", "Kamera um das Schiff drehen"],
     ["Mausrad",     "heran- und herauszoomen"],
-    ["H",           "Knopfleiste umschalten (voll → schmal → aus)"]
+    ["H",           "Knopfleiste umschalten (voll → schmal → aus)"],
+    ["⇧ F",         "<b>📸 Fotomodus</b>: das Bild friert ein, die Kamera wird frei "+
+                    "(WASD schieben, Q/E hoch/runter) und das HUD verschwindet. "+
+                    "Mit [⏎] wird das Bild als PNG gespeichert."]
   ]},
   {group:"Nur im Training", keys:[
     ["U", "∞ Tank – unbegrenzter Treibstoff (Sandbox & Tutorials)"]
@@ -1411,7 +1438,7 @@ const BOOSTER_GIVEUP = 7000;
 /* Kamerawackeln: Sekunden ab der Zündung auf der Rampe. Danach steht das
    Bild ruhig – der Start ist der einzige Moment, den das Rütteln erzählt
    (s. Flight.applyShake). */
-const SHAKE_LIFTOFF = 3;
+const SHAKE_LIFTOFF = 2;
 function launchFee(stack){
   if(Game.sandbox) return 0;
   if(!stack.some(id=>PARTS[id].type==="gridfin")) return 0;   // ohne Gitterflossen landet nichts
@@ -3762,8 +3789,8 @@ function flameMat(kind){
   });
 }
 /* Normalisierte Mantelfläche als reiner PARAMETERRAUM – EINMAL gebaut und von
-   allen Fahnen im Spiel geteilt: Triebwerksflamme, Vapor Cone und die
-   Kondensstreifen an den Flossenspitzen. Radius 1, Länge 1, Ursprung bei
+   allen Abgasfahnen im Spiel geteilt (die Kondensations-Effekte, die sie
+   früher mitbenutzt haben, sind raus – s. u.). Radius 1, Länge 1, Ursprung bei
    y=0, Ende bei y=−1; die echte Form rechnet jeweils der Vertex-Shader aus
    `aT` (0…1 entlang) und `aA` (Azimut), die Größe macht `mesh.scale`. */
 let _plumeGeo = null;
@@ -3947,122 +3974,21 @@ function makeFlame(R, L, kind, name){
   return m;
 }
 
-/* =================================================================
-   KONDENSATION IN DER LUFT  (`VAPOR_*` / `makeVapor` / `addFinTrails`)
-   -----------------------------------------------------------------
-   Drei verwandte Erscheinungen, EIN Shader – alle drei sind dasselbe
-   physikalische Ereignis: Wo der Luftdruck lokal einbricht, kühlt die
-   Luft ab und die Feuchtigkeit kondensiert zu sichtbarem Nebel.
-   1. VAPOR CONE (»Prandtl-Glauert-Wolke«): der weiße Trichter, der bei
-      Mach ≈ 1 um das Fahrzeug steht. Genau der Moment, in dem im HUD
-      der Staudruck seinen Höchstwert erreicht – deshalb hängt die
-      Intensität an BEIDEM: an einer Glocke um Mach 1 und an q.
-   2. KONDENSSTREIFEN an den Spitzen von Flossen und Gitterflossen: die
-      Wirbelkerne saugen den Druck herunter, an ihnen hängen dünne
-      weiße Fäden nach hinten.
-   3. WOLKENDURCHSTOSS: beim Queren der Wolkenschicht zieht Nebel längs
-      am Rumpf vorbei (dieselbe Röhre, nur breit und blass).
-   ⚠️ Die weiche Silhouette entsteht wie bei der Flamme über `dot(n,V)`:
-   Nebel ist ein Volumen, seine Helligkeit die Weglänge des Sehstrahls –
-   in der Mitte lang, am Rand null. Ohne das hätte eine Kondenswolke
-   eine gestanzte Kante und sähe aus wie ein Blechtrichter.
-   ⚠️ `uOp` klein halten: additiv, DoubleSide und weiß vor hellem Himmel
-   brennt sonst sofort aus (dieselbe Lehre wie bei Flamme und Plasma). */
-const VAPOR_U = { uTime:{value:0} };
-const VAPOR_VERT = `
-attribute float aT;
-attribute float aA;
-uniform float uTime, uNarrow, uWide, uTaper, uWob;
-varying float vT;
-varying vec3 vN, vP;
-#include <common>
-#include <logdepthbuf_pars_vertex>
-float vapRad(float t){
-  return uNarrow + (uWide - uNarrow) * pow(clamp(t, 0.0, 1.0), uTaper);
-}
-void main(){
-  vT = aT;
-  float wob = 1.0 + uWob*sin(uTime*7.0 + aA*3.0 + aT*9.0);
-  float r = vapRad(aT) * wob;
-  vec3 p = vec3(cos(aA)*r, -aT, sin(aA)*r);
-  float dr = (vapRad(aT+0.02) - vapRad(aT-0.02))/0.04;
-  vec3 n = normalize(vec3(cos(aA), dr, sin(aA)));
-  vec4 mv = modelViewMatrix * vec4(p, 1.0);
-  vP = mv.xyz;
-  vN = normalMatrix * n;
-  gl_Position = projectionMatrix * mv;
-  #include <logdepthbuf_vertex>
-}`;
-const VAPOR_FRAG = `
-precision highp float;
-uniform float uTime, uI, uOp, uFade, uTurb;
-varying float vT;
-varying vec3 vN, vP;
-#include <common>
-#include <logdepthbuf_pars_fragment>
-void main(){
-  #include <logdepthbuf_fragment>
-  float mu = abs(dot(normalize(vN), normalize(-vP)));
-  float body = pow(mu, 0.8);
-  float fade = pow(max(0.0, 1.0 - vT), uFade);
-  // Ausfransen nach hinten: vorn glatte Kondensationsfront, hinten Fetzen
-  float turb = 1.0 - uTurb*vT*(0.5 + 0.5*sin(vT*26.0 - uTime*9.0 + vP.y*0.25));
-  float a = body * fade * turb * uI * uOp;
-  gl_FragColor = vec4(vec3(0.97, 0.98, 1.0), clamp(a, 0.0, 1.0));
-}`;
-/* narrow/wide = Radius vorn/hinten (× mesh.scale.x), taper = Öffnungsverlauf */
-/* ⚠️ Der Cone ist KURZ und glockig, nicht schlauchförmig: `taper` < 0,5 heißt,
-   er geht gleich hinter der Kondensationsfront auf – ein echter Vapor Cone ist
-   eine quer stehende Glocke, kein Schlauch um die ganze Rakete. Die erste
-   Fassung (taper 0,65, Länge 2,2·half) hüllte den kompletten Rumpf ein und war
-   als Form gar nicht mehr zu erkennen.
-   ⚠️ `op` klein, weil additiv + DoubleSide: Die Streifen waren mit 0,42 weiße
-   Glasstäbe statt Kondensfäden. */
-const VAPOR_KIND = {
-  cone:  {narrow:0.10, wide:1.0,  taper:0.42, wob:0.05, op:0.50, fade:1.2, turb:0.45},
-  trail: {narrow:0.55, wide:0.10, taper:0.7,  wob:0.11, op:0.22, fade:1.4, turb:0.9},
-  /* ⚠️ Der Durchstoß-Nebel ist BEWUSST fast nur ein Hauch (op 0,10): Eine Wolke
-     hat keine Vorzugsrichtung, eine Röhre schon – mit 0,26 las sich der Effekt
-     als heller Zylinder um die Rakete statt als Wolke. Die eigentliche Arbeit
-     machen die Schwaden-PARTIKEL, die richtungslos vorbeiziehen; die Röhre
-     liefert nur die Eintrübung dazwischen. */
-  puff:  {narrow:1.0,  wide:0.85, taper:1.0,  wob:0.12, op:0.10, fade:0.35, turb:0.9}
-};
-const _vaporMats = {};
-function vaporMat(kind){
-  if(_vaporMats[kind]) return _vaporMats[kind];
-  const k = VAPOR_KIND[kind];
-  return _vaporMats[kind] = new THREE.ShaderMaterial({
-    uniforms: Object.assign({}, VAPOR_U, {
-      uI:{value:0}, uOp:{value:k.op}, uFade:{value:k.fade}, uTurb:{value:k.turb},
-      uNarrow:{value:k.narrow}, uWide:{value:k.wide}, uTaper:{value:k.taper},
-      uWob:{value:k.wob}}),
-    vertexShader:VAPOR_VERT, fragmentShader:VAPOR_FRAG,
-    transparent:true, depthWrite:false, side:THREE.DoubleSide,
-    blending:THREE.AdditiveBlending
-  });
-}
-function makeVapor(kind, R, L, name){
-  const m = new THREE.Mesh(plumeGeometry(), vaporMat(kind));
-  m.scale.set(R, L, R);
-  m.userData.len = L;
-  m.name = name || ("vapor_" + kind);
-  m.visible = false;
-  m.frustumCulled = false;
-  return m;
-}
-/* Kondensstreifen an n Flossenspitzen (Azimut-Raster wie die Flossen selbst).
-   ⚠️ Sie hängen als KINDER am Bauteil und zeigen nach −Y, also nach hinten:
-   Beim Aufstieg fliegt die Rakete prograde, damit stimmt die Richtung von
-   selbst – ohne jede Ausrichtungsmathematik pro Frame. */
-function addFinTrails(g, radius, y, n, azOff){
-  for(let k=0;k<n;k++){
-    const a = k*Math.PI*2/n + (azOff||0);
-    const t = makeVapor("trail", 1.1, 20, "finTrail");
-    t.position.set(Math.cos(a)*radius, y, Math.sin(a)*radius);
-    g.add(t);
-  }
-}
+/* ⚠️⚠️ HIER STAND DIE KONDENSATION IN DER LUFT (`VAPOR_*` / `makeVapor` /
+   `addFinTrails` / `cloudCoverHere`) – Vapor Cone um Mach 1, Kondensstreifen an
+   den Flossenspitzen und der Nebel beim Wolkendurchstoss. Alles RAUS (August
+   2026, Bug-Report Simon: »sieht aus wie Feenzauber, und da ist ne Lufthose um
+   das Schiff rum«).
+   Warum es nicht zu retten war: Der Effekt ist eine additiv gezeichnete ROEHRE
+   um den Rumpf. Physikalisch richtig, aber im Bild liest das Auge keine
+   Kondensationsfront, sondern einen weissen Schlauch, der die Rakete
+   verschluckt – und genau in dem Moment, in dem man beim Aufstieg auf sie
+   schaut. Dieselbe Falle wie beim »Plastiktrichter«-Plasmaschweif und beim
+   Kegel-Abgasstrahl, nur laesst sie sich hier nicht durch eine weichere
+   Silhouette heilen: Ein Vapor Cone IST eine Huelle um das Fahrzeug.
+   Wer es wieder versucht, braucht einen volumetrischen Ansatz (Raymarch oder
+   ein Partikelfeld, das an der Rakete VORBEIzieht), keine Mantelflaeche –
+   und sollte vorher fragen, ob der Aufstieg das ueberhaupt braucht. */
 /* ---------- Landebeine: RADIALTEIL am Tank (wie Flossen/Seitenbooster) ----------
    ⚠️⚠️ Beine waren früher ein Stack-Teil: eine eigene Scheibe MITTEN in der
    Rakete, zwischen Tank und Triebwerk. Das machte jeden Lander unsinnig – die
@@ -4450,8 +4376,6 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       shp.closePath();
       const geo = new THREE.ExtrudeGeometry(shp, {depth:0.55, bevelEnabled:false});
       geo.translate(0,0,-0.275);
-      // Kondensstreifen an den Spitzen (s. addFinTrails)
-      addFinTrails(g, ar*0.97 + 4.6, 0.4 + fh*0.34, 4, 0);
       for(let k=0;k<4;k++){
         const a = k*Math.PI/2;
         const fin = new THREE.Mesh(geo, MAT.blue);
@@ -4492,7 +4416,6 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
         pivot.add(fin);
         g.add(pivot);
       }
-      addFinTrails(g, ar + 2.2, ay, 4, Math.PI/4);
       break;}
     case "legs":{
       /* RADIALTEIL: sitzt seitlich am Wirtstank, y=0 ist dessen UNTERKANTE
@@ -6368,6 +6291,183 @@ function atmoShellMaterial(Rp, Ra){
     transparent:true, depthWrite:false, side:THREE.BackSide});
   mat.userData.pU = u;
   return mat;
+}
+
+/* =================================================================
+   POLARLICHT über Leibniz  (`AURORA_*` / `buildAurora` / `updateAurora`)
+   -----------------------------------------------------------------
+   Ein Polarlicht-OVAL um jeden Pol, planetenfest – damit deckt EIN Objekt
+   beide Fälle ab, nach denen gefragt war: von der Polarstation »Skihütte«
+   (86° N) steht es nachts hoch am Südhimmel, und beim Überflug sieht man
+   es von oben als leuchtenden Kranz um den Pol.
+   Physik dahinter (und genau das ist der didaktische Gewinn): Teilchen des
+   Sonnenwinds laufen entlang der MAGNETFELDLINIEN und treffen die Lufthülle
+   dort, wo die Feldlinien in den Boden tauchen – also in einem Ring um die
+   Pole, nicht am Äquator. Deshalb:
+   - Die Vorhänge stehen zwischen `AURORA_COL` (Kolatitude, Abstand vom Pol)
+     und sind nach außen GENEIGT (`uTilt`), wie die Feldlinien selbst.
+   - Sie leuchten von unten grün (angeregter Sauerstoff in ~100 km) nach oben
+     rot/violett – die Farbe hängt an der Höhe, nicht am Zufall.
+   - Die UNTERKANTE ist scharf, die Oberkante fasert aus: unten endet die
+     Teilchenbahn abrupt in der dichteren Luft.
+   ⚠️⚠️ Sichtbar NUR auf der Nachtseite, und das entscheidet der SHADER pro
+   Fragment (`uSunDir` gegen die Bodennormale des Punktes), nicht die CPU.
+   Nur so stimmt beides gleichzeitig: der Ring bricht beim Überflug genau am
+   Terminator ab, und an der Polarstation geht das Licht mit der Spieluhr an
+   und aus.
+   ⚠️⚠️ `uSunDir` ist `Flight.groundSunDir` – die SPIELUHR-Sonne, nicht die
+   echte Richtung. Das Spiel kennt bodennah zwei Sonnenstände (s. »Sonnenstand
+   & Licht bodennah«); mit der echten Richtung leuchtete das Polarlicht an der
+   Rampe mitten am Tag und wäre nachts aus. Dieselbe Falle wie bei `sunlit()`.
+   ⚠️ Die Kantenaufhellung (`edge`) ist kein Effekt-Schnickschnack: Ein
+   Vorhang ist eine dünne LEUCHTSCHICHT, und wer flach hindurchsieht, blickt
+   durch mehr Gas – genau wie beim Plasma-Nachlauf. Ohne sie sieht das Band
+   aus wie ein bemaltes Blech.
+   ⚠️ Alpha klein halten (additiv!). Über dem dunklen Nachthimmel brennt sonst
+   alles auf Weiß aus und von der Farbfolge bleibt nichts übrig – dieselbe
+   Lehre wie bei Flamme, Plasma und den Windkanal-Rauchfahnen. */
+const AURORA_H0 = 60000, AURORA_H1 = 170000;   // Unter-/Oberkante über Grund
+/* ⚠️ Kolatitude = Abstand vom Pol. Die Polarstation liegt bei 86° N (also 4°),
+   das Oval MUSS deutlich weiter draußen liegen: Steht man mittendrin, sieht man
+   nur noch eine Decke über sich statt der Vorhänge. 7,5°…18,9° heißt vom
+   Startplatz aus 37…156 km Entfernung – der Vorhang steht damit zwischen 21°
+   und 58° über dem Südhorizont und ist als Vorhang zu ERKENNEN. */
+const AURORA_COL0 = 0.13, AURORA_COL1 = 0.33;
+const AURORA_BANDS = 3, AURORA_SEG = 168, AURORA_ROWS = 12;
+const AURORA_VERT = `
+attribute float aU;
+attribute float aV;
+attribute float aBand;
+uniform float uTime, uR0, uR1, uCol0, uCol1, uAmp, uTilt, uHemi;
+varying float vV, vU, vBand;
+varying vec3 vN, vP, vSurf;
+#include <common>
+#include <logdepthbuf_pars_vertex>
+/* Kolatitude eines Vorhangs: Grundlage + Bandversatz + langsames Wabern.
+   Drei Sinus mit teilerfremden Frequenzen – ein einzelner sähe aus wie eine
+   gleichmaessig gewellte Tapete. */
+float auCol(float phi, float bf, float v){
+  float w = sin(phi*3.0  + uTime*0.050 + bf*2.3)*0.55
+          + sin(phi*7.0  - uTime*0.081 + bf*1.1)*0.30
+          + sin(phi*13.0 + uTime*0.113)*0.15;
+  return uCol0 + (uCol1 - uCol0)*bf + uAmp*w + v*uTilt;
+}
+vec3 auPos(float phi, float bf, float v){
+  float c = auCol(phi, bf, v);
+  float r = uR0 + (uR1 - uR0)*v;
+  return vec3(sin(c)*cos(phi), uHemi*cos(c), sin(c)*sin(phi)) * r;
+}
+void main(){
+  vV = aV; vU = aU; vBand = aBand;
+  float bf = aBand * 0.5;              // 3 Baender -> 0.0 / 0.5 / 1.0
+  float phi = aU * 6.2831853;
+  vec3 p  = auPos(phi, bf, aV);
+  // Normale aus zwei finiten Differenzen: laengs des Vorhangs und nach oben
+  vec3 dp = auPos(phi + 0.01, bf, aV) - auPos(phi - 0.01, bf, aV);
+  vec3 dv = auPos(phi, bf, min(1.0, aV + 0.05)) - auPos(phi, bf, max(0.0, aV - 0.05));
+  vSurf = normalize(p);
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  vP = mv.xyz;
+  vN = normalMatrix * normalize(cross(dp, dv));
+  gl_Position = projectionMatrix * mv;
+  #include <logdepthbuf_vertex>
+}`;
+const AURORA_FRAG = `
+precision highp float;
+uniform float uTime, uI;
+uniform vec3 uSunDir, uColLow, uColHigh;
+varying float vV, vU, vBand;
+varying vec3 vN, vP, vSurf;
+#include <common>
+#include <logdepthbuf_pars_fragment>
+void main(){
+  #include <logdepthbuf_fragment>
+  // Nachtseite: nur dort, wo die Sonne wirklich unter dem Horizont steht
+  float night = 1.0 - smoothstep(-0.16, 0.02, dot(vSurf, uSunDir));
+  if(night < 0.01 || uI < 0.002) discard;
+  // duenne Leuchtschicht: flach hindurchgesehen laenger = heller
+  float mu = abs(dot(normalize(vN), normalize(-vP)));
+  float edge = 1.0/(0.40 + 0.85*mu);
+  float ph = vU * 6.2831853;
+  /* ⚠️ Ein Polarlicht leuchtet NICHT rundherum gleichmaessig – zwei langsame
+     Wellen loeschen es streckenweise ganz aus. Ohne diese Luecken zieht sich
+     ein durchgehendes Band ueber den halben Himmel, und das liest das Auge als
+     Kulisse, nicht als Himmelserscheinung. */
+  float cover = (0.5 + 0.5*sin(ph*2.0 + uTime*0.043 + vBand*2.1))
+              * (0.5 + 0.5*sin(ph*5.0 - uTime*0.031 + vBand*1.3));
+  cover = smoothstep(0.05, 0.45, cover);
+  /* ⚠️ Unter- UND Oberkante wellen entlang des Ovals. Bei fester Hoehe ist die
+     Unterkante ein LINEAL quer ueber den Himmel – der auffaelligste Fehler der
+     ersten Fassung. */
+  float low = 0.02 + 0.14*(0.5 + 0.5*sin(ph*6.0 + uTime*0.061 + vBand));
+  float top = 0.35 + 0.45*(0.5 + 0.5*sin(ph*4.0 - uTime*0.047 + vBand*1.7));
+  float prof = smoothstep(low, low + 0.05, vV) * (1.0 - smoothstep(top*0.55, top + 0.45, vV));
+  /* Senkrechte Strahlen – sie haengen NUR am Laengengrad, stehen also wie die
+     Feldlinien selbst. ⚠️ Die Phase wird mit einer groberen Welle verzogen
+     (Domain Warping, wie bei Wolken und Planetentextur): mit gleichmaessigem
+     Abstand sieht der Vorhang aus wie ein Strichcode. Quadriert = schmale
+     helle Strahlen mit breiten dunklen Zwischenraeumen. */
+  float ray = 0.5 + 0.5*sin(ph*74.0 + 3.0*sin(ph*11.0 + uTime*0.05) + uTime*0.5);
+  ray = 0.22 + 0.78*ray*ray;
+  vec3 col = mix(uColLow, uColHigh, smoothstep(0.30, 0.92, vV));
+  float a = prof * ray * cover * edge * night * uI * 0.40;
+  gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
+}`;
+/* Gitter für EINEN Pol: 3 Vorhänge × Längengrad × Höhe. Die echten Positionen
+   rechnet der Vertex-Shader – das `position`-Attribut ist nur Pflichtprogramm
+   für three (die Meshes laufen mit `frustumCulled = false`). */
+function auroraGeometry(){
+  const seg = AURORA_SEG, rows = AURORA_ROWS, bands = AURORA_BANDS;
+  const n = (seg+1)*(rows+1)*bands;
+  const pos = new Float32Array(n*3), au = new Float32Array(n),
+        av = new Float32Array(n), ab = new Float32Array(n);
+  let k = 0;
+  for(let b=0;b<bands;b++)
+    for(let j=0;j<=rows;j++)
+      for(let i=0;i<=seg;i++,k++){ au[k] = i/seg; av[k] = j/rows; ab[k] = b; }
+  const idx = [];
+  for(let b=0;b<bands;b++)
+    for(let j=0;j<rows;j++)
+      for(let i=0;i<seg;i++){
+        const o = b*(seg+1)*(rows+1) + j*(seg+1) + i;
+        idx.push(o, o+1, o+seg+1, o+1, o+seg+2, o+seg+1);
+      }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  g.setAttribute("aU", new THREE.BufferAttribute(au, 1));
+  g.setAttribute("aV", new THREE.BufferAttribute(av, 1));
+  g.setAttribute("aBand", new THREE.BufferAttribute(ab, 1));
+  g.setIndex(idx);
+  return g;
+}
+/* Nord- und Südoval als zwei Meshes derselben Geometrie (`uHemi` ±1).
+   Rückgabe: {group, mats} – `Flight.updateAurora` setzt Zeit, Sonne und
+   Intensität, sonst kostet das Ganze pro Frame nichts. */
+function buildAurora(R){
+  const geo = auroraGeometry();
+  const group = new THREE.Group(), mats = [];
+  for(const hemi of [1, -1]){
+    const u = {
+      uTime:{value:0}, uI:{value:0},
+      uR0:{value:R + AURORA_H0}, uR1:{value:R + AURORA_H1},
+      uCol0:{value:AURORA_COL0}, uCol1:{value:AURORA_COL1},
+      uAmp:{value:0.022},          // Wobble-Amplitude der Kolatitude (~1,3°)
+      uTilt:{value:0.055},         // Neigung nach außen = Magnetfeldlinien
+      uHemi:{value:hemi},
+      uSunDir:{value:new THREE.Vector3(0,1,0)},
+      uColLow:{value:new THREE.Color(0x59ff9d)},    // Sauerstoff, ~100 km
+      uColHigh:{value:new THREE.Color(0xb63c74)}    // Stickstoff/Sauerstoff, hoch
+    };
+    const m = new THREE.Mesh(geo, new THREE.ShaderMaterial({
+      uniforms:u, vertexShader:AURORA_VERT, fragmentShader:AURORA_FRAG,
+      transparent:true, depthWrite:false, side:THREE.DoubleSide,
+      blending:THREE.AdditiveBlending}));
+    m.frustumCulled = false;
+    m.renderOrder = 2;
+    group.add(m); mats.push(u);
+  }
+  group.visible = false;
+  return {group, mats};
 }
 
 /* NASA-Style Fallschirmkappe: rot-weiße Längsstreifen */
@@ -8674,13 +8774,13 @@ const PartIcons = {
       // verkleidung erkennt. Also die Ogive fürs Bild dazustellen.
       if(id==="fairing") mesh.add(buildFairingShell(PARTS[id].w/2, 26));
     }catch(e){ return cv; }
-    /* ⚠️ Auch die Kondensstreifen müssen RAUS: In three r128 zählt
-       `Box3.setFromObject` unsichtbare Kinder mit – ein 20 Einheiten langer
-       Trail an einer 15 Einheiten großen Flosse würde das Icon auf ein Drittel
-       schrumpfen. Gleicher Grund wie bei den Flammen. */
+    /* ⚠️ Flammen müssen RAUS, BEVOR die Bounding-Box gemessen wird: In three
+       r128 zählt `Box3.setFromObject` auch unsichtbare Kinder mit – sonst
+       schrumpft jedes Triebwerk auf ein Zehntel, weil sein Abgasstrahl
+       mitgemessen wird. */
     const drop = [];
     mesh.traverse(o=>{
-      if(o.name==="flame" || o.name==="bflame" || o.name==="finTrail") drop.push(o);
+      if(o.name==="flame" || o.name==="bflame") drop.push(o);
     });
     for(const o of drop) if(o.parent) o.parent.remove(o);
     // Materialien klonen (s. o.) und die Hallen-Umgebung anlegen
@@ -10122,6 +10222,7 @@ const Flight = {
   sats:[], debris:[], crew:[], satL:false, satM:false, visitedMonti:false,
   node:null, nodeDir:null,
   camAz:0.5, camEl:0.18, camDist:40,
+  photo:false, photoPan:null, fxT:0,        // Fotomodus [⇧F] + Effekt-Uhr, s. togglePhoto
   keys:{},
   init(){
     const host = document.getElementById("flight3d");
@@ -10190,6 +10291,11 @@ const Flight = {
       new THREE.SphereGeometry(atmoR*1.04, 64, 32),
       atmoShellMaterial(LEIBNIZ.R, atmoR));
     this.world.add(this.atmoShell);
+    /* Polarlicht-Ovale um beide Pole (s. buildAurora). Als KIND des Planeten:
+       damit stimmen Ursprung und Achse von selbst, und die Ovale wandern mit
+       Leibniz um die Sonne, ohne dass frame() sie eigens positionieren muss. */
+    this.aurora = buildAurora(LEIBNIZ.R);
+    this.leibnizMesh.add(this.aurora.group);
     // Monde & Planeten: Meshes + Orbitlinien (Linien nur in Kartenansicht)
     this.moonMeshes = new Map();
     this.moonRings = [];   // Paare [Körper, Ring] – Ring liegt um den Parent
@@ -10572,6 +10678,18 @@ const Flight = {
     addEventListener("keydown", e=>{
       if(!document.getElementById("flight").classList.contains("active")) return;
       this.keys[e.key.toLowerCase()]=true;
+      /* ⚠️ Der FOTOMODUS fängt alle Tasten ab (s. togglePhoto): Wer ein Bild
+         komponiert, will nicht versehentlich eine Stufe abwerfen. Die Taste
+         steht oben schon in `this.keys` – daraus liest das Kamera-Schieben. */
+      if(this.photo){
+        if((e.key==="f"||e.key==="F") && e.shiftKey) this.togglePhoto();
+        // ⏎ löst aus – auch der Ziffernblock (e.code deckt beide ab)
+        else if(e.key==="Enter" || e.code==="Enter" || e.code==="NumpadEnter"){
+          e.preventDefault(); this.savePhoto();
+        }
+        else if(e.key==="Escape") this.togglePhoto();
+        return;
+      }
       // Jede Steuereingabe beendet den Zeitraffer (sonst "Triebwerk reagiert nicht")
       const ctrlKeys = [" ","w","a","s","d","q","e","z","x","r","c","arrowup","arrowdown"];
       if(WARPS[this.warpI]>2 && ctrlKeys.includes(e.key.toLowerCase())){
@@ -10581,11 +10699,14 @@ const Flight = {
       if(e.key==="h"||e.key==="H") this.toggleControlsBar();
       if(e.key===" "){ e.preventDefault(); this.stage(); }
       if(e.key==="p"||e.key==="P") this.toggleChute();
-      // [F] ist doppelt belegt: beim Außeneinsatz zu Fuß die Flagge, sonst die
-      // Nutzlastverkleidung. Beides gleichzeitig gibt es nie – wer draußen
-      // herumläuft, wirft keine Fairing ab.
+      /* [F] ist dreifach belegt: ⇧F = Fotomodus (immer), beim Außeneinsatz zu
+         Fuß die Flagge, sonst die Nutzlastverkleidung. Flagge und Fairing
+         gibt es nie gleichzeitig – wer draußen herumläuft, wirft keine
+         Fairing ab. */
       if(e.key==="f"||e.key==="F"){
-        if(this.eva && this.eva.onGround) this.plantFlag(); else this.jettisonFairing();
+        if(e.shiftKey) this.togglePhoto();
+        else if(this.eva && this.eva.onGround) this.plantFlag();
+        else this.jettisonFairing();
       }
       if(e.key==="n"||e.key==="N") this.deploySat();
       if(e.key==="u"||e.key==="U") this.toggleInfinite();
@@ -10641,8 +10762,11 @@ const Flight = {
     });
     addEventListener("pointerup", ()=>drag=null);
     host.addEventListener("wheel", e=>{
-      const max = this.map ? 6e10 : 5000;
-      this.camDist = Math.min(max, Math.max(4, this.camDist*(e.deltaY>0?1.15:1/1.15)));
+      // Im Fotomodus weiter hinaus (100 km statt 5 km) und näher heran:
+      // Rakete vor Planet oder Mechazilla im Bild braucht beides.
+      const max = this.map ? 6e10 : (this.photo ? 1e5 : 5000);
+      const min = this.photo ? 1.5 : 4;
+      this.camDist = Math.min(max, Math.max(min, this.camDist*(e.deltaY>0?1.15:1/1.15)));
     }, {passive:true});
   },
   /* Startrampe je nach gewähltem Startplatz: "lmg" = Schul-Startplatz,
@@ -11324,6 +11448,14 @@ const Flight = {
     this.heatDmg = 0; this._heatMsgT = undefined;
     this.shake = 0; this._shakeWant = 0; this._shakeT = 0; this._shakeT0 = undefined;
     this.paused = false;
+    /* Fotomodus (s. togglePhoto) darf einen neuen Flug nie eingefroren starten.
+       ⚠️ Hier NICHT togglePhoto() rufen – das würde den Kameraabstand des
+       alten Flugs wiederherstellen, den start() gerade frisch gesetzt hat. */
+    this.photo = false;
+    if(this.photoPan) this.photoPan.set(0,0,0);
+    document.getElementById("flight").classList.remove("photo");
+    const pbar = document.getElementById("photoBar");
+    if(pbar) pbar.style.display = "none";
     // Strom: Kapazität aus Kapsel/Sonde/Batterien, Panels starten eingeklappt
     this.maxCharge = vessel.stack.reduce((a,id)=>a+(PARTS[id].charge||0), 0);
     this.charge = this.maxCharge;
@@ -11745,7 +11877,7 @@ const Flight = {
         const tw = this.nextLaunchWindow(this.target) - this.t;
         this.launchWindowMiss = Math.min(tw, per - tw);
       }
-      // Kamerawackeln: 3 s ab der Zündung AUF DER RAMPE (s. applyShake) –
+      // Kamerawackeln: SHAKE_LIFTOFF s ab der Zündung AUF DER RAMPE (s. applyShake) –
       // ein Zünden im Orbit rüttelt die Kamera bewusst nicht.
       if(this.landed) this._shakeT0 = this.t;
       s.ignited = true; this.landed=false; this.flew=true;
@@ -11838,6 +11970,109 @@ const Flight = {
     if(!Game.sandbox) return;
     this.infinite = !this.infinite;
     this.showMsg(this.infinite?"∞ Endlos-Treibstoff AN (Testmodus)":"∞ Endlos-Treibstoff AUS",2);
+  },
+  /* ================================================================
+     FOTOMODUS  [⇧F]  (`photo` / `photoPan` / `savePhoto`)
+     ----------------------------------------------------------------
+     Drei Dinge zusammen, sonst ist es kein Fotomodus:
+     1. Die Szene STEHT (Physik `frameT = 0` UND die Effekt-Uhr `fxT`, s.
+        frame()) – ein Bild von einer Rakete, die währenddessen weiterfällt,
+        ist kein Foto, sondern Glückssache.
+     2. Die Kamera ist FREI: Maus dreht, Rad zoomt (bis 100 km statt 5 km),
+        WASD/QE schieben den Blickpunkt. Sonst kreist man immer nur um die
+        eigene Rakete und bekommt Planet, Rampe oder Mechazilla nie ins Bild.
+     3. KEIN HUD (CSS-Klasse `photo`, s. dort).
+     ⚠️ Im Fotomodus fängt der keydown-Handler ALLE Tasten ab: Wer ein Bild
+     komponiert, will nicht mit [W] die Rakete kippen oder mit [Leertaste] eine
+     Stufe abwerfen. Die Tasten landen trotzdem in `this.keys` – daraus liest
+     das Kamera-Schieben. */
+  togglePhoto(){
+    if(!this.v || this.ended) return;
+    this.photo = !this.photo;
+    if(!this.photoPan) this.photoPan = V3(0,0,0);
+    /* ⚠️ Der Kameraabstand darf beim BETRETEN nicht angefasst werden – in der
+       Karte ist er 1e9 und mehr, ein Deckel von 5 km würde die Kartenansicht
+       zerreißen. Beim Verlassen dagegen MUSS er zurück (im Foto sind 100 km
+       erlaubt, im Flug nur 5 km), deshalb der gemerkte Wert. */
+    if(this.photo) this._photoCd = this.camDist;
+    else {
+      this.photoPan.set(0,0,0);                 // Spielkamera wieder zentriert
+      this.camDist = Math.min(this._photoCd || this.camDist, this.map ? 6e10 : 5000);
+    }
+    document.getElementById("flight").classList.toggle("photo", this.photo);
+    const bar = document.getElementById("photoBar");
+    if(bar) bar.style.display = this.photo ? "flex" : "none";
+    if(this.photo) this.setPhotoHint("Maus = drehen · Rad = Zoom · WASD/QE = Kamera fliegen · ⇧ = schneller");
+    else this.showMsg("📸 Fotomodus beendet – weiter geht's!", 1.5);
+  },
+  setPhotoHint(txt){
+    const el = document.getElementById("photoHint");
+    if(el) el.textContent = txt;
+  },
+  /* Bild als PNG auf die Festplatte.
+     ⚠️⚠️ Der Flug-Renderer läuft OHNE `preserveDrawingBuffer` (das kostet auf
+     Schulrechnern jeden Frame eine Kopie). Der Browser darf den Zeichenpuffer
+     nach jedem Frame verwerfen – also hier NEU rendern und im selben
+     Aufruf auslesen. Zwischen render() und drawImage darf nichts liegen,
+     was den Ablauf unterbricht (kein await, kein setTimeout).
+     ⚠️ Der Lens-Flare ist ein eigenes 2D-Canvas ÜBER der Szene und muss
+     mitkopiert werden, sonst fehlt im Foto genau der Effekt, der das Bild
+     macht. Das HUD dagegen ist DOM und kann gar nicht mit hinein. */
+  savePhoto(){
+    const gl = this.renderer && this.renderer.domElement;
+    if(!gl) return;
+    const host = document.getElementById("flight3d");
+    this.setViewUniforms(this.camera, host.clientHeight);
+    this.renderer.render(this.scene, this.camera);
+    const cv = document.createElement("canvas");
+    cv.width = gl.width; cv.height = gl.height;
+    const x = cv.getContext("2d");
+    x.drawImage(gl, 0, 0);
+    const lf = document.getElementById("lensflare");
+    if(lf && lf.width > 1) x.drawImage(lf, 0, 0, cv.width, cv.height);
+    const d = new Date(), p2 = n=>String(n).padStart(2,"0");
+    const name = "lmg-foto-" + d.getFullYear() + p2(d.getMonth()+1) + p2(d.getDate()) +
+                 "-" + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds()) + ".png";
+    const dl = url=>{
+      const a = document.createElement("a");
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+    };
+    try{
+      /* ⚠️ Per file:// (Doppelklick-Betrieb in der AG!) hat die Seite den
+         Ursprung »null« – eine Blob-URL gehört dann niemandem und der Download
+         scheitert je nach Browser still. Dort also die data:-URL nehmen; über
+         den Webserver bleibt es beim Blob (kein Megabyte-langer String).
+         Das 2D-Canvas behält sein Bild, toBlob darf deshalb asynchron sein. */
+      if(cv.toBlob && location.protocol !== "file:") cv.toBlob(b=>{
+        if(!b){ dl(cv.toDataURL("image/png")); return; }
+        const u = URL.createObjectURL(b);
+        dl(u); setTimeout(()=>URL.revokeObjectURL(u), 20000);
+      }, "image/png");
+      else dl(cv.toDataURL("image/png"));
+      this.setPhotoHint("✅ Gespeichert als " + name + " (Download-Ordner)");
+    }catch(e){
+      this.setPhotoHint("⚠️ Speichern hat nicht geklappt – Screenshot mit der Tastenkombination des Systems?");
+    }
+  },
+  /* Freie Kamera: schiebt den BLICKPUNKT (die Kamera kreist weiterhin darum).
+     Tempo hängt am Zoom, sonst kriecht man bei 3000 m Abstand und schießt bei
+     10 m über das Ziel hinaus. */
+  photoCamMove(cd, cdir, up){
+    const K = this.keys;
+    if(!this.photoPan) this.photoPan = V3(0,0,0);
+    const fwd = cdir.clone().negate();
+    const right = new THREE.Vector3().crossVectors(fwd, up).normalize();
+    const flat  = new THREE.Vector3().crossVectors(up, right).normalize();
+    const d = V3(0,0,0);
+    if(K.w) d.add(flat);
+    if(K.s) d.sub(flat);
+    if(K.d) d.add(right);
+    if(K.a) d.sub(right);
+    if(K.e) d.add(up);
+    if(K.q) d.sub(up);
+    if(d.lengthSq() > 1e-9)
+      this.photoPan.addScaledVector(d.normalize(), cd*0.018*(K.shift ? 4 : 1));
   },
   toggleControlsBar(){
     // 3 Stufen: alles → Tastenleiste aus → komplettes HUD aus → wieder alles
@@ -12172,34 +12407,6 @@ const Flight = {
     this.showMsg(this.panelsOut ? "☀️ Solarpanele ausgefahren (+3 ⚡/s)" : "Solarpanele eingeklappt.",2);
   },
   /* Umgebungstemperatur in °C: Boden warm, mit der Höhe kälter, im All ~ -270 °C */
-  /* Wolkendeckung (0…1) genau dort, wo das Schiff die Wolkenschale durchstößt.
-     Ohne diese Abfrage führe man auch bei blitzblauem Himmel durch Nebel.
-     ⚠️ Die Deckung steckt im ALPHA der Wolkentextur (`makeCloudTexture` malt
-     RGB konstant 255 und moduliert nur a) – nicht in der Helligkeit.
-     ⚠️⚠️ Maßgeblich ist die UV-Konvention von THREE.SphereGeometry, NICHT die
-     Zeilenordnung, in der `makeCloudTexture` das Canvas füllt: three lädt
-     Canvas-Texturen mit `flipY` hoch, die Kugel liest die Kachel also
-     gespiegelt. Über die Geometrie gerechnet ist es schlicht
-     `py = acos(y)/π · H` (Nordpol = oberste Zeile).
-     ⚠️ NUR EINMAL je Durchflug aufrufen – `getImageData` ist nicht gratis;
-     frame() cacht das Ergebnis in `_cloudHitAt`. */
-  cloudCoverHere(){
-    try{
-      const img = this.cloudShell && this.cloudShell.material.map &&
-                  this.cloudShell.material.map.image;
-      if(!img || !img.getContext) return 1;
-      const d = this.pos.clone().sub(bodyPos(LEIBNIZ, this.t)).normalize()
-        .applyAxisAngle(V3(0,1,0), -(this.cloudShell.rotation.y || 0));
-      const W = img.width, H = img.height;
-      let u = Math.atan2(d.z, -d.x)/(Math.PI*2);
-      if(u < 0) u += 1;
-      const px = Math.min(W-1, Math.max(0, Math.floor(u*W)));
-      const py = Math.min(H-1, Math.max(0,
-        Math.floor(Math.acos(THREE.MathUtils.clamp(d.y, -1, 1))/Math.PI*H)));
-      const a = img.getContext("2d").getImageData(px, py, 1, 1).data[3]/255;
-      return THREE.MathUtils.clamp(a/0.7, 0, 1);
-    }catch(e){ return 1; }
-  },
   ambTemp(){
     const alt = leibnizAlt(this.pos, this.t);
     if(alt >= LEIBNIZ.atmoH) return -270;
@@ -14167,7 +14374,7 @@ const Flight = {
      Landen, keins beim Wiedereintritt. Wer das wieder aufmacht, macht
      denselben Fehler nochmal.
      ⚠️⚠️ Der Pegel läuft über die SIMULIERTE Zeit (`this.t`), damit die
-     3 Sekunden 3 Spielsekunden sind. Der Ausschlag wird NICHT pro Frame
+     SHAKE_LIFTOFF Sekunden auch Spielsekunden sind. Der Ausschlag wird NICHT pro Frame
      gewürfelt – das wäre 60-Hz-Stroboskop wie beim alten Schweißlicht.
      Stattdessen drei Sinus mit teilerfremden Frequenzen (6,1 / 11,3 /
      17,7 Hz): unregelmäßig genug, dass man kein Muster erkennt, und
@@ -16519,6 +16726,31 @@ const Flight = {
           eye.x - m.position.x, -(eye.z - m.position.z), eye.y - m.position.y);
     }
   },
+  /* Polarlicht: Zeit, Sonnenrichtung und Aktivität setzen (s. buildAurora).
+     ⚠️ Die Sonnenrichtung ist `groundSunDir` (Spieluhr!) – dieselbe Quelle,
+     die auch `sunLight` und `sunlit()` benutzen. Mit der echten Richtung
+     leuchtete das Polarlicht an der Rampe mittags und wäre nachts aus.
+     ⚠️ Weit draußen abschalten: Ab ~60 Planetenradien ist der Kranz ein
+     Subpixel und kostet nur noch Füllrate (additiv, doppelseitig).
+     ⚠️ Die Aktivität läuft über die EFFEKT-Uhr, nicht über `this.t`: An
+     `this.t` gekoppelt würde das Polarlicht bei Warp 100.000 im Sekundentakt
+     an- und ausblitzen. */
+  updateAurora(){
+    const a = this.aurora;
+    if(!a) return;
+    const near = !this.map &&
+      this.pos.distanceTo(bodyPos(LEIBNIZ, this.t)) < LEIBNIZ.R*60;
+    a.group.visible = near;
+    if(!near) return;
+    const tt = this.fxT || 0;
+    // Sonnenwind schwankt: langsames Auf- und Abschwellen (Periode ~4 min)
+    const act = 0.58 + 0.42*Math.sin(tt/37);
+    for(const u of a.mats){
+      u.uTime.value = tt % 4096;
+      u.uI.value = act;
+      u.uSunDir.value.copy(this.groundSunDir);
+    }
+  },
   /* ---------- Frame ---------- */
   frame(){
     const host = document.getElementById("flight3d");
@@ -16527,7 +16759,15 @@ const Flight = {
     // Physik (steht still bei Pause). Adaptive Schrittweite: nahe an einem
     // Himmelskörper fein, im tiefen Sonnenraum grob (für 100.000×-Warp).
     const warp = WARPS[this.warpI];
-    const frameT = this.paused ? 0 : warp/60;
+    /* ⚠️ Eigene Effekt-Uhr statt performance.now(): `fxT` steht bei Pause und
+       im FOTOMODUS still. Nur so friert [⇧F] wirklich das ganze BILD ein und
+       nicht bloß die Physik – Meer, Sonne und Plasma hängen ohnehin an der
+       Simulationszeit `this.t`, die Flamme war die letzte Ausnahme.
+       ⚠️ Echtzeit, NICHT `this.t`: Wabernde Effekte (Flamme, Polarlicht) sind
+       Optik und dürfen im Zeitraffer nicht mit 100.000× flackern. */
+    const frozen = this.paused || this.photo;
+    this.fxT = (this.fxT || 0) + (frozen ? 0 : 1/60);
+    const frameT = frozen ? 0 : warp/60;
     let maxDt = 0.02;
     if(warp>2){
       const db = this.body();
@@ -16773,6 +17013,7 @@ const Flight = {
     const bgCd = this._cd || this.camDist;
     this.starField.scale.setScalar(Math.min(4000, Math.max(1, bgCd*40/4e7)));
     this.nebGroup.scale.setScalar(Math.min(2.7, Math.max(1, bgCd*80/7e10)));
+    this.updateAurora();          // Polarlicht-Ovale um Leibniz' Pole
     this.groundGroup.visible = !this.map && alt<16000;
     if(this.groundGroup.visible) this.updateOcean(sky, alt);
     /* ⚠️ Die Kugel bekommt bodennah DENSELBEN Dunst wie die Geländescheibe –
@@ -16830,7 +17071,7 @@ const Flight = {
     /* Abgasstrahl-Uniforms für den HAUPT-Render. Die Booster-PiP setzt sie vor
        ihrem eigenen render() erneut (der Booster steht ja ganz woanders in der
        Atmosphäre) – s. updateBoosterCam. */
-    FLAME_U.uTime.value = (performance.now()/1000) % 600;
+    FLAME_U.uTime.value = (this.fxT || 0) % 600;
     FLAME_U.uVac.value  = flameVac(leibnizAlt(this.pos, this.t));
     FLAME_U.uThr.value  = burning ? Math.max(0.35, this.throttle) : 1;
     if(this.rocketGroup){
@@ -16971,100 +17212,6 @@ const Flight = {
                 0.4+Math.random()*0.5, 3+Math.random()*3.5,
                 Math.random()<0.72 ? 0xffc070 : 0xff5a9a);   // ein paar magentafarbene
             }
-          }
-        }
-      }
-      /* ---- Kondensation: Vapor Cone, Flossen-Streifen, Wolkendurchstoß ----
-         Alle drei aus denselben zwei Zahlen: Mach-Zahl und Staudruck. */
-      {
-        const airW = this.vel.clone().sub(bodyVel(LEIBNIZ, this.t));
-        const vAir = airW.length();
-        const rhoA = alt < LEIBNIZ.atmoH
-          ? LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH) : 0;
-        const qDyn = 0.5*rhoA*vAir*vAir;
-        // Schallgeschwindigkeit aus der Lufttemperatur: c = 20,05·√(T in K)
-        const cSnd = 20.05*Math.sqrt(Math.max(60, this.ambTemp() + 273.15));
-        const mach = vAir/cSnd;
-        const live = !this.map && !this.crashed && !this.landed &&
-                     !this.eva && alt < LEIBNIZ.atmoH && this.rocketGroup;
-        /* ⚠️ Der Vapor Cone hängt an BEIDEM: an einer Glocke um Mach 1 (das ist
-           die Physik – der Druck bricht transsonisch ein) UND am Staudruck (das
-           ist der Moment, den man im HUD sieht). Nur Mach 1 abzufragen ließe ihn
-           auch in 30 km Höhe erscheinen, wo längst keine Feuchte mehr da ist. */
-        const coneI = live
-          ? Math.exp(-Math.pow((mach - 1.0)/0.22, 2)) * THREE.MathUtils.clamp(qDyn/18000, 0, 1) : 0;
-        // Wirbelkerne an Flossenspitzen gibt es auch schon unterhalb Mach 1
-        const trailI = live
-          ? THREE.MathUtils.smoothstep(mach, 0.55, 0.95) * THREE.MathUtils.clamp(qDyn/22000, 0, 1) : 0;
-        // Wolkendurchstoß: schmales Höhenband um die Wolkenschale
-        const cloudA = LEIBNIZ.R*0.006;
-        let puffI = live ? 1 - THREE.MathUtils.smoothstep(Math.abs(alt - cloudA), 260, 850) : 0;
-        if(puffI > 0){
-          // Steht hier ÜBERHAUPT eine Wolke? Einmal je Durchflug nachsehen –
-          // sonst fährt man auch bei blitzblauem Himmel in Nebel.
-          if(this._cloudHitAt === undefined) this._cloudHitAt = this.cloudCoverHere();
-          puffI *= this._cloudHitAt;
-        } else this._cloudHitAt = undefined;
-
-        if((coneI > 0 || puffI > 0) && !this.vaporGroup){
-          this.vaporGroup = new THREE.Group();
-          this.vaporGroup.add(makeVapor("cone", 1, 1, "vaporCone"));
-          this.vaporGroup.add(makeVapor("puff", 1, 1, "vaporPuff"));
-          this.scene.add(this.vaporGroup);
-        }
-        if(this.vaporGroup){
-          const cone = this.vaporGroup.children[0], puff = this.vaporGroup.children[1];
-          cone.visible = coneI > 0.004;  puff.visible = puffI > 0.004;
-          this.vaporGroup.visible = cone.visible || puff.visible;
-          if(this.vaporGroup.visible && vAir > 1){
-            const aDir = airW.clone().normalize();
-            // +Y der Gruppe zeigt IN den Wind; die Geometrie läuft nach −Y,
-            // also nach hinten – wie bei der Triebwerksflamme.
-            this.vaporGroup.quaternion.setFromUnitVectors(V3(0,1,0), aDir);
-            const H = Math.max(6, this.height());
-            const wMax = this.v.stack.length
-              ? Math.max(...this.v.stack.map(id=>PARTS[id].w)) : 6;
-            const ca = Math.abs(V3(0,1,0).applyQuaternion(this.q).dot(aDir));
-            const half = 0.5*(ca*H + (1-ca)*wMax);
-            // Querschnitt als FLÄCHE (gleiche Überlegung wie beim Plasma)
-            const Aq = ca*Math.PI*wMax*wMax/4 + (1-ca)*H*wMax;
-            const Rx = Math.sqrt(Aq/Math.PI);
-            if(cone.visible){
-              cone.scale.set(Rx*2.2, half*0.9, Rx*2.2);
-              cone.position.y = half*0.28;      // Front sitzt vor der Rumpfmitte
-              cone.material.uniforms.uI.value = coneI;
-            }
-            if(puff.visible){
-              puff.scale.set(Rx*3.2, H*2.6, Rx*3.2);
-              puff.position.y = H*1.0;
-              puff.material.uniforms.uI.value = puffI;
-            }
-          }
-        }
-        // Flossen-Kondensstreifen (hängen an der Rakete, s. addFinTrails)
-        if(this._trailI !== trailI){
-          this._trailI = trailI;
-          const tm = _vaporMats.trail;
-          if(tm) tm.uniforms.uI.value = trailI;
-        }
-        if(this.rocketGroup)
-          this.rocketGroup.traverse(o=>{ if(o.name==="finTrail") o.visible = trailI > 0.01; });
-        VAPOR_U.uTime.value = (performance.now()/1000) % 600;
-        /* Nebelschwaden beim Wolkendurchstoß: ziehen relativ zur LUFT nach
-           hinten weg, nicht relativ zum Schiff – deshalb `vel` als Basis.
-           ⚠️ Absolute Positionen (Partikel hängen an `world`, nicht am Schiff). */
-        /* ⚠️ Menge und Größe bewusst gedeckelt: Der Partikel-Pool hat 170
-           Sprites und gehört auch dem Abgasstrahl. Mit 3 Stück je Frame bei
-           1,1 s Lebensdauer wären ~120 gleichzeitig belegt – die Rauchfahne
-           des Triebwerks wäre im Wolkenband schlicht verdrängt. */
-        if(puffI > 0.2 && warp <= 2 && Math.random() < 0.7){
-          const fr2 = this.frameAt(this.pos);
-          for(let k=0;k<2;k++){
-            const off = V3((Math.random()-0.5), (Math.random()-0.5), (Math.random()-0.5))
-              .normalize().multiplyScalar(this.height()*0.35 + Math.random()*20);
-            this.spawnParticle(this.pos.clone().add(off),
-              this.vel.clone().addScaledVector(fr2.up, (Math.random()-0.5)*6),
-              0.4+Math.random()*0.5, 7+Math.random()*9, 0xf2f6ff);
           }
         }
       }
@@ -17333,6 +17480,8 @@ const Flight = {
       .addScaledVector(fr.up, Math.sin(this.camEl));
     // Bei EVA folgt die Kamera der Astronaut*in statt der Rakete
     const focus = this.eva && !this.map ? this.eva.pos.clone().sub(this.pos) : V3(0,0,0);
+    // Fotomodus: freie Kamera – WASD/QE schieben den Blickpunkt (s. togglePhoto)
+    if(this.photo){ this.photoCamMove(cd, cdir, fr.up); focus.add(this.photoPan); }
     this.camera.position.copy(focus).addScaledVector(cdir, cd);
     this.camera.up.copy(fr.up);
     this.camera.lookAt(focus);
@@ -17341,7 +17490,7 @@ const Flight = {
        ⚠️ In der KARTE aus: dort ist die Kamera kein Standpunkt im Raum,
        sondern ein Kartenausschnitt, und eine zitternde Bahnlinie macht das
        Ablesen von Ap/Pe unmöglich. Bei Pause ebenfalls. */
-    if(!this.map && !this.paused){
+    if(!this.map && !this.paused && !this.photo){
       const sh = this.applyShake(cd);
       if(sh){ this.camera.position.add(sh.off); this.camera.rotateZ(sh.roll); }
     } else this.shake = 0;
