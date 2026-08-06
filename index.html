@@ -1397,6 +1397,21 @@ function stackCost(stack){ return stack.reduce((a,id)=>a+(PARTS[id].cost||0),0);
    sieht man den Preis im Hangar und wählt bewusst. Wird bei einem abgebrochenen
    Start zusammen mit den Bauteilkosten wieder gutgeschrieben (s. launchCost). */
 const DRONESHIP_FEE = 50;
+/* Ab welcher Restabweichung gibt der Booster-Autopilot seinen Landeplatz auf?
+   ⚠️⚠️ NICHT geschätzt, sondern GEMESSEN – die erste Fassung stand auf 2,5 km und
+   hat damit einen Anflug abgebrochen, der sauber gecatcht hätte. Restabweichung
+   (vorhergesagter Aufschlag ↔ Ziel) über den Abstieg, Superheavy ab eq-Rampe:
+     Trennung 30 % (gelingt) : 25 km 4,13 · 10 km 4,13 · 7 km 0,32 → caught, 10 m
+     Trennung 20 % (scheitert): 25 km 10,9 · 10 km 9,43 → 7,75 km daneben
+     Trennung 10 % (scheitert): 25 km 27,0 · 10 km 37,4 → 34,9 km daneben
+   Der Endanflug-Regler schließt die Lücke also erst zwischen 10 und 7 km Höhe, und
+   zwar aus über 4 km heraus. 7 km trennt beide Gruppen mit Reserve nach beiden
+   Seiten (4,13 gelingt · 9,43 scheitert). Wer hier dreht, misst neu. */
+const BOOSTER_GIVEUP = 7000;
+/* Kamerawackeln: Sekunden ab der Zündung auf der Rampe. Danach steht das
+   Bild ruhig – der Start ist der einzige Moment, den das Rütteln erzählt
+   (s. Flight.applyShake). */
+const SHAKE_LIFTOFF = 3;
 function launchFee(stack){
   if(Game.sandbox) return 0;
   if(!stack.some(id=>PARTS[id].type==="gridfin")) return 0;   // ohne Gitterflossen landet nichts
@@ -3746,10 +3761,14 @@ function flameMat(kind){
     blending:THREE.AdditiveBlending
   });
 }
-/* Normalisierte Mantelfläche – EINMAL gebaut, von allen Flammen geteilt. */
-let _flameGeo = null;
-function flameGeometry(){
-  if(_flameGeo) return _flameGeo;
+/* Normalisierte Mantelfläche als reiner PARAMETERRAUM – EINMAL gebaut und von
+   allen Fahnen im Spiel geteilt: Triebwerksflamme, Vapor Cone und die
+   Kondensstreifen an den Flossenspitzen. Radius 1, Länge 1, Ursprung bei
+   y=0, Ende bei y=−1; die echte Form rechnet jeweils der Vertex-Shader aus
+   `aT` (0…1 entlang) und `aA` (Azimut), die Größe macht `mesh.scale`. */
+let _plumeGeo = null;
+function plumeGeometry(){
+  if(_plumeGeo) return _plumeGeo;
   const RS = 18, LS = 24;
   const pos=[], aT=[], aA=[], idx=[];
   for(let j=0;j<=LS;j++){
@@ -3769,7 +3788,7 @@ function flameGeometry(){
   g.setAttribute("aT", new THREE.Float32BufferAttribute(aT,1));
   g.setAttribute("aA", new THREE.Float32BufferAttribute(aA,1));
   g.setIndex(idx);
-  return _flameGeo = g;
+  return _plumeGeo = g;
 }
 /* =================================================================
    RAKETENHÜLLE  (`hullTexture` / `SKIN` / `skinPart`)
@@ -3919,13 +3938,130 @@ function skinPart(g){
 /* R = Radius am Düsenaustritt, L = Länge; Ursprung = Düsenmündung,
    Strahl zeigt nach −Y (also nach unten aus dem Triebwerk). */
 function makeFlame(R, L, kind, name){
-  const m = new THREE.Mesh(flameGeometry(), flameMat(kind||"kero"));
+  const m = new THREE.Mesh(plumeGeometry(), flameMat(kind||"kero"));
   m.scale.set(R, L, R);
   m.userData.len = L; m.userData.rad = R;
   m.visible = false;
   m.name = name || "flame";
   m.frustumCulled = false;   // die Form entsteht erst im Shader
   return m;
+}
+
+/* =================================================================
+   KONDENSATION IN DER LUFT  (`VAPOR_*` / `makeVapor` / `addFinTrails`)
+   -----------------------------------------------------------------
+   Drei verwandte Erscheinungen, EIN Shader – alle drei sind dasselbe
+   physikalische Ereignis: Wo der Luftdruck lokal einbricht, kühlt die
+   Luft ab und die Feuchtigkeit kondensiert zu sichtbarem Nebel.
+   1. VAPOR CONE (»Prandtl-Glauert-Wolke«): der weiße Trichter, der bei
+      Mach ≈ 1 um das Fahrzeug steht. Genau der Moment, in dem im HUD
+      der Staudruck seinen Höchstwert erreicht – deshalb hängt die
+      Intensität an BEIDEM: an einer Glocke um Mach 1 und an q.
+   2. KONDENSSTREIFEN an den Spitzen von Flossen und Gitterflossen: die
+      Wirbelkerne saugen den Druck herunter, an ihnen hängen dünne
+      weiße Fäden nach hinten.
+   3. WOLKENDURCHSTOSS: beim Queren der Wolkenschicht zieht Nebel längs
+      am Rumpf vorbei (dieselbe Röhre, nur breit und blass).
+   ⚠️ Die weiche Silhouette entsteht wie bei der Flamme über `dot(n,V)`:
+   Nebel ist ein Volumen, seine Helligkeit die Weglänge des Sehstrahls –
+   in der Mitte lang, am Rand null. Ohne das hätte eine Kondenswolke
+   eine gestanzte Kante und sähe aus wie ein Blechtrichter.
+   ⚠️ `uOp` klein halten: additiv, DoubleSide und weiß vor hellem Himmel
+   brennt sonst sofort aus (dieselbe Lehre wie bei Flamme und Plasma). */
+const VAPOR_U = { uTime:{value:0} };
+const VAPOR_VERT = `
+attribute float aT;
+attribute float aA;
+uniform float uTime, uNarrow, uWide, uTaper, uWob;
+varying float vT;
+varying vec3 vN, vP;
+#include <common>
+#include <logdepthbuf_pars_vertex>
+float vapRad(float t){
+  return uNarrow + (uWide - uNarrow) * pow(clamp(t, 0.0, 1.0), uTaper);
+}
+void main(){
+  vT = aT;
+  float wob = 1.0 + uWob*sin(uTime*7.0 + aA*3.0 + aT*9.0);
+  float r = vapRad(aT) * wob;
+  vec3 p = vec3(cos(aA)*r, -aT, sin(aA)*r);
+  float dr = (vapRad(aT+0.02) - vapRad(aT-0.02))/0.04;
+  vec3 n = normalize(vec3(cos(aA), dr, sin(aA)));
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  vP = mv.xyz;
+  vN = normalMatrix * n;
+  gl_Position = projectionMatrix * mv;
+  #include <logdepthbuf_vertex>
+}`;
+const VAPOR_FRAG = `
+precision highp float;
+uniform float uTime, uI, uOp, uFade, uTurb;
+varying float vT;
+varying vec3 vN, vP;
+#include <common>
+#include <logdepthbuf_pars_fragment>
+void main(){
+  #include <logdepthbuf_fragment>
+  float mu = abs(dot(normalize(vN), normalize(-vP)));
+  float body = pow(mu, 0.8);
+  float fade = pow(max(0.0, 1.0 - vT), uFade);
+  // Ausfransen nach hinten: vorn glatte Kondensationsfront, hinten Fetzen
+  float turb = 1.0 - uTurb*vT*(0.5 + 0.5*sin(vT*26.0 - uTime*9.0 + vP.y*0.25));
+  float a = body * fade * turb * uI * uOp;
+  gl_FragColor = vec4(vec3(0.97, 0.98, 1.0), clamp(a, 0.0, 1.0));
+}`;
+/* narrow/wide = Radius vorn/hinten (× mesh.scale.x), taper = Öffnungsverlauf */
+/* ⚠️ Der Cone ist KURZ und glockig, nicht schlauchförmig: `taper` < 0,5 heißt,
+   er geht gleich hinter der Kondensationsfront auf – ein echter Vapor Cone ist
+   eine quer stehende Glocke, kein Schlauch um die ganze Rakete. Die erste
+   Fassung (taper 0,65, Länge 2,2·half) hüllte den kompletten Rumpf ein und war
+   als Form gar nicht mehr zu erkennen.
+   ⚠️ `op` klein, weil additiv + DoubleSide: Die Streifen waren mit 0,42 weiße
+   Glasstäbe statt Kondensfäden. */
+const VAPOR_KIND = {
+  cone:  {narrow:0.10, wide:1.0,  taper:0.42, wob:0.05, op:0.50, fade:1.2, turb:0.45},
+  trail: {narrow:0.55, wide:0.10, taper:0.7,  wob:0.11, op:0.22, fade:1.4, turb:0.9},
+  /* ⚠️ Der Durchstoß-Nebel ist BEWUSST fast nur ein Hauch (op 0,10): Eine Wolke
+     hat keine Vorzugsrichtung, eine Röhre schon – mit 0,26 las sich der Effekt
+     als heller Zylinder um die Rakete statt als Wolke. Die eigentliche Arbeit
+     machen die Schwaden-PARTIKEL, die richtungslos vorbeiziehen; die Röhre
+     liefert nur die Eintrübung dazwischen. */
+  puff:  {narrow:1.0,  wide:0.85, taper:1.0,  wob:0.12, op:0.10, fade:0.35, turb:0.9}
+};
+const _vaporMats = {};
+function vaporMat(kind){
+  if(_vaporMats[kind]) return _vaporMats[kind];
+  const k = VAPOR_KIND[kind];
+  return _vaporMats[kind] = new THREE.ShaderMaterial({
+    uniforms: Object.assign({}, VAPOR_U, {
+      uI:{value:0}, uOp:{value:k.op}, uFade:{value:k.fade}, uTurb:{value:k.turb},
+      uNarrow:{value:k.narrow}, uWide:{value:k.wide}, uTaper:{value:k.taper},
+      uWob:{value:k.wob}}),
+    vertexShader:VAPOR_VERT, fragmentShader:VAPOR_FRAG,
+    transparent:true, depthWrite:false, side:THREE.DoubleSide,
+    blending:THREE.AdditiveBlending
+  });
+}
+function makeVapor(kind, R, L, name){
+  const m = new THREE.Mesh(plumeGeometry(), vaporMat(kind));
+  m.scale.set(R, L, R);
+  m.userData.len = L;
+  m.name = name || ("vapor_" + kind);
+  m.visible = false;
+  m.frustumCulled = false;
+  return m;
+}
+/* Kondensstreifen an n Flossenspitzen (Azimut-Raster wie die Flossen selbst).
+   ⚠️ Sie hängen als KINDER am Bauteil und zeigen nach −Y, also nach hinten:
+   Beim Aufstieg fliegt die Rakete prograde, damit stimmt die Richtung von
+   selbst – ohne jede Ausrichtungsmathematik pro Frame. */
+function addFinTrails(g, radius, y, n, azOff){
+  for(let k=0;k<n;k++){
+    const a = k*Math.PI*2/n + (azOff||0);
+    const t = makeVapor("trail", 1.1, 20, "finTrail");
+    t.position.set(Math.cos(a)*radius, y, Math.sin(a)*radius);
+    g.add(t);
+  }
 }
 /* ---------- Landebeine: RADIALTEIL am Tank (wie Flossen/Seitenbooster) ----------
    ⚠️⚠️ Beine waren früher ein Stack-Teil: eine eigene Scheibe MITTEN in der
@@ -4314,6 +4450,8 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       shp.closePath();
       const geo = new THREE.ExtrudeGeometry(shp, {depth:0.55, bevelEnabled:false});
       geo.translate(0,0,-0.275);
+      // Kondensstreifen an den Spitzen (s. addFinTrails)
+      addFinTrails(g, ar*0.97 + 4.6, 0.4 + fh*0.34, 4, 0);
       for(let k=0;k<4;k++){
         const a = k*Math.PI/2;
         const fin = new THREE.Mesh(geo, MAT.blue);
@@ -4354,6 +4492,7 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
         pivot.add(fin);
         g.add(pivot);
       }
+      addFinTrails(g, ar + 2.2, ay, 4, Math.PI/4);
       break;}
     case "legs":{
       /* RADIALTEIL: sitzt seitlich am Wirtstank, y=0 ist dessen UNTERKANTE
@@ -8535,8 +8674,14 @@ const PartIcons = {
       // verkleidung erkennt. Also die Ogive fürs Bild dazustellen.
       if(id==="fairing") mesh.add(buildFairingShell(PARTS[id].w/2, 26));
     }catch(e){ return cv; }
+    /* ⚠️ Auch die Kondensstreifen müssen RAUS: In three r128 zählt
+       `Box3.setFromObject` unsichtbare Kinder mit – ein 20 Einheiten langer
+       Trail an einer 15 Einheiten großen Flosse würde das Icon auf ein Drittel
+       schrumpfen. Gleicher Grund wie bei den Flammen. */
     const drop = [];
-    mesh.traverse(o=>{ if(o.name==="flame" || o.name==="bflame") drop.push(o); });
+    mesh.traverse(o=>{
+      if(o.name==="flame" || o.name==="bflame" || o.name==="finTrail") drop.push(o);
+    });
     for(const o of drop) if(o.parent) o.parent.remove(o);
     // Materialien klonen (s. o.) und die Hallen-Umgebung anlegen
     mesh.traverse(o=>{
@@ -11177,7 +11322,7 @@ const Flight = {
     }
     this.sas = "off"; this._cd = 0; this.expCount = 0; this._wasSpace = undefined;
     this.heatDmg = 0; this._heatMsgT = undefined;
-    this.shake = 0; this.shakeImp = 0; this._shakeWant = 0; this._shakeT = 0;
+    this.shake = 0; this._shakeWant = 0; this._shakeT = 0; this._shakeT0 = undefined;
     this.paused = false;
     // Strom: Kapazität aus Kapsel/Sonde/Batterien, Panels starten eingeklappt
     this.maxCharge = vessel.stack.reduce((a,id)=>a+(PARTS[id].charge||0), 0);
@@ -11600,6 +11745,9 @@ const Flight = {
         const tw = this.nextLaunchWindow(this.target) - this.t;
         this.launchWindowMiss = Math.min(tw, per - tw);
       }
+      // Kamerawackeln: 3 s ab der Zündung AUF DER RAMPE (s. applyShake) –
+      // ein Zünden im Orbit rüttelt die Kamera bewusst nicht.
+      if(this.landed) this._shakeT0 = this.t;
       s.ignited = true; this.landed=false; this.flew=true;
       this.ensureRumble(); this.ensureRaptor();
       const bo = s.boost;
@@ -11607,13 +11755,11 @@ const Flight = {
         bo.ignited = true;   // klassischer Simultanstart – [R] zündet sie auch alleine
         this.showMsg("Zündung – Stufe + ihre Seitenbooster! 🔥🔥",2);
       } else this.showMsg("Zündung! 🔥",2);
-      this.addShake(1.0);   // der Schlag beim Hochfahren der Turbopumpen
       return;
     }
     if(this.v.segs.length>1){
       // Abgeworfene Stufe nimmt IHREN Booster-Pool mit (seg.boost hängt am Segment)
       const dropped = this.v.segs.shift();
-      this.addShake(0.85);   // die Sprengbolzen der Stufentrennung
       this.stagedOnce = true;   // ab jetzt kein Aero-Wobble mehr (Oberstufen fliegen ruhig)
       this.v.stack.splice(this.v.stack.length-dropped.parts.length, dropped.parts.length);
       // ⚠️⚠️ Saß das Fairing in der ABGEWORFENEN Stufe, ist es jetzt weg – das
@@ -11659,7 +11805,7 @@ const Flight = {
              : site==="rtls" && this.lzLocal ? this.lzLocal.clone() : null,
           // Catch: Arme greifen oben – die Stufen-UNTERKANTE hängt entsprechend tiefer
           catchAlt: site==="catch" ? Math.max(10, 72 - stackHeight(debrisStack) + 6) : 0,
-          state:"flip", stateT:0, finDeploy:0, throttle:0, doneT:0
+          state:"flip", stateT:0, finDeploy:0, throttle:0, doneT:0, missed:false
         };
         const lowFuel = dropped.fuelLeft < dropped.fuel*(site==="rtls"||site==="catch" ? 0.3 : 0.12);
         this.showMsg(lowFuel
@@ -12026,6 +12172,34 @@ const Flight = {
     this.showMsg(this.panelsOut ? "☀️ Solarpanele ausgefahren (+3 ⚡/s)" : "Solarpanele eingeklappt.",2);
   },
   /* Umgebungstemperatur in °C: Boden warm, mit der Höhe kälter, im All ~ -270 °C */
+  /* Wolkendeckung (0…1) genau dort, wo das Schiff die Wolkenschale durchstößt.
+     Ohne diese Abfrage führe man auch bei blitzblauem Himmel durch Nebel.
+     ⚠️ Die Deckung steckt im ALPHA der Wolkentextur (`makeCloudTexture` malt
+     RGB konstant 255 und moduliert nur a) – nicht in der Helligkeit.
+     ⚠️⚠️ Maßgeblich ist die UV-Konvention von THREE.SphereGeometry, NICHT die
+     Zeilenordnung, in der `makeCloudTexture` das Canvas füllt: three lädt
+     Canvas-Texturen mit `flipY` hoch, die Kugel liest die Kachel also
+     gespiegelt. Über die Geometrie gerechnet ist es schlicht
+     `py = acos(y)/π · H` (Nordpol = oberste Zeile).
+     ⚠️ NUR EINMAL je Durchflug aufrufen – `getImageData` ist nicht gratis;
+     frame() cacht das Ergebnis in `_cloudHitAt`. */
+  cloudCoverHere(){
+    try{
+      const img = this.cloudShell && this.cloudShell.material.map &&
+                  this.cloudShell.material.map.image;
+      if(!img || !img.getContext) return 1;
+      const d = this.pos.clone().sub(bodyPos(LEIBNIZ, this.t)).normalize()
+        .applyAxisAngle(V3(0,1,0), -(this.cloudShell.rotation.y || 0));
+      const W = img.width, H = img.height;
+      let u = Math.atan2(d.z, -d.x)/(Math.PI*2);
+      if(u < 0) u += 1;
+      const px = Math.min(W-1, Math.max(0, Math.floor(u*W)));
+      const py = Math.min(H-1, Math.max(0,
+        Math.floor(Math.acos(THREE.MathUtils.clamp(d.y, -1, 1))/Math.PI*H)));
+      const a = img.getContext("2d").getImageData(px, py, 1, 1).data[3]/255;
+      return THREE.MathUtils.clamp(a/0.7, 0, 1);
+    }catch(e){ return 1; }
+  },
   ambTemp(){
     const alt = leibnizAlt(this.pos, this.t);
     if(alt >= LEIBNIZ.atmoH) return -270;
@@ -12177,7 +12351,11 @@ const Flight = {
       coast:"🪂 Abstieg (Gitterflossen)",
       burn:"🔥 LANDING BURN", landed:"✅ GELANDET!", crashed:"💥 verloren",
       catchup:"🏗 ANFLUG AUF DEN TURM", caught:"🦾 GECATCHT!"};
-    document.getElementById("boosterCamState").textContent = states[b.state]||"";
+    // ⚠️ `missed` schlägt den Zustandstext: Sonst steht »ANFLUG AUF DEN TURM«
+    // über einem Booster, der 28 km daneben niedergeht.
+    document.getElementById("boosterCamState").textContent =
+      b.missed && b.state!=="landed" && b.state!=="crashed"
+        ? "⚠️ NOTLANDUNG downrange" : (states[b.state]||"");
     const lp = bodyPos(LEIBNIZ, this.t);
     const alt = Math.max(0, b.pos.distanceTo(lp)-LEIBNIZ.R);
     const vrel = b.vel.clone().sub(bodyVel(LEIBNIZ,this.t)).length();
@@ -12407,6 +12585,35 @@ const Flight = {
         }
       } else if(b.state==="coast"){
         b.finDeploy = Math.min(1, b.finDeploy + dtb/1.8);   // Flossen ausklappen
+        /* ⚠️⚠️ REALITÄTSCHECK: Kommt der Booster überhaupt noch heim?
+           Der Boostback bricht auch dann ab, wenn schlicht der Sprit ausgeht
+           (< 12 %) – der Autopilot hielt danach trotzdem an `tgt` fest und
+           »zielte« auf den Turm, der 28 km entfernt lag. Ergebnis: Der Booster
+           setzte irgendwo im leeren Gelände auf, während Meldung, Kamera und
+           Mechazilla so taten, als liefe ein Catch – die »Catch-Animation im
+           Nichts« (Bug-Report Simon: tritt genau dann auf, wenn man kurz vor
+           der Tankmarke trennt). Gegen 28 km kommen weder der Gitterflossen-
+           Lift (~4 m/s²) noch die Endanflug-Regelung (45 m/s quer) an.
+           Also: Ziel ehrlich aufgeben, sobald feststeht, dass es nicht reicht.
+           ⚠️ Erst unter 25 km prüfen – darüber ist `predictImpactRel` am
+           Scheitelpunkt bis zu 40 km daneben (s. Droneship-Kommentar), da
+           würde die Prüfung gute Landungen wegwerfen. */
+        if(b.tgt && !b.missed && alt < 25000 && (b._gvT===undefined || tt - b._gvT > 1)){
+          b._gvT = tt;
+          const impG = this.predictImpactRel(b, tt);
+          if(impG){
+            const eG = b.tgt.clone().sub(impG);
+            eG.addScaledVector(up, -eG.dot(up));
+            if(eG.length() > BOOSTER_GIVEUP){
+              const km = (eG.length()/1000).toFixed(1);
+              b.missed = true; b.tgt = null; b.catchAlt = 0; this.dsLocal = null;
+              this.showMsg("⚠️ Der Boostback hat nicht gereicht – der Booster ist noch "+km+
+                " km vom Landeplatz entfernt und geht downrange nieder. "+
+                "Tipp: FRÜHER trennen (orange Marke an der Tankanzeige) – "+
+                "dann bleibt genug Sprit für den Rückflug.", 7);
+            }
+          }
+        }
         /* Droneship: fährt autonom zum vorhergesagten Aufschlagpunkt (auf See!)
            ⚠️⚠️ Die Position wird bis 25 km Höhe IMMER WIEDER nachgeführt und
            erst dann festgezurrt. Vorher wurde sie EINMAL beim Eintritt in den
@@ -13944,33 +14151,33 @@ const Flight = {
     }catch(e){ this._audio = null; }
   },
   /* ================================================================
-     KAMERAWACKELN  (`shake` / `shakeImp` / `addShake` / `applyShake`)
+     KAMERAWACKELN  (`shake` / `_shakeT0` / `applyShake`)
      ----------------------------------------------------------------
      Rein optisch – die Kamera wird versetzt, NICHT das Schiff. Physik,
      Flugbahn und alle Autopiloten bleiben unberührt.
-     Zwei Quellen, die sich addieren:
-     · DAUERPEGEL `_shakeWant` (in frame() aus Schub, Luftdichte und
-       Hitze gesetzt): das Rütteln eines laufenden Triebwerks.
-     · IMPULSE `shakeImp` über `addShake()`: Zündung, Stufentrennung,
-       Aufsetzen, Explosion – klingen exponentiell ab.
-     ⚠️⚠️ Der Pegel läuft über die ECHTE Zeit (1/60), nicht über die
-     simulierte: sonst würde die Kamera im Zeitraffer rasen. Aus dem
-     gleichen Grund darf der Ausschlag NICHT pro Frame gewürfelt werden –
-     das wäre 60-Hz-Stroboskop wie beim alten Schweißlicht. Stattdessen
-     drei Sinus mit teilerfremden Frequenzen (6,1 / 11,3 / 17,7 Hz):
-     unregelmäßig genug, dass man kein Muster erkennt, und langsam genug,
-     dass bei 60 fps nichts aliast.
+     ⚠️⚠️ BEWUSST NUR DIE ERSTEN `SHAKE_LIFTOFF` SEKUNDEN AB ZÜNDUNG AUF
+     DER RAMPE. Die erste Fassung rüttelte durchgehend, solange ein
+     Triebwerk brannte, plus Impulse bei Stufentrennung, Aufsetzen,
+     Fallschirm und Explosion. Ergebnis: »sieht einfach so aus, als würde
+     die Rakete die ganze Zeit wackeln« (Simon) – aus einem Effekt, der
+     den Moment des Abhebens verkaufen soll, wurde ein Dauerzustand, den
+     das Auge nach zehn Sekunden nur noch als Unruhe liest. Der Start ist
+     der einzige Moment, in dem das Rütteln etwas ERZÄHLT.
+     Keine weiteren Quellen – kein Wackeln bei Stufentrennung, keins beim
+     Landen, keins beim Wiedereintritt. Wer das wieder aufmacht, macht
+     denselben Fehler nochmal.
+     ⚠️⚠️ Der Pegel läuft über die SIMULIERTE Zeit (`this.t`), damit die
+     3 Sekunden 3 Spielsekunden sind. Der Ausschlag wird NICHT pro Frame
+     gewürfelt – das wäre 60-Hz-Stroboskop wie beim alten Schweißlicht.
+     Stattdessen drei Sinus mit teilerfremden Frequenzen (6,1 / 11,3 /
+     17,7 Hz): unregelmäßig genug, dass man kein Muster erkennt, und
+     langsam genug, dass bei 60 fps nichts aliast.
      ⚠️ Die Amplitude hängt an `cd` (Kameraabstand), damit der Ausschlag
      im BILD gleich groß bleibt – ein fester Meterwert ist bei 35 m
      Abstand ein Erdbeben und bei 3000 m unsichtbar. */
-  addShake(v){
-    this.shakeImp = Math.min(1.8, (this.shakeImp||0) + v);
-  },
   applyShake(cd){
     const g = Settings.shake || 0;
-    this.shakeImp = (this.shakeImp||0) * 0.90;             // ~0,16 s Halbwertszeit
-    if(this.shakeImp < 0.004) this.shakeImp = 0;
-    const want = (this._shakeWant||0) + this.shakeImp;
+    const want = this._shakeWant || 0;
     // Anstieg schnell (die Zündung soll schlagen), Abfall träge
     const k = want > this.shake ? 0.35 : 0.10;
     this.shake += (want - this.shake)*k;
@@ -14317,7 +14524,6 @@ const Flight = {
     }
   },
   explode(){
-    this.addShake(1.8);
     const up = this.pos.clone().normalize();
     for(let i=0;i<55;i++){
       const dir = V3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
@@ -14336,7 +14542,6 @@ const Flight = {
   },
   jettisonFairing(){
     if(!this.v || !this.v.fairingIntact || this.crashed || this.ended) return;
-    this.addShake(0.5);
     // Zwei Halbschalen fliegen seitlich weg – wie bei echten Fairings
     const stack = this.v.stack;
     const fIdx = stack.findIndex(id=>PARTS[id].type==="fairing");
@@ -14597,7 +14802,6 @@ const Flight = {
       this.chuteOpen = true;
       this.chuteOpenT = this.t;
       this.attachChute();
-      this.addShake(0.75);   // der Ruck, wenn die Kappe fasst
       this.showMsg("Fallschirm ausgelöst! 🪂",2);
     }
   },
@@ -15518,7 +15722,6 @@ const Flight = {
             " Zurück ans Reißbrett!",99);
         } else if(!this.landed){
           this.landed = true;
-          this.addShake(Math.min(1.2, 0.25 + vrel*0.10));   // Aufsetzstoß
           this.showMsg("🛬 Gelandet auf "+b.name+"! ("+vrel.toFixed(1)+" m/s)"+
             (this.crew.length?" Die Crew ist wohlauf! 👋":""),5);
           this.onLanded(b);
@@ -16616,15 +16819,14 @@ const Flight = {
       (s.fuelLeft>0&&s.thrust&&this.throttle>0 || s.srbLeft>0&&s.srbThrust);
     const boB = s && s.boost;
     const boosterBurn = boB && boB.attached && boB.ignited && boB.fuelLeft>0 && warp<=2;
-    /* Dauer-Wackelpegel (s. applyShake). Ein Feststoffbooster rüttelt spürbar
-       stärker als ein geregeltes Flüssigtriebwerk – das ist einer der Gründe,
-       warum bemannte Raketen ungern auf ihnen fliegen. In dichter Luft kommt
-       das Buffeting dazu, beim Wiedereintritt die Bremsung selbst. */
-    this._shakeWant =
-        (burning ? (0.30 + 0.45*this.throttle) * (0.45 + 0.55*f) : 0)
-      + (s && s.srbLeft>0 && s.srbThrust && burning ? 0.28 : 0)
-      + (boosterBurn ? 0.30 : 0)
-      + Math.min(0.55, Math.max(0, ((this.shipTemp||0) - 700)/1100));
+    /* Wackelpegel: NUR die ersten SHAKE_LIFTOFF Sekunden nach der Zündung auf
+       der Rampe (s. applyShake), und nur solange auch wirklich ein Triebwerk
+       brennt. Die letzte Sekunde blendet weich aus, sonst hört es mit einem
+       Ruck auf – und ein hart abgeschnittener Effekt fällt mehr auf als der
+       Effekt selbst. */
+    const sinceLift = this._shakeT0===undefined ? 1e9 : this.t - this._shakeT0;
+    this._shakeWant = (burning && sinceLift < SHAKE_LIFTOFF)
+      ? 0.95 * THREE.MathUtils.smoothstep(SHAKE_LIFTOFF - sinceLift, 0, 1.0) : 0;
     /* Abgasstrahl-Uniforms für den HAUPT-Render. Die Booster-PiP setzt sie vor
        ihrem eigenen render() erneut (der Booster steht ja ganz woanders in der
        Atmosphäre) – s. updateBoosterCam. */
@@ -16769,6 +16971,100 @@ const Flight = {
                 0.4+Math.random()*0.5, 3+Math.random()*3.5,
                 Math.random()<0.72 ? 0xffc070 : 0xff5a9a);   // ein paar magentafarbene
             }
+          }
+        }
+      }
+      /* ---- Kondensation: Vapor Cone, Flossen-Streifen, Wolkendurchstoß ----
+         Alle drei aus denselben zwei Zahlen: Mach-Zahl und Staudruck. */
+      {
+        const airW = this.vel.clone().sub(bodyVel(LEIBNIZ, this.t));
+        const vAir = airW.length();
+        const rhoA = alt < LEIBNIZ.atmoH
+          ? LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH) : 0;
+        const qDyn = 0.5*rhoA*vAir*vAir;
+        // Schallgeschwindigkeit aus der Lufttemperatur: c = 20,05·√(T in K)
+        const cSnd = 20.05*Math.sqrt(Math.max(60, this.ambTemp() + 273.15));
+        const mach = vAir/cSnd;
+        const live = !this.map && !this.crashed && !this.landed &&
+                     !this.eva && alt < LEIBNIZ.atmoH && this.rocketGroup;
+        /* ⚠️ Der Vapor Cone hängt an BEIDEM: an einer Glocke um Mach 1 (das ist
+           die Physik – der Druck bricht transsonisch ein) UND am Staudruck (das
+           ist der Moment, den man im HUD sieht). Nur Mach 1 abzufragen ließe ihn
+           auch in 30 km Höhe erscheinen, wo längst keine Feuchte mehr da ist. */
+        const coneI = live
+          ? Math.exp(-Math.pow((mach - 1.0)/0.22, 2)) * THREE.MathUtils.clamp(qDyn/18000, 0, 1) : 0;
+        // Wirbelkerne an Flossenspitzen gibt es auch schon unterhalb Mach 1
+        const trailI = live
+          ? THREE.MathUtils.smoothstep(mach, 0.55, 0.95) * THREE.MathUtils.clamp(qDyn/22000, 0, 1) : 0;
+        // Wolkendurchstoß: schmales Höhenband um die Wolkenschale
+        const cloudA = LEIBNIZ.R*0.006;
+        let puffI = live ? 1 - THREE.MathUtils.smoothstep(Math.abs(alt - cloudA), 260, 850) : 0;
+        if(puffI > 0){
+          // Steht hier ÜBERHAUPT eine Wolke? Einmal je Durchflug nachsehen –
+          // sonst fährt man auch bei blitzblauem Himmel in Nebel.
+          if(this._cloudHitAt === undefined) this._cloudHitAt = this.cloudCoverHere();
+          puffI *= this._cloudHitAt;
+        } else this._cloudHitAt = undefined;
+
+        if((coneI > 0 || puffI > 0) && !this.vaporGroup){
+          this.vaporGroup = new THREE.Group();
+          this.vaporGroup.add(makeVapor("cone", 1, 1, "vaporCone"));
+          this.vaporGroup.add(makeVapor("puff", 1, 1, "vaporPuff"));
+          this.scene.add(this.vaporGroup);
+        }
+        if(this.vaporGroup){
+          const cone = this.vaporGroup.children[0], puff = this.vaporGroup.children[1];
+          cone.visible = coneI > 0.004;  puff.visible = puffI > 0.004;
+          this.vaporGroup.visible = cone.visible || puff.visible;
+          if(this.vaporGroup.visible && vAir > 1){
+            const aDir = airW.clone().normalize();
+            // +Y der Gruppe zeigt IN den Wind; die Geometrie läuft nach −Y,
+            // also nach hinten – wie bei der Triebwerksflamme.
+            this.vaporGroup.quaternion.setFromUnitVectors(V3(0,1,0), aDir);
+            const H = Math.max(6, this.height());
+            const wMax = this.v.stack.length
+              ? Math.max(...this.v.stack.map(id=>PARTS[id].w)) : 6;
+            const ca = Math.abs(V3(0,1,0).applyQuaternion(this.q).dot(aDir));
+            const half = 0.5*(ca*H + (1-ca)*wMax);
+            // Querschnitt als FLÄCHE (gleiche Überlegung wie beim Plasma)
+            const Aq = ca*Math.PI*wMax*wMax/4 + (1-ca)*H*wMax;
+            const Rx = Math.sqrt(Aq/Math.PI);
+            if(cone.visible){
+              cone.scale.set(Rx*2.2, half*0.9, Rx*2.2);
+              cone.position.y = half*0.28;      // Front sitzt vor der Rumpfmitte
+              cone.material.uniforms.uI.value = coneI;
+            }
+            if(puff.visible){
+              puff.scale.set(Rx*3.2, H*2.6, Rx*3.2);
+              puff.position.y = H*1.0;
+              puff.material.uniforms.uI.value = puffI;
+            }
+          }
+        }
+        // Flossen-Kondensstreifen (hängen an der Rakete, s. addFinTrails)
+        if(this._trailI !== trailI){
+          this._trailI = trailI;
+          const tm = _vaporMats.trail;
+          if(tm) tm.uniforms.uI.value = trailI;
+        }
+        if(this.rocketGroup)
+          this.rocketGroup.traverse(o=>{ if(o.name==="finTrail") o.visible = trailI > 0.01; });
+        VAPOR_U.uTime.value = (performance.now()/1000) % 600;
+        /* Nebelschwaden beim Wolkendurchstoß: ziehen relativ zur LUFT nach
+           hinten weg, nicht relativ zum Schiff – deshalb `vel` als Basis.
+           ⚠️ Absolute Positionen (Partikel hängen an `world`, nicht am Schiff). */
+        /* ⚠️ Menge und Größe bewusst gedeckelt: Der Partikel-Pool hat 170
+           Sprites und gehört auch dem Abgasstrahl. Mit 3 Stück je Frame bei
+           1,1 s Lebensdauer wären ~120 gleichzeitig belegt – die Rauchfahne
+           des Triebwerks wäre im Wolkenband schlicht verdrängt. */
+        if(puffI > 0.2 && warp <= 2 && Math.random() < 0.7){
+          const fr2 = this.frameAt(this.pos);
+          for(let k=0;k<2;k++){
+            const off = V3((Math.random()-0.5), (Math.random()-0.5), (Math.random()-0.5))
+              .normalize().multiplyScalar(this.height()*0.35 + Math.random()*20);
+            this.spawnParticle(this.pos.clone().add(off),
+              this.vel.clone().addScaledVector(fr2.up, (Math.random()-0.5)*6),
+              0.4+Math.random()*0.5, 7+Math.random()*9, 0xf2f6ff);
           }
         }
       }
@@ -17048,7 +17344,7 @@ const Flight = {
     if(!this.map && !this.paused){
       const sh = this.applyShake(cd);
       if(sh){ this.camera.position.add(sh.off); this.camera.rotateZ(sh.roll); }
-    } else { this.shake = 0; this.shakeImp = 0; }
+    } else this.shake = 0;
     this.renderer.setSize(w,h,false);
     this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
     this.setViewUniforms(this.camera, h);   // Meer & Wolken auf die Hauptkamera

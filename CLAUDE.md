@@ -26,89 +26,33 @@ Screen `#options` (Hauptmenü »⚙️ Optionen«, im VAB **und im FLUG** der �
 von `renderOptions()`. Vier Regler: **Grafik** (niedrig/mittel/hoch), **Musik**, **Geräusche**,
 **📳 Kamera-Wackeln** – dazu die Karte **⌨️ Tastenbelegung** (`KEYMAP` → `renderKeymap()`).
 
-### 📳 Kamerawackeln (`Settings.shake` / `Flight.addShake` / `applyShake`)
-Rein optisch – versetzt wird die KAMERA, nicht das Schiff; Flugbahn, Autopiloten und
-Physik bleiben unberührt. Zwei Quellen addieren sich:
-- **Dauerpegel** `_shakeWant`, in `frame()` gesetzt: Schub × Luftdichte, dazu ein Aufschlag
-  für Feststoffbooster (die rütteln berüchtigt stärker als geregelte Flüssigtriebwerke –
-  einer der Gründe, warum bemannte Raketen ungern auf ihnen fliegen) und die Bremsung beim
-  Wiedereintritt (über `shipTemp`). Gemessen: Rampe vor Zündung 0 · Vollschub bodennah 0,75 ·
-  30 % Schub 0,43 · Triebwerk aus 0.
-- **Impulse** `shakeImp` über `addShake()`: Zündung 1,0 · Stufentrennung 0,85 · Fallschirm
-  0,75 · Aufsetzen 0,25 + 0,10·v · Fairing 0,5 · Explosion 1,8. Abklingen ×0,90 pro Frame
-  ⇒ nach 0,8 s vorbei (gemessen).
-- ⚠️⚠️ **EIGENER Regler, nicht Teil der Grafikstufe.** Kamerawackeln ist ein
-  Übelkeitsauslöser (Motion Sickness), und in der AG sitzen zwei bis drei Kinder vor einem
-  Schirm – wer es nicht verträgt, muss es abschalten können, ohne dafür Bildqualität zu
-  opfern. Dieselbe Überlegung wie beim entschärften Schweißlicht in der Halle. Verifiziert:
-  Regler 100 % → Ausschlag 1,43 % der halben Bildhöhe, 50 % → 0,60 %, **0 % → exakt 0,00**.
-- ⚠️⚠️ **Der Pegel läuft über die ECHTE Zeit (1/60), nicht über die simulierte** – sonst
-  rast die Kamera im Zeitraffer. Und der Ausschlag wird **NICHT pro Frame gewürfelt**: das
-  wäre 60-Hz-Stroboskop, genau der Fehler des alten Schweißlichts. Stattdessen drei Sinus
-  mit teilerfremden Frequenzen (6,1 / 11,3 / 17,7 Hz) und pro Achse eigener Phase –
-  unregelmäßig genug ohne erkennbares Muster, langsam genug, dass bei 60 fps nichts aliast.
-- ⚠️ **Amplitude ∝ `cd` (Kameraabstand)**, damit der Ausschlag im BILD gleich bleibt: ein
-  fester Meterwert ist bei 35 m Abstand ein Erdbeben und bei 3000 m unsichtbar.
-- ⚠️ **In der KARTE aus** (und bei Pause): Dort ist die Kamera kein Standpunkt im Raum,
-  sondern ein Kartenausschnitt – eine zitternde Bahnlinie macht das Ablesen von Ap/Pe
-  unmöglich. Verifiziert: `shake` fällt in der Karte auf 0.
-- ⚠️ Angewandt wird der Versatz NACH `camera.lookAt()`: eine reine Translation verschiebt
-  das Bild, ohne den Blickpunkt zu verdrehen – genau das tut eine mitgerüttelte Kamera.
-- ⚠️ Die Tastentabelle ist bewusst **READ-ONLY**: In der AG sitzen zwei bis drei Kinder an
-  einem Rechner, und eine still verstellte Belegung sieht man dem Spiel von außen nicht an –
-  die nächste Gruppe hält es schlicht für kaputt. Außerdem nennen Tutorials, Hinweistexte und
-  die Knopfbeschriftungen die Tasten im Klartext; frei belegbar müsste das alles mitziehen.
-  `KEYMAP` ist eine **Beschreibung, keine zweite Quelle** – die Belegung selbst steht im
-  keydown-Handler in `Flight.init()`. Wer dort etwas ändert, ändert es hier UND in
-  tutorials.js mit. (So gefunden: der Hinweistext `flight3d` nannte noch »Z = voll«, obwohl
-  Vollgas seit August 2026 auf ⇧X liegt.)
-- ⚠️ `renderKeymap()` baut nur EINMAL (`if(box.childElementCount) return`) – `renderOptions()`
-  läuft bei jedem Reglerklick.
-### ⚙️ auch mitten im Flug (`UI.openOptions` / `UI.optFrom`)
-Grafikstufe, Lautstärke und die Tastentabelle braucht man genau dann, wenn es ruckelt oder
-eine Taste fehlt – und nicht erst nach dem Flug. Der ⚙️-Knopf steht deshalb in der
-Flug-Knopfleiste direkt vor »Flug beenden«.
-- ⚠️⚠️ **Dafür braucht es ein EIGENES Rücksprungziel `UI.optFrom`.** `UI.show()` schreibt
-  `prev` absichtlich NICHT, wenn die Flugansicht aktiv ist (sonst landete jedes »Zurück« im
-  Cockpit statt in der Halle) – ohne `optFrom` fiel man aus dem laufenden Flug in die
-  Montagehalle, der Flug wäre weg gewesen. `back()` prüft es zuerst, `show()` leert es bei
-  jedem anderen Screen. Verifiziert: Flug→⚙️→Zurück landet im Flug (Bahn und Missionszeit
-  laufen weiter), Halle→⚙️→Zurück in der Halle, Menü→⚙️→Zurück im Menü.
-- ⚠️ **Die Simulation steht solange still, und zwar von selbst**: Die Frame-Schleife ruft
-  `Flight.frame()` nur bei aktivem Flug-Screen, und die Schrittweite dort ist `warp/60`,
-  kommt also NICHT aus der Uhr – beim Zurückkommen gibt es keinen Zeitsprung. Der
-  keydown-Handler prüft ebenfalls auf den aktiven Screen.
-- ⚠️ `updateMusic()` behandelt »Optionen aus dem Flug« als Flug (`eff`): sonst startet beim
-  Öffnen der Einstellungen die Hallenmusik und bricht beim Zurückspringen wieder ab.
-- ⚠️ **Bewusst im localStorage (`lmgSettings`), NICHT im Spielstand.** Einstellungen gehören
-  zum RECHNER – die Kinder tauschen Saves als Datei aus, sonst erbt der lahme Schulrechner
-  die »Hoch«-Stufe vom Gaming-PC.
-- Eine Stufe schaltet ALLE teuren Schrauben gemeinsam: `dpr` (Auflösung), `shadow`
-  (Schattenkarte in px, 0 = aus) und `trees`. (Ein `clouds`-Regler existierte bis
-  August 2026 – er zählte die Puff-Wolken, die es nicht mehr gibt.)
-- **`gfxPixelRatio()` ist der größte Einzelhebel.** Vorher rief niemand `setPixelRatio` auf →
-  auf jedem HiDPI-Bildschirm (Simons Rechner: devicePixelRatio 1,75) rendert das Spiel in
-  ~57 % Linearauflösung und wird hochskaliert. Das war der »irgendwie matschig«-Eindruck.
-  Doppelte dpr = **vierfache** Pixelmenge, deshalb gedeckelt.
-- ⚠️⚠️ **Dazu gehört zwingend `width:100%;height:100%` im CSS jedes Renderer-Canvas**
-  (`#vab3d canvas`, `#flight3d canvas`). `setSize(w,h,false)` lässt die CSS-Größe absichtlich
-  in Ruhe und setzt nur den Zeichenpuffer auf w·dpr – ein `<canvas>` ist aber ein **ersetztes**
-  Element: ohne gesetzte Breite gewinnt seine INTRINSISCHE Größe (= Puffergröße in px) gegen
-  `inset:0`, `right`/`bottom` werden ignoriert. Folge auf JEDEM HiDPI-Schirm: die Leinwand ist
-  dpr-mal zu groß, hängt links oben fest, man sieht nur ihren linken oberen Ausschnitt (Bild
-  wirkt herangezoomt und aus der Mitte gerückt) – und in der Halle schob sie sich über das
-  rechte Info-Panel (»die rechte Seite ist abgeschnitten«, Bug-Report Simon, 13"). Das
-  Lens-Flare-Overlay ist 1:1 groß und lag deshalb auch nicht mehr auf der sichtbaren Sonne.
-  Gegenprobe: `canvas.getBoundingClientRect()` MUSS `#vab3d`/`#flight3d` exakt entsprechen.
-- Bäume über `Settings.q.trees` in `placeTrees`; `applyGraphics`
-  ruft `placeTrees` sofort neu auf, wenn eine Bodenszene steht (sonst wirkt der Regler erst
-  beim nächsten Verankern und sieht kaputt aus).
-- ⚠️ **`shadowMap.enabled` wird NUR am VAB-Renderer geschaltet.** Die Flugszene hat keine
-  Schattenwerfer; sie mitzuschalten bringt kein Pixel, erzwingt aber einen Shader-Neubau der
-  GANZEN Szene inklusive Ozean-, Himmels- und Wolken-Shader = spürbarer Hänger pro Klick.
-- Lautstärke: `music.volume = Settings.music`; `Flight.setRumble` merkt sich den Rohpegel in
-  `_rumbleWant` und multipliziert mit `Settings.sfx`, damit der Regler mitten im Brennvorgang
-  sofort greift.
+### 📳 Kamerawackeln (`Settings.shake` / `SHAKE_LIFTOFF` / `applyShake`)
+Rein optisch – versetzt wird die KAMERA, nicht das Schiff; Flugbahn, Autopiloten und Physik
+bleiben unberührt.
+- ⚠️⚠️ **NUR die ersten `SHAKE_LIFTOFF` = 3 Sekunden ab der Zündung AUF DER RAMPE.** Die
+  erste Fassung rüttelte durchgehend, solange ein Triebwerk brannte, plus Impulse bei
+  Stufentrennung, Aufsetzen, Fallschirm, Fairing und Explosion. Ergebnis: »sieht einfach so
+  aus, als würde die Rakete die ganze Zeit wackeln« (Simon) – aus einem Effekt, der den
+  Moment des Abhebens verkaufen soll, wurde ein Dauerzustand, den das Auge nach zehn
+  Sekunden nur noch als Unruhe liest. **Keine weiteren Quellen** – kein Wackeln bei
+  Stufentrennung, keins beim Landen, keins beim Wiedereintritt. Wer das wieder aufmacht,
+  macht denselben Fehler nochmal. (`addShake`/`shakeImp` gibt es deshalb nicht mehr.)
+- `_shakeT0` wird in `stage()` gesetzt, aber nur wenn `this.landed` – ein Zünden im Orbit
+  oder nach einer Stufentrennung rüttelt bewusst nicht. Die letzte Sekunde blendet weich aus
+  (`smoothstep`), ein hart abgeschnittener Effekt fällt mehr auf als der Effekt selbst.
+  Gemessen: vor Zündung 0 · t = 1 s und 2 s → 0,95 · 2,5 s → 0,40 · ab 3,2 s → 0 ·
+  nach Stufentrennung 0.
+- ⚠️ **EIGENER Regler, nicht Teil der Grafikstufe.** Kamerawackeln ist ein Übelkeitsauslöser
+  (Motion Sickness), und in der AG sitzen zwei bis drei Kinder vor einem Schirm – wer es
+  nicht verträgt, muss es abschalten können, ohne dafür Bildqualität zu opfern. Dieselbe
+  Überlegung wie beim entschärften Schweißlicht. Verifiziert: 100 % → Ausschlag 1,43 % der
+  halben Bildhöhe, 50 % → 0,60 %, **0 % → exakt 0,00**.
+- ⚠️⚠️ Der Pegel läuft über die SIMULIERTE Zeit (`this.t`), damit 3 Sekunden 3 Spielsekunden
+  sind. Der Ausschlag wird **nicht pro Frame gewürfelt** – das wäre 60-Hz-Stroboskop wie beim
+  alten Schweißlicht; stattdessen drei Sinus mit teilerfremden Frequenzen (6,1 / 11,3 /
+  17,7 Hz). Amplitude ∝ `cd` (Kameraabstand), damit der Ausschlag im BILD gleich bleibt.
+- ⚠️ In der KARTE und bei Pause aus: dort ist die Kamera ein Kartenausschnitt, und eine
+  zitternde Bahnlinie macht das Ablesen von Ap/Pe unmöglich.
 
 ### Triebwerksklang: echte Raptor-Aufnahme (`RAPTOR` / `setRaptor` / `updateRaptor`)
 ⚠️⚠️ **Die Aufnahme läuft NUR, wenn auch wirklich ein Raptor brennt** (`segHasRaptor(seg)` →
@@ -950,6 +894,30 @@ näher an die Kamera holen), nicht ein zweites System danebenstellen.
   2. **Kein Tangentialebenen-Umweg.** Ziel ist der vorhergesagte Aufschlagpunkt SELBST (`imp.normalize()·R`). Vorher wurde er in Ost/Nord-Koordinaten der RAMPE zerlegt und aus `padLocal` wieder zusammengesetzt: Der Ost-Anteil einer 290-km-Sehne ergibt über `atan(e/R)` nur 268 km Bogen = **22 km zu kurz**. Bei kurzen Strecken identisch, deshalb fiel es nie auf.
   3. **Wassersuche in BEIDE Richtungen.** Östlich des Äquator-Raumhafens liegt Meer nur von ~2 bis ~60 km, dann kommt der nächste Kontinent (gemessen `landH > 0` von 65 bis ~190 km). Die alte Suche schob nur ostwärts und höchstens 40×800 m – bei Aufschlag 130 km downrange lief sie 40-mal ins Leere und das Deck stand am Ende **exakt 32 km** daneben (konstanter Offset = verräterisch). Jetzt ±40 km entlang der Bahnspur, nächstgelegenes Wasser gewinnt, Verschiebung als WINKEL (`s/R`) am Zielpunkt; nach Westen nur, solange das Deck > 6 km östlich der Rampe bleibt.
 - **Mechazilla (eq-Pad, Tech starshipT):** Turm+Arme (`name:"mzArm"`, `userData.side`) + Flame Diverter in `buildPad("eq")`; `Flight.catchLocal` = padLocal + Nord·(−20). Superheavy-Stufe (braucht Decoupler drüber!) → `site:"catch"`, `catchAlt = 72 − H + 6` (Arme greifen oben, Unterkante schwebt). Catch-Check VOR dem Boden-Check: alt ≤ catchAlt+2, horizontal < 45 m, < 9 m/s → `state:"caught"` (sackt 2,5 m nach, `b.sink`), 100 % Erstattung, `statCaught`. Arme schließen via `Flight.mzArmFold` in frame(). **Superheavy startet NUR von eq** (Guard in `UI.launch`). Diverter-Extra-Rauch: 4 Partikel/Frame seitlich (Ost/West) bei alt < 100 + superheavy im Stack; Partikel-Pool dafür 170.
+- ⚠️⚠️ **Realitätscheck im Abstieg (`BOOSTER_GIVEUP` = 7000 m, `b.missed`):** Der
+  Boostback-Burn bricht nicht nur ab, wenn das Ziel erreicht ist, sondern auch, wenn schlicht
+  der Sprit ausgeht (< 12 %). Danach hielt der Autopilot trotzdem an `b.tgt` fest und
+  »zielte« auf den Mechazilla-Turm, der 28–50 km entfernt lag: Der Booster setzte irgendwo im
+  leeren Gelände auf, während Meldung, Statuszeile und Kamera so taten, als liefe ein Catch –
+  die **»Catch-Animation im Nichts«** (Bug-Report Simon: tritt genau dann auf, wenn man kurz
+  vor der Tankmarke trennt). Jetzt gibt der Autopilot das Ziel ehrlich auf: `tgt = null`,
+  `catchAlt = 0`, Klartext-Meldung mit der Restentfernung und dem Hinweis, früher zu trennen;
+  die Statuszeile der PiP zeigt **»⚠️ NOTLANDUNG downrange«** statt »ANFLUG AUF DEN TURM«.
+  - ⚠️⚠️ **Die Schwelle ist GEMESSEN, nicht geschätzt.** Der erste Wurf stand auf 2,5 km
+    (überschlagen aus »45 m/s quer über 40 s Sinkzeit«) und brach damit einen Anflug ab, der
+    sauber gecatcht hätte. Restabweichung über den Abstieg, Superheavy ab eq-Rampe:
+    **30 % Trennung (gelingt):** 25 km → 4,13 · 10 km → 4,13 · 7 km → 0,32 km ⇒ caught, 10 m ·
+    **20 %:** 25 km → 10,9 · 10 km → 9,43 ⇒ 7,8 km daneben ·
+    **10 %:** 25 km → 27,0 · 10 km → 37,4 ⇒ 34,9 km daneben.
+    Der Endanflug-Regler schließt die Lücke also erst zwischen 10 und 7 km Höhe, und zwar aus
+    über 4 km heraus – die Überschlagsrechnung hat seine Reichweite um mehr als die Hälfte
+    unterschätzt. 7 km trennt beide Gruppen mit Reserve nach beiden Seiten.
+  - ⚠️ Geprüft wird erst **unter 25 km** und nur einmal pro Sekunde – darüber ist
+    `predictImpactRel` am Scheitelpunkt bis zu 40 km daneben (s. Droneship-Kommentar).
+  - Verifiziert nach der Korrektur: **30 %** → `caught`, 0,01 km, `missed=false` · **20 %** →
+    `missed`, 20,8 km · **10 %** → `missed`, 49,9 km; der Booster ist in allen
+    Landing-Burn-Frames im Bild. Die Mechazilla-Arme schnappen weiterhin nur bei
+    `state==="caught"` zu, bleiben bei einer Notlandung also offen.
 - **Booster-Cam:** 380×230, Landing Burn/caught zoomt auf `min(420, 130+0.9·vrel)` raus (geglättet via `b.camDist`, flacher Winkel 0.07) – Cinematic-Shot. Neue States boostback/caught im Label.
   - ⚠️ **Beim Landing Burn gehört das ZIEL mit ins Bild.** Die Kamera blickt dann nicht mehr auf die Booster-Mitte, sondern auf `lerp(booster, b.tgt, 0.55)`, und der Abstand wächst auf mindestens `Abstand·1,25 + 50` (50° Bildhöhe ⇒ Spanne/0,93, plus Rand), gedeckelt bei 600. Vorher lag die Barge bei 204 m Resthöhe knapp UNTER dem Bildrand: Man sah eine Rakete über leerem Wasser schweben, und im nächsten Moment stand sie – genau der Moment, für den das Fenster da ist, fiel heraus. Gilt genauso für LZ und Mechazilla-Arme.
   - ⚠️⚠️ **…aber NUR, solange das Ziel auch hineinpasst** (`f = 1 − clamp((Abstand−260)/260)`, blendet die Ziel-Einrahmung über 260 → 520 m aus). Der 600er-Deckel trägt bei 50° Bildhöhe rund **440 m** Spanne; wer zu spät trennt, landet aber kilometerweit daneben. Dann schaute die Kamera auf einen Punkt weit VOR dem Booster: leerer Boden, Rakete außerhalb des Bildes, während die Statuszeile »LANDING BURN · Höhe 12 m« meldete (Bug-Report Simon mit Screenshot). Nachgerechnet für den gemessenen Fall (Ziel 28,1 km weg): Blickpunkt 15,4 km vor dem Booster, Winkel Booster↔Kameraachse **87,8°** bei 37,7° halbem Öffnungswinkel – der Booster war also wirklich draußen, kein Auflösungsproblem. Verifiziert über die echte Frustum-Prüfung: Fehlanflug 28 km → 5/5 Landing-Burn-Frames zeigen den Booster (camDist 144–147 m); Normalanflug → 3/3 Frames zeigen **Booster UND Ziel** (camDist 202–210 m), also unverändert der alte Cinematic-Shot.
@@ -1201,6 +1169,45 @@ ein paar technische Marken; `skinPart(g)` zieht sie am Ende von `buildPartMesh` 
   transparente Pixel von 5184 – deckt sich mit dem alten Referenzwert 432…2500, die geteilte
   Textur kommt also auch im fremden Icon-GL-Kontext an). `frame()` 0,54 ms.
 
+### Kondensation in der Luft (`VAPOR_*` / `makeVapor` / `addFinTrails` / `cloudCoverHere`)
+Drei Erscheinungen, EIN Shader – alle drei sind dasselbe Ereignis: Wo der Luftdruck lokal
+einbricht, kühlt die Luft ab und die Feuchtigkeit kondensiert zu sichtbarem Nebel. Die
+Geometrie ist dieselbe wie bei der Flamme (`plumeGeometry`, s. dort), nur mit anderer
+Formfunktion; die weiche Silhouette entsteht wieder über `dot(n,V)`.
+- **VAPOR CONE** (Prandtl-Glauert-Wolke) am Schiff, ausgerichtet an `airVel`.
+  ⚠️⚠️ Die Intensität hängt an BEIDEM: an einer Glocke um **Mach 1** (das ist die Physik –
+  transsonisch bricht der Druck ein) UND am **Staudruck** (das ist der Moment, den man im HUD
+  sieht). Nur Mach abzufragen ließe ihn auch in 30 km Höhe erscheinen, wo keine Feuchte mehr
+  ist. Schallgeschwindigkeit aus `ambTemp()`: `c = 20,05·√(T in K)`. Verifiziert: Maximum
+  exakt bei Mach 1,00 (2,3 km Höhe, q ≈ 43 800 Pa).
+  ⚠️ **Kurz und glockig, nicht schlauchförmig**: `taper` < 0,5 lässt ihn gleich hinter der
+  Kondensationsfront aufgehen. Die erste Fassung (taper 0,65, Länge 2,2·half) hüllte den
+  ganzen Rumpf ein und war als Form nicht mehr zu erkennen.
+- **KONDENSSTREIFEN** an Flossen- und Gitterflossenspitzen (`addFinTrails`, 4 Stück im
+  Azimutraster des jeweiligen Bauteils). ⚠️ Sie hängen als KINDER am Bauteil und zeigen nach
+  −Y: Beim Aufstieg fliegt die Rakete prograde, damit stimmt die Richtung von selbst – ohne
+  Ausrichtungsmathematik pro Frame. Schwelle breiter als beim Cone (ab ~Mach 0,55), Wirbel-
+  kerne gibt es auch subsonisch.
+  ⚠️⚠️ **Sie müssen in `PartIcons.make` mit auf die `drop`-Liste** (wie die Flammen): In
+  three r128 zählt `Box3.setFromObject` unsichtbare Kinder mit, ein 20 Einheiten langer Trail
+  an einer 15 Einheiten großen Flosse schrumpft das Icon sonst auf ein Drittel.
+- **WOLKENDURCHSTOSS**: Höhenband um die Wolkenschale (`LEIBNIZ.R*0.006` = 3600 m), ±260…850 m.
+  ⚠️⚠️ `cloudCoverHere()` fragt, ob dort ÜBERHAUPT eine Wolke steht – sonst führe man auch
+  bei blitzblauem Himmel durch Nebel. Die Deckung steckt im **ALPHA** der Wolkentextur
+  (`makeCloudTexture` malt RGB konstant 255). Maßgeblich ist die UV-Konvention von
+  `THREE.SphereGeometry` samt `flipY`, NICHT die Zeilenordnung, in der die Textur gefüllt
+  wird: über die Geometrie gerechnet ist es `py = acos(y)/π · H`. Exakt gegengeprüft gegen
+  das echte `uv`-Attribut der Kugel: **0,000 px Abweichung**. (Zwei Render-Vergleiche davor
+  waren untauglich – sie maßen die Nachtseite bzw. Land/Meer statt der Wolken.)
+  ⚠️ Nur EINMAL je Durchflug abfragen (`_cloudHitAt`), `getImageData` ist nicht gratis.
+  ⚠️ Der Nebel ist bewusst fast nur ein Hauch (`op` 0,10): Eine Wolke hat keine
+  Vorzugsrichtung, eine Röhre schon – mit 0,26 las sich der Effekt als heller Zylinder um die
+  Rakete. Die Arbeit machen die Schwaden-PARTIKEL. Deren Menge ist gedeckelt, weil der Pool
+  (170 Sprites) auch dem Abgasstrahl gehört.
+  Gemessen: LMG-Rampe Deckung **1,00** (die AG erlebt es beim Standardstart), Äquator- und
+  Polarrampe 0,00; planetenweit 27 % der Fläche über 0,3.
+- Kosten: `frame()` mit allen drei Effekten gleichzeitig **0,97 ms**.
+
 ### Abgasstrahl (`makeFlame` / `FLAME_U` / `FLAME_VERT` / `FLAME_FRAG`)
 Vorher ein opaker `ConeGeometry` mit `MeshBasicMaterial` – also genau die harte Silhouette,
 die beim Plasmaschweif und beim Kometenschweif schon zweimal als »Plastiktrichter« verworfen
@@ -1227,9 +1234,10 @@ deren **Form und Deckkraft der Shader rechnet**.
 - **Farbe je Triebwerksart** (`FLAME_KIND`): `raptor` bläulich (Methan brennt fast unsichtbar)
   · `kero` gelb-orange · `srb` grell und rußig (`uSoot` schluckt am Ende Licht) · `ion`
   blassblau. Zuordnung in `buildPartMesh` über `p.raptor` bzw. die Teile-ID.
-- ⚠️⚠️ **EINE Geometrie und EIN Material-Satz für ALLE Flammen.** Die Geometrie ist ein reiner
-  Parameterraum (Radius 1, Länge 1, Düse bei y=0, Ende bei y=−1) – die echte Größe macht
-  `mesh.scale`, die Form der Vertex-Shader. Die Uniform-OBJEKTE werden zwischen den
+- ⚠️⚠️ **EINE Geometrie und EIN Material-Satz für ALLE Flammen.** `plumeGeometry()` ist ein
+  reiner Parameterraum (Radius 1, Länge 1, Düse bei y=0, Ende bei y=−1) und wird von
+  Triebwerksflamme, Vapor Cone UND Kondensstreifen geteilt – die echte Größe macht
+  `mesh.scale`, die Form der jeweilige Vertex-Shader. Die Uniform-OBJEKTE werden zwischen den
   Farbvarianten geteilt (`Object.assign({}, FLAME_U, …)` kopiert Referenzen, nicht Werte), ein
   `FLAME_U.uVac.value = …` wirkt also überall. Verifiziert: 2 Flammen im Stack → 1 Geometrie.
 - ⚠️ **`setFlames` multipliziert mit `userData.len`**, weil die Geometrie normalisiert ist.
