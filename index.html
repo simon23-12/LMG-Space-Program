@@ -615,100 +615,6 @@ input[type=file]{display:none;}
 const G0 = 9.81;
 const V3 = (x=0,y=0,z=0)=>new THREE.Vector3(x,y,z);
 
-/* =================================================================
-   FARBPIPELINE – sRGB-Ausgabe (»Schritt 1«, August 2026)
-   =================================================================
-   ⚠️⚠️ WAS HIER PASSIERT, BETRIFFT JEDE FARBE IM SPIEL. Vorher lief der
-   Renderer auf three-Standard (LinearEncoding): Farben wurden roh in den
-   Bildpuffer geschrieben, obwohl der Bildschirm sie als sRGB liest. Licht
-   wurde damit in der falschen Skala verrechnet – jedes Produkt aus Albedo
-   und Lichtstärke war zu hell, und ab Lichtstärke ~2 lief alles in den
-   1,0-Anschlag. Genau daher stammen die vielen »nicht heller als X, sonst
-   brennt es aus«-Deckel weiter unten (Schummerung ±30 %, Admin-Cam-Licht
-   unter 1,5, Beton nur getönt).
-
-   Jetzt: gerechnet wird LINEAR, ausgegeben sRGB. Gemessener Kopfraum-
-   Gewinn: Eine Fläche mit Albedo 0,5 lief vorher ab Lichtstärke 2,0 in
-   den Anschlag, jetzt erst ab 4,7 – Faktor 2,3.
-
-   ⚠️ Damit das GLEICH AUSSIEHT, wo es soll, müssen die von Hand
-   ausgesuchten Farben von sRGB nach linear – sonst wird alles um 47 %
-   heller (gemessen: Grauwert 128 → 188). Das erledigt der Patch unten an
-   EINER Stelle, statt an ~300 Hex-Literalen im Code.
-
-   ⚠️⚠️ ZWEI WELTEN, und die Grenze ist die entscheidende Regel:
-   1. Materialien VON three (MeshStandard/Basic/Sprite/Line, auch die per
-      onBeforeCompile gepatchten) laufen durch den sRGB-Encoder.
-      → ihre Farben müssen LINEAR sein  → setHex konvertiert.
-   2. Eigene ShaderMaterials (Meer, Himmel, Sonne, Lufthülle, Polarlicht,
-      Flamme, Kondensstreifen, Plasma, Windkanal) laufen NICHT durch den
-      Encoder – three ruft dort weder toneMapping noch linearToOutputTexel
-      auf, das müsste der Shader selbst tun. Gemessen: ein Custom-Shader,
-      der 0,5 ausgibt, liefert mit und ohne outputEncoding exakt 128.
-      → ihre Uniform-Farben sind ANZEIGE-Werte und bleiben unkonvertiert
-      → dafür gibt es dispColor()/dispSet(). Diese Shader bleiben dadurch
-      pixelgenau wie vorher, inklusive der additiv gestapelten Effekte.
-   Dasselbe gilt für scene.background: die Hintergrundfarbe geht als
-   glClearColor am Shader VORBEI (nachgemessen) – also ebenfalls dispColor.
-
-   ⚠️ setHex UND getHex werden gepatcht. THREE.Color spricht dadurch nach
-   außen weiterhin sRGB und speichert innen linear; ein Hin-und-Rück
-   (z. B. dustColor über shade2D) liefert wieder denselben Wert und
-   konvertiert nicht doppelt. */
-(function(){
-  const setHex = THREE.Color.prototype.setHex, getHex = THREE.Color.prototype.getHex;
-  const setStyle = THREE.Color.prototype.setStyle;
-  THREE.Color.prototype.setHex = function(hex){
-    return setHex.call(this, hex).convertSRGBToLinear();
-  };
-  THREE.Color.prototype.getHex = function(){
-    return getHex.call(this.clone().convertLinearToSRGB());
-  };
-  /* ⚠️ setStyle MUSS mitgepatcht werden und ruft NICHT etwa setHex auf:
-     three schreibt bei "#rrggbb" und "rgb(…)" direkt in r/g/b. Ohne diesen
-     Zweig bleibt `new THREE.Color("#9aa0ac")` unkonvertiert, und ein
-     Hin-und-Rück über getHex() macht daraus 0xcccfd6 statt 0x9aa0ac –
-     so aufgefallen an den Staubfarben aus `shade2D` (dustColor). */
-  THREE.Color.prototype.setStyle = function(style){
-    return setStyle.call(this, style).convertSRGBToLinear();
-  };
-})();
-/* Farbe im ANZEIGE-Raum: umgeht die Konvertierung (setRGB ist ungepatcht).
-   Für Uniforms eigener Shader und für scene.background – s. o. */
-function dispColor(hex){
-  return new THREE.Color().setRGB(((hex>>16)&255)/255, ((hex>>8)&255)/255, (hex&255)/255);
-}
-function dispSet(col, hex){
-  return col.setRGB(((hex>>16)&255)/255, ((hex>>8)&255)/255, (hex&255)/255);
-}
-/* ⚠️⚠️ TEXTUREN: Die 39 Canvas-Texturen des Spiels sind bis auf eine
-   Handvoll GEMALTE Farben – also sRGB. Sie müssen als solche angemeldet
-   werden, sonst liest der Shader die Farbwerte als linear und alles wird
-   nach der Kodierung um ~47 % zu hell.
-
-   Deshalb hier die Voreinstellung umdrehen (sRGB) und die wenigen
-   DATENtexturen unten einzeln zurückstellen – das ist die sichere
-   Richtung: 5 bewusste Ausnahmen statt 34 leicht zu vergessende
-   Einzeländerungen. Vergisst man eine Farbtextur, sieht man es sofort;
-   vergisst man eine Datentextur, verbiegt sich still eine Küstenlinie.
-   Ausgenommen sind (dataTex): uAux (Küstenabstand/Höhe/Hangneigung),
-   detailNoiseTex (Höhe + Gradient), die Meeres-Normalmap und die
-   Rauch-Kachel des Windkanals. SHORE.tex ist eine DataTexture und
-   bleibt ohnehin linear. */
-(function(){
-  const CT = THREE.CanvasTexture;
-  THREE.CanvasTexture = function(...a){
-    const t = new CT(...a);
-    t.encoding = THREE.sRGBEncoding;
-    return t;
-  };
-  THREE.CanvasTexture.prototype = CT.prototype;
-})();
-/* Datentextur: trägt Zahlen, keine Farben – Kodierung wieder abschalten. */
-function dataTex(t){ t.encoding = THREE.LinearEncoding; return t; }
-/* Wiederverwendeter Rechenplatz für Scheitelfarben (shapeTerrain läuft über
-   ~11 000 Scheitel – dort darf pro Punkt kein Objekt entstehen). */
-const _vcol = new THREE.Color();
 
 /* =================================================================
    EINSTELLUNGEN – Grafikstufe & Lautstärke
@@ -3387,11 +3293,9 @@ const AdminCam = {
     if(this.ready) return;   // ready erst am ENDE setzen – wirft init, wird neu versucht
     const host = document.getElementById("adminCam3d");
     this.renderer = new THREE.WebGLRenderer({antialias:true, logarithmicDepthBuffer:true});
-    this.renderer.outputEncoding = THREE.sRGBEncoding;   // s. »Farbpipeline« ganz oben
     this.renderer.domElement.style.cssText = "width:100%;height:100%;";
     host.appendChild(this.renderer.domElement);
-    // ⚠️ dispColor: die Hintergrundfarbe geht als Clear-Color am Encoder vorbei
-    this.scene = new THREE.Scene(); this.scene.background = dispColor(0x02030a);
+    this.scene = new THREE.Scene(); this.scene.background = new THREE.Color(0x02030a);
     this.camera = new THREE.PerspectiveCamera(50, 1, 1000, 4e11);
     /* ⚠️ Zusammen unter 1,5 bleiben! Vorher 0,45 + 1,5 = 1,95: Damit brannte
        alles mit einer Albedo über ~0,5 zu reinem Weiß aus – Leibniz' Gebirge
@@ -3879,7 +3783,7 @@ function flameMat(kind){
   const k = FLAME_KIND[kind] || FLAME_KIND.kero;
   return _flameMats[kind] = new THREE.ShaderMaterial({
     uniforms: Object.assign({}, FLAME_U, {
-      uTint:{value:dispColor(k.tint)}, uOp:{value:k.op}, uSoot:{value:k.soot}}),
+      uTint:{value:new THREE.Color(k.tint)}, uOp:{value:k.op}, uSoot:{value:k.soot}}),
     vertexShader:FLAME_VERT, fragmentShader:FLAME_FRAG,
     transparent:true, depthWrite:false, side:THREE.DoubleSide,
     blending:THREE.AdditiveBlending
@@ -5391,9 +5295,7 @@ function makeBodyTexture(b){
       }
     }
     auxC.getContext("2d").putImageData(aImg, 0, 0);
-    // ⚠️ DATENtextur (R = Küstenabstand, G = Höhe/Tiefe, B = Hangneigung) –
-    // keine Farben, also ohne sRGB-Kurve. Sonst wandert die Wasserkante.
-    _leibnizAux = dataTex(new THREE.CanvasTexture(auxC));
+    _leibnizAux = new THREE.CanvasTexture(auxC);
     _leibnizAux.wrapS = THREE.RepeatWrapping;    // Datumsgrenze nahtlos
   } else {
     paintProceduralBody(b, x, W, HH);
@@ -6139,8 +6041,7 @@ function detailNoiseTex(){
   // als Moiré flimmern. Weichzeichnen ist bei Rauschen die richtige Antwort;
   // das Ausblenden feiner Oktaven macht ohnehin die Mipmap-Kette von selbst.
   tex.anisotropy = 2;
-  // ⚠️ DATENtextur (R = Höhe, G/B = Gradient) – ohne sRGB-Kurve.
-  return (_detailTex = dataTex(tex));
+  return (_detailTex = tex);
 }
 
 /* Gemeinsamer GLSL-Baustein: dreifach-planares Abtasten des Feinrauschens.
@@ -6501,8 +6402,8 @@ function atmoShellMaterial(Rp, Ra){
   const u = {
     uCam:{value:new THREE.Vector3(0, 0, Ra*4)},
     uSun:{value:new THREE.Vector3(1, 0, 0)},
-    uCol:{value:dispColor(0x4d8ede)},
-    uSunCol:{value:dispColor(0xffd9a8)},
+    uCol:{value:new THREE.Color(0x4d8ede)},
+    uSunCol:{value:new THREE.Color(0xffd9a8)},
     uRp:{value:Rp}, uRa:{value:Ra}, uI:{value:1},
     uH:{value:(Ra-Rp)*0.30}          // Skalenhöhe der Lufthülle
   };
@@ -6546,7 +6447,19 @@ function atmoShellMaterial(Rp, Ra){
    ⚠️ Alpha klein halten (additiv!). Über dem dunklen Nachthimmel brennt sonst
    alles auf Weiß aus und von der Farbfolge bleibt nichts übrig – dieselbe
    Lehre wie bei Flamme, Plasma und den Windkanal-Rauchfahnen. */
-const AURORA_H0 = 60000, AURORA_H1 = 170000;   // Unter-/Oberkante über Grund
+/* ⚠️⚠️ HÖHE = der wichtigste Regler für die SILHOUETTE von außen. Bis
+   August 2026 standen hier 60 000 / 170 000 – bei Leibniz' Radius von 600 km
+   sind das 10 % bis 28 % des Planetenradius. Beim Überflug ragte das Oval
+   damit als KRONE über den Horizont hinaus (Bug-Report Simon mit ISS-Foto
+   zum Vergleich): auf den echten Aufnahmen liegt das Band flach auf der
+   Lufthülle, es steht nicht davon ab. Zum Maßstab: Auf der Erde leuchtet ein
+   Polarlicht in 100–400 km über 6371 km Radius, also bei 1,6 % bis 6 %.
+   Jetzt 5 % bis 15,8 % – Leibniz' Lufthülle ist mit 70 km von 600 km
+   proportional siebenmal dicker als die der Erde, ganz auf Erd-Verhältnisse
+   herunter geht es also nicht, ohne das Polarlicht in die dichte Luft zu
+   legen. Von der Polarstation bleibt es trotzdem ein Vorhang: Er steht dort
+   zwischen 11° und 69° über dem Südhorizont (vorher 21°…58°). */
+const AURORA_H0 = 30000, AURORA_H1 = 95000;   // Unter-/Oberkante über Grund
 /* ⚠️ Kolatitude = Abstand vom Pol. Die Polarstation liegt bei 86° N (also 4°),
    das Oval MUSS deutlich weiter draußen liegen: Steht man mittendrin, sieht man
    nur noch eine Decke über sich statt der Vorhänge. 7,5°…18,9° heißt vom
@@ -6620,8 +6533,17 @@ void main(){
      Unterkante ein LINEAL quer ueber den Himmel – der auffaelligste Fehler der
      ersten Fassung. */
   float low = 0.02 + 0.14*(0.5 + 0.5*sin(ph*6.0 + uTime*0.061 + vBand));
-  float top = 0.35 + 0.45*(0.5 + 0.5*sin(ph*4.0 - uTime*0.047 + vBand*1.7));
-  float prof = smoothstep(low, low + 0.05, vV) * (1.0 - smoothstep(top*0.55, top + 0.45, vV));
+  /* ⚠️ Die Oberkante liegt bewusst TIEF und blendet kurz aus: Auf den
+     ISS-Aufnahmen ist die Erscheinung ein flaches, unten scharf begrenztes
+     BAND – oben fasert sie schnell aus. Mit der alten, weit nach oben
+     reichenden Blende (top bis 0,80, Ausblenden erst bei top+0,45) leuchtete
+     der ganze Vorhang auf voller Höhe und stand als Zackenkranz über dem
+     Horizont. */
+  float top = 0.26 + 0.30*(0.5 + 0.5*sin(ph*4.0 - uTime*0.047 + vBand*1.7));
+  float prof = smoothstep(low, low + 0.04, vV) * (1.0 - smoothstep(top*0.45, top + 0.26, vV));
+  // Heller Saum an der Unterkante – dort endet die Teilchenbahn in dichterer
+  // Luft, und genau diese scharfe helle Kante macht das ISS-Bild aus.
+  prof *= 1.0 + 0.85*exp(-max(0.0, vV - low)*14.0);
   /* Senkrechte Strahlen – sie haengen NUR am Laengengrad, stehen also wie die
      Feldlinien selbst. ⚠️ Die Phase wird mit einer groberen Welle verzogen
      (Domain Warping, wie bei Wolken und Planetentextur): mit gleichmaessigem
@@ -6629,7 +6551,10 @@ void main(){
      helle Strahlen mit breiten dunklen Zwischenraeumen. */
   float ray = 0.5 + 0.5*sin(ph*74.0 + 3.0*sin(ph*11.0 + uTime*0.05) + uTime*0.5);
   ray = 0.22 + 0.78*ray*ray;
-  vec3 col = mix(uColLow, uColHigh, smoothstep(0.30, 0.92, vV));
+  /* ⚠️ Grün MUSS dominieren. Vorher begann der Farbwechsel schon bei 0,30,
+     der halbe Vorhang war rot-violett – auf echten Aufnahmen ist das der
+     schwache Saum ganz oben, nicht die halbe Erscheinung. */
+  vec3 col = mix(uColLow, uColHigh, smoothstep(0.62, 1.0, vV));
   float a = prof * ray * cover * edge * night * uI * 0.40;
   gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
 }`;
@@ -6672,11 +6597,14 @@ function buildAurora(R){
       uR0:{value:R + AURORA_H0}, uR1:{value:R + AURORA_H1},
       uCol0:{value:AURORA_COL0}, uCol1:{value:AURORA_COL1},
       uAmp:{value:0.022},          // Wobble-Amplitude der Kolatitude (~1,3°)
-      uTilt:{value:0.055},         // Neigung nach außen = Magnetfeldlinien
+      /* ⚠️ Neigung nach außen (Magnetfeldlinien). Bewusst KLEIN: Sie addiert
+         sich beim Blick von außen auf die Höhe und war der zweite Anteil am
+         »Kronen«-Eindruck – die Vorhänge liefen oben auseinander wie Zacken. */
+      uTilt:{value:0.018},
       uHemi:{value:hemi},
       uSunDir:{value:new THREE.Vector3(0,1,0)},
-      uColLow:{value:dispColor(0x59ff9d)},    // Sauerstoff, ~100 km
-      uColHigh:{value:dispColor(0xb63c74)}    // Stickstoff/Sauerstoff, hoch
+      uColLow:{value:new THREE.Color(0x59ff9d)},    // Sauerstoff, ~100 km
+      uColHigh:{value:new THREE.Color(0xb63c74)}    // Stickstoff/Sauerstoff, hoch
     };
     const m = new THREE.Mesh(geo, new THREE.ShaderMaterial({
       uniforms:u, vertexShader:AURORA_VERT, fragmentShader:AURORA_FRAG,
@@ -7346,8 +7274,7 @@ function makeSeaNormalTexture(){
   // dem Meer). Weichzeichnen ist hier die richtige Antwort – die Ferne wird
   // ohnehin über das Wellen-LOD im Shader ausgeblendet.
   tex.anisotropy = 2;
-  // ⚠️ NORMALMAP – Richtungsvektoren, keine Farben: ohne sRGB-Kurve.
-  return dataTex(tex);
+  return tex;
 }
 
 /* =================================================================
@@ -8002,10 +7929,9 @@ const CFD = {
     if(!this.renderer){
       this.host = document.getElementById("cfd3d");
       this.renderer = new THREE.WebGLRenderer({antialias:true});
-      this.renderer.outputEncoding = THREE.sRGBEncoding;
       this.host.appendChild(this.renderer.domElement);
       this.scene = new THREE.Scene();
-      this.scene.background = dispColor(0x04060c);
+      this.scene.background = new THREE.Color(0x04060c);
       this.camera = new THREE.PerspectiveCamera(46, 1, 0.1, 6000);
       // Glow-Textur für Wirbel/Staupunkt/Tracer
       const c = document.createElement("canvas"); c.width = c.height = 64;
@@ -8156,9 +8082,7 @@ const CFD = {
       img.data[i+3] = Math.min(255, v*255)|0;
     }
     ctx.putImageData(img, 0, 0);
-    // ⚠️ Alpha-Maske für einen EIGENEN Shader (der nicht kodiert wird) –
-    // ohne sRGB-Kurve, damit die Rauchfahnen pixelgenau bleiben.
-    const t = dataTex(new THREE.CanvasTexture(c));
+    const t = new THREE.CanvasTexture(c);
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     return t;
   },
@@ -8971,7 +8895,6 @@ const PartIcons = {
     const S = this.size;
     this.renderer = new THREE.WebGLRenderer({antialias:true, alpha:true,
                                              preserveDrawingBuffer:true});
-    this.renderer.outputEncoding = THREE.sRGBEncoding;
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio||1));
     this.renderer.setSize(S, S, false);
     this.renderer.setClearColor(0x000000, 0);
@@ -9071,7 +8994,6 @@ const VAB = {
   init(){
     const host = document.getElementById("vab3d");
     this.renderer = new THREE.WebGLRenderer({antialias:true});
-    this.renderer.outputEncoding = THREE.sRGBEncoding;
     // Die Halle ist der EINFACHE Schattenfall: begrenzte Szene, ein Hauptlicht,
     // nichts bewegt sich weit. Genau das trennt "Objekte schweben über einer
     // Textur" von "Objekte stehen in einem Raum".
@@ -9079,12 +9001,7 @@ const VAB = {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     host.insertBefore(this.renderer.domElement, host.firstChild);
     this.scene = new THREE.Scene();
-    /* ⚠️ Zwei Wege für dieselbe Farbe, und das ist Absicht: Der Hintergrund
-       geht als Clear-Color am Encoder VORBEI (Anzeige-Wert), der Nebel wird
-       im Fragment-Shader eingemischt und ist damit ein LINEARER Wert. Beide
-       landen am Ende auf demselben Pixel – die Halle löst sich weiterhin
-       nahtlos in ihren Hintergrund auf. */
-    this.scene.background = dispColor(0x10182c);
+    this.scene.background = new THREE.Color(0x10182c);
     this.scene.fog = new THREE.Fog(0x10182c, 320, 900);
     /* ⚠️ near = 1, NICHT 0,1: Die Tiefengenauigkeit hängt fast nur an der
        Nahebene (Δz ≈ z²·(far−near)/(near·far·2^bits)). Mit 0,1 lagen auf 400
@@ -10547,10 +10464,9 @@ const Flight = {
   init(){
     const host = document.getElementById("flight3d");
     this.renderer = new THREE.WebGLRenderer({antialias:true, logarithmicDepthBuffer:true});
-    this.renderer.outputEncoding = THREE.sRGBEncoding;
     host.appendChild(this.renderer.domElement);
     this.scene = new THREE.Scene();
-    this.scene.background = dispColor(0x04060e);
+    this.scene.background = new THREE.Color(0x04060e);
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.5, 2.2e11);   // weit genug für die Nebel-Kulisse hinter Newton
     // Floating Origin: alles Welt-Feste liegt in dieser Gruppe, die jeden Frame
     // um -Schiffsposition verschoben wird. So bleibt die Kamera nahe am Ursprung
@@ -10677,7 +10593,7 @@ const Flight = {
       uBetaR:{value:new THREE.Vector3(...SKY_BETA_R)}, uBetaM:{value:SKY_BETA_M},
       uSunI:{value:1}, uAlpha:{value:0}, uMulti:{value:SKY_MULTI},
       uExposure:{value:SKY_EXPOSURE}, uG:{value:SKY_MIE_G},
-      uSpaceCol:{value:dispColor(0x04060e)}
+      uSpaceCol:{value:new THREE.Color(0x04060e)}
     };
     // Radius 5000 km: größer als jede Kamera-Distanz außerhalb der Karte
     // (dort ist die Kuppel aus), aber weit innerhalb der Far-Plane 2,2e11.
@@ -10689,12 +10605,8 @@ const Flight = {
     this.skyDome.renderOrder = -1000;
     this.skyDome.frustumCulled = false;
     this.scene.add(this.skyDome);
-    /* ⚠️ ANZEIGE-Raum: skyRadiance() schreibt hier per setRGB Werte hinein,
-       die so an den Himmels-Shader und ans Meer gehen (beide ohne Encoder).
-       Wo sie in ein three-Material oder ein Licht wandern, wird an der
-       jeweiligen Stelle nach linear konvertiert – s. »Farbpipeline«. */
-    this.skyZenith  = dispColor(0x87b6ea);
-    this.skyHorizon = dispColor(0xbfe6f5);
+    this.skyZenith  = new THREE.Color(0x87b6ea);
+    this.skyHorizon = new THREE.Color(0xbfe6f5);
     this.sunTintCol = new THREE.Color(0xffffff);
     this._skyAmb    = new THREE.Color();
     // Lokaler Boden am Startplatz (Tangentialebene; die Kugel ist zu grob für Bodennähe).
@@ -10778,19 +10690,19 @@ const Flight = {
     // Küsten-Patch = tesselliert, echte Gerstner-Verschiebung im Vertex.
     // Beide werten dieselbe Wellensumme über denselben Ost/Nord-Koordinaten
     // aus → der Übergang ist unsichtbar.
-    this.seaHorizonBase = dispColor(0xbfe6f5);   // Anzeige-Raum (Meeres-Shader)
+    this.seaHorizonBase = new THREE.Color(0xbfe6f5);
     this.oceanU = {
       uTime:      {value:0},
       uSwell:     {value:makeSwellWaves()},
       uDetail:    {value:seaNorm},
       uSunDir:    {value:new THREE.Vector3(0.3, 0.2, 0.93)},
-      uSunCol:    {value:dispColor(0xfff2df)},
+      uSunCol:    {value:new THREE.Color(0xfff2df)},
       uSunI:      {value:1},
-      uSkyCol:    {value:dispColor(0x87b6ea)},
-      uHorizonCol:{value:dispColor(0xbfe6f5)},
-      uDeepCol:   {value:dispColor(0x06305e)},
-      uShallowCol:{value:dispColor(0x2ba7ad)},
-      uFoamCol:   {value:dispColor(0xeff7ff)},
+      uSkyCol:    {value:new THREE.Color(0x87b6ea)},
+      uHorizonCol:{value:new THREE.Color(0xbfe6f5)},
+      uDeepCol:   {value:new THREE.Color(0x06305e)},
+      uShallowCol:{value:new THREE.Color(0x2ba7ad)},
+      uFoamCol:   {value:new THREE.Color(0xeff7ff)},
       uAmb:       {value:0.34},
       uPixel:     {value:0.0013},   // Winkelgröße eines Pixels (Wellen-LOD)
       uHaze:      {value:HAZE_K_SEA}, // Luftperspektive zum Horizont (höhenabhängig, s. hazeScale)
@@ -10855,7 +10767,7 @@ const Flight = {
        Landung wie aufgeklebt auf der Wiese. Sie hängt an `scene` (nicht an
        `world`), weil das Schiff der Szenen-URSPRUNG ist. */
     this._envSoil = new THREE.Color();
-    this._soilCol = dispColor(0x4c5a3e);   // wird als CSS in die Env-Map gemalt
+    this._soilCol = new THREE.Color(0x4c5a3e);
     {
       const g = new THREE.PlaneGeometry(1, 1); g.rotateX(-Math.PI/2);
       this.shipBlob = new THREE.Mesh(g, new THREE.MeshBasicMaterial({
@@ -11932,10 +11844,10 @@ const Flight = {
     // Bodenszene an der Rampe verankern (Küste aus dem prozeduralen Terrain)
     this.reanchorGround(pd, "pad:"+this.pad.id);
     // Meer: Tiefen-/Flachwasserfarbe + Horizontschimmer (der Rest steckt im Shader)
-    dispSet(this.oceanU.uDeepCol.value, polar ? 0x08243c : 0x06305e);
-    dispSet(this.oceanU.uShallowCol.value, polar ? 0x4e93a4 : 0x2ba7ad);     // Polarmeer eisiger
+    this.oceanU.uDeepCol.value.set(polar ? 0x08243c : 0x06305e);
+    this.oceanU.uShallowCol.value.set(polar ? 0x4e93a4 : 0x2ba7ad);     // Polarmeer eisiger
     this.oceanU.uChop.value = polar ? 0.75 : 1.0;                       // Packeis-ruhiger
-    dispSet(this.seaHorizonBase, polar ? 0x9fc4d4 : 0xbfe6f5);               // Horizont-Schimmer
+    this.seaHorizonBase.set(polar ? 0x9fc4d4 : 0xbfe6f5);               // Horizont-Schimmer
     this.treeCrowns.material.color.set(polar ? 0xc9dcd2 : 0x2e7d3f);    // verschneite Kronen
     // Rampe & Boden mit EXPLIZITER Basis ausrichten: X=Ost, Y=hoch, Z=SÜD.
     // ⚠️ {Ost, hoch, Nord} wäre LINKSHÄNDIG (Spiegelmatrix, keine Rotation) –
@@ -12108,16 +12020,7 @@ const Flight = {
         r = 0.45 + t*0.44; gr = 0.38 + t*0.53; b = 0.34 + t*0.60;
       }
       if(polar > 0){ r += (0.87-r)*polar; gr += (0.91-gr)*polar; b += (0.95-b)*polar; }
-      /* ⚠️ Die Farbwerte oben sind nach AUGENMASS gewählt, also Anzeige-Werte.
-         Scheitelfarben werden aber im Shader mit dem Licht multipliziert und
-         laufen anschließend durch den sRGB-Encoder – sie müssen daher linear
-         sein (s. »Farbpipeline«). Ohne die Umrechnung wäre die ganze Wiese
-         um rund 47 % zu hell und die Höhenstufen liefen ineinander.
-         Die Umrechnung ist bewusst hier und nicht in den Konstanten: so
-         bleiben die gemalten Farben oben lesbar und mit `makeBodyTexture`
-         sowie `leibnizDisc` vergleichbar – dieselbe Rampe, dreimal. */
-      _vcol.setRGB(r, gr, b).convertSRGBToLinear();
-      col.setXYZ(i, _vcol.r, _vcol.g, _vcol.b);
+      col.setXYZ(i, r, gr, b);
     }
     p.needsUpdate = true; col.needsUpdate = true;
     g.computeVertexNormals();
@@ -12975,7 +12878,6 @@ const Flight = {
     el.style.display = "block";
     if(!this.pipRenderer){
       this.pipRenderer = new THREE.WebGLRenderer({antialias:true});
-      this.pipRenderer.outputEncoding = THREE.sRGBEncoding;
       this.pipRenderer.setSize(380, 230);
       document.getElementById("boosterCamView").appendChild(this.pipRenderer.domElement);
       this.pipCam = new THREE.PerspectiveCamera(50, 380/230, 0.5, 2.2e11);
@@ -17237,17 +17139,11 @@ const Flight = {
     // Glitzerpfad in der Farbe des DIREKTEN Sonnenlichts (s. sunTint) – bei
     // tiefer Sonne also golden bis rot. Nicht ganz voll, sonst verliert das
     // Glitzern bei Sonnenuntergang jede Zeichnung im Grün/Blau.
-    dispSet(U.uSunCol.value, 0xfff2df).lerp(this.sunTintCol, 0.85);
+    U.uSunCol.value.setHex(0xfff2df).lerp(this.sunTintCol, 0.85);
     // Luftperspektive des Geländes: dieselbe Horizontfarbe wie das Meer, damit
     // ferne Berge und ferne See im selben Dunst verschwinden – und dieselbe
     // Höhenabhängigkeit, sonst reißt der Dunst zwischen Land und See auf.
-    /* ⚠️ SEITENWECHSEL: uHorizonCol gehoert dem Meeres-Shader (Anzeige-Raum),
-       der Gelaende-Dunst haengt dagegen in einem MeshStandardMaterial und
-       laeuft durch den sRGB-Encoder – hier also nach linear umrechnen.
-       Auf dem Bildschirm kommt dadurch in beiden Faellen exakt dieselbe
-       Farbe an, und die Naht zwischen ferner See und fernen Bergen bleibt
-       unsichtbar (genau dafuer ist die gemeinsame Quelle da). */
-    this.groundHaze.col.value.copy(U.uHorizonCol.value).convertSRGBToLinear();
+    this.groundHaze.col.value.copy(U.uHorizonCol.value);
     const hz = this.hazeScale(alt === undefined ? 0 : alt);
     this.groundHaze.k.value = HAZE_K_LAND * hz;
     U.uHaze.value           = HAZE_K_SEA  * hz;
@@ -17519,10 +17415,8 @@ const Flight = {
     // die Ambient-Farbe in Richtung Zenitfarbe gezogen (abends also warm,
     // mittags blau-neutral). Nur zu 45 %: voll eingefärbt kippt die ganze
     // Bodenszene in einen Farbstich.
-    // ⚠️ skyZenith ist ein ANZEIGE-Wert, eine Lichtfarbe ist linear.
-    if(gb > 0.001) this.ambLight.color.lerp(
-      this._skyAmb.copy(this.skyZenith).convertSRGBToLinear()
-        .lerp(this.ambDay, 0.35), 0.45*gb);
+    if(gb > 0.001) this.ambLight.color.lerp(this._skyAmb.copy(this.skyZenith)
+      .lerp(this.ambDay, 0.35), 0.45*gb);
     // ⚠️ Die SICHTBARE Sonne muss dort stehen, wo ihr LICHT herkommt.
     // Bodennah ist das nicht mehr der Weltursprung, sondern `groundSunDir`
     // (Spieluhr) – sonst scheint zwar die Sonne, aber am Himmel ist keine
@@ -17609,9 +17503,7 @@ const Flight = {
       // Farbe IMMER frisch: `updateOcean` (die andere Quelle) läuft nur unter
       // 16 km, oberhalb würde der Dunst sonst in der Farbe von damals einfrieren.
       if(gp.uGHazeK.value > 0)
-        // ⚠️ Wie beim Gelaende-Dunst: planetMaterial ist ein three-Material.
-        gp.uGHaze.value.copy(this.skyHorizon).lerp(this.seaHorizonBase, 0.30*this.dayLight)
-          .convertSRGBToLinear();
+        gp.uGHaze.value.copy(this.skyHorizon).lerp(this.seaHorizonBase, 0.30*this.dayLight);
     }
     this.padGroup.visible = !this.map && alt<25000;
     if(this.padGroup.visible) this.updatePad(alt, 1/60);

@@ -93,6 +93,52 @@ Zündung, danach endlos das Volllast-Stück, solange gebrannt wird.
   Beim Screenwechsel greift `stopRaptor()` hart – ohne laufende Frame-Schleife bliebe der Ton
   sonst stehen. Bei Pause ist `engOn` false.
 
+## ⚠️⚠️ sRGB-Farbpipeline wurde PROBIERT und wieder entfernt (August 2026)
+**Nicht nochmal einbauen, ohne vorher diesen Abschnitt zu lesen.**
+Der Renderer läuft bewusst weiter auf three-Standard (`LinearEncoding`,
+`NoToneMapping`): Farben gehen roh in den Bildpuffer, obwohl der Bildschirm sie als sRGB
+liest. Das ist rechnerisch falsch – Licht wird in der falschen Skala verrechnet, und daher
+stammen die vielen »nicht heller als X, sonst brennt es aus«-Deckel in dieser Datei.
+Umgestellt war es schon einmal (alle 6 Renderer auf `outputEncoding = sRGBEncoding`, eine
+zentrale Umrechnung in `THREE.Color.setHex/setStyle/getHex`, Farbtexturen auf
+`sRGBEncoding`, Datentexturen ausgenommen) – und ist auf Bug-Report Simon zurückgebaut
+worden.
+- **Was es gebracht hat** (gemessen, drei feste Ansichten): ausgebrannte Pixel Rampe
+  3,83 → 0,79 % · Orbit 0,56 → 0,02 % · AdminCam 0,06 → 0,01 %. Das »Tipp-Ex-Gebirge«
+  zeigte wieder Struktur, Kopfraum vor dem Anschlag **Faktor 2,3**.
+- **Was es gekostet hat** (ebenfalls gemessen): **Sättigung −6…−20 %, Kontrast −13…−32 %.**
+  Das Bild wirkt flacher und heller – »die Farben waren vorher satter« (Simon), und die
+  Messung gibt ihm recht.
+- ⚠️⚠️ **Das ist NICHT wegzutunen, und zwar nachgemessen:** Umgebungslicht herunterregeln
+  ändert die Sättigung praktisch nicht (Faktor 1,0 → 0,35 bewegt sie von 0,350 auf 0,336,
+  also in die FALSCHE Richtung) · Glanzlicht ist es auch nicht (`roughness = 1,
+  metalness = 0` liefert exakt dasselbe Pixel) · an den Uniform-Konvertierungen liegt es
+  ebenfalls nicht (probeweise unkonvertiert wird es schlechter). Der Grund steckt in der
+  Kodierkurve selbst: Sie hebt kleine Kanalwerte viel stärker an als große. Sobald eine
+  Fläche mit weniger als voller Stärke beleuchtet wird – also fast überall –, wandert die
+  Farbe damit Richtung Grau. Kontrollmessung an der Tiefsee: (33|86|129) → (50|90|112),
+  und zwar auch bei abgeschaltetem Umgebungslicht, ohne Lufthülle und ohne Wolken.
+- **Die Konsequenz:** Sämtliche Farben des Spiels sind unter der ALTEN Pipeline nach
+  Augenmaß ausgesucht worden. In der korrekten Pipeline richtig auszusehen hieße, sie alle
+  neu zu wählen – Planetentexturen, Geländerampen, Materialien, Rampen, Halle. Das ist
+  keine Nachjustierung von zwei Konstanten, sondern die halbe Bildgestaltung.
+- ⚠️ **ACES-Tonemapping macht es nicht besser, sondern schlechter** (auch gemessen):
+  Additive Effekte (Flamme, Plasma, Polarlicht, Kometenschweif, Windkanal-Rauch) würden
+  Schicht für Schicht durch Trichter und Gamma-Kurve laufen (0,45 → 191 statt 115) und die
+  Summe passiert trotzdem im 8-Bit-Puffer. Drei Schichten: heute 255,230,93 (noch Farbe)
+  gegen 255,255,255 (reinweiß) mit ACES. Richtig säße der Trichter erst hinter einem
+  Float-Renderziel plus Fullscreen-Pass – also genau dem Postprocessing, das für
+  Schulrechner verworfen wurde (s. Plasma-Abschnitt), samt Verlust des MSAA auf
+  WebGL1-Treibern.
+- **Nützlich zu wissen, falls es doch jemand nochmal versucht:** Eigene ShaderMaterials
+  laufen NICHT durch den Encoder – three ruft dort weder `toneMapping` noch
+  `linearToOutputTexel` auf. Gemessen: ein Custom-Shader, der 0,5 ausgibt, liefert mit und
+  ohne `outputEncoding` exakt 128. Meer, Himmel, Sonne, Lufthülle, Polarlicht, Flamme,
+  Plasma und Windkanal blieben deshalb pixelgenau (Himmelskuppel: max. Abweichung 0),
+  während sich alles andere verschob – genau daraus entsteht der Bruch.
+  Ebenfalls gemessen: `scene.background` geht als glClearColor am Shader vorbei, und
+  `Color.setStyle` ruft NICHT `setHex` (bei `"#rrggbb"` wird direkt in r/g/b geschrieben).
+
 ## Licht & Spiegelungen (`EnvMap` / `applyEnv` / Kontaktschatten)
 - ⚠️⚠️ **Ohne envMap ist `metalness` in three.js ein MINUS-Geschäft:** Der diffuse Anteil wird
   um (1−metalness) gekürzt, zurück kommt nur das Glanzlicht der EINEN Richtungslichtquelle.
@@ -386,8 +432,28 @@ leuchtenden Kranz um den Pol – wie auf den ISS-Fotos.
   draußen liegen: Der erste Wurf (5,7°…14,9°) legte die Station praktisch mitten hinein, und
   dann sieht man nur noch eine leuchtende DECKE über sich statt eines Vorhangs. Jetzt sind es
   37…156 km Entfernung, der Vorhang steht 21°…58° über dem Südhorizont.
-- Höhe `AURORA_H0/H1` = 60…170 km über Grund (Leibniz' Atmosphäre endet bei 70 km – ein
-  Polarlicht leuchtet oberhalb der dichten Luft, das passt).
+- ⚠️⚠️ **Höhe `AURORA_H0/H1` = 30…95 km über Grund – der wichtigste Regler für die
+  SILHOUETTE von außen.** Bis August 2026 standen dort 60…170 km; bei Leibniz' Radius von
+  600 km sind das **10 % bis 28 % des Planetenradius**, und beim Überflug ragte das Oval
+  damit als **KRONE** über den Horizont (Bug-Report Simon, mit ISS-Foto zum Vergleich: dort
+  liegt das Band flach auf der Lufthülle und steht nicht davon ab). Zum Maßstab: Auf der
+  Erde leuchtet ein Polarlicht in 100–400 km über 6371 km Radius, also bei 1,6 % bis 6 %.
+  Jetzt 5 % bis 15,8 %. Ganz auf Erd-Verhältnisse herunter geht es nicht, ohne das
+  Polarlicht in die dichte Luft zu legen – Leibniz' Atmosphäre ist mit 70 km von 600 km
+  proportional siebenmal dicker als die der Erde.
+  Gemessen als Überstand über den Planetenrand (Sichtwinkel aus 350 km Höhe, Rand bei
+  39,2°): Oberkante **15,0° → 7,9°**, Unterkante 4,8° → 2,4° – also **48 % weniger Krone**.
+- Dazu gehören zwei weitere Anteile am »Kronen«-Eindruck, beide mit korrigiert:
+  **`uTilt` 0,055 → 0,018** (die Neigung nach außen addiert sich beim Blick von außen auf
+  die Höhe und ließ die Vorhänge oben auseinanderlaufen wie Zacken) und ein **tiefer
+  liegendes, schneller ausblendendes Helligkeitsprofil** (`top` 0,26…0,56 statt 0,35…0,80,
+  Ausblenden ab `top·0,45` statt `top·0,55`) plus ein heller Saum an der Unterkante –
+  genau die scharfe helle Kante, die das ISS-Bild ausmacht.
+- ⚠️ **Grün muss dominieren:** Der Farbwechsel nach Rot/Violett beginnt jetzt bei `vV`
+  0,62 statt 0,30. Vorher war der halbe Vorhang rot-violett; auf echten Aufnahmen ist das
+  der schwache Saum ganz oben, nicht die halbe Erscheinung.
+- ⚠️ Von der Polarstation bleibt es trotzdem ein Vorhang (verifiziert, Bild bei Mitternacht):
+  Er steht dort zwischen 11° und 69° über dem Südhorizont (vorher 21°…58°).
 - ⚠️ **Gegen die Regelmäßigkeit** (erste Fassung sah aus wie ein Strichcode über dem halben
   Himmel): (a) die Strahlen-Phase wird mit einer groberen Welle verzogen (Domain Warping, wie
   bei Wolken und Planetentextur), (b) zwei langsame Wellen löschen das Band streckenweise ganz
