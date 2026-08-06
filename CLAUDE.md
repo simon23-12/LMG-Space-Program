@@ -134,6 +134,15 @@ Zündung, danach endlos das Volllast-Stück, solange gebrannt wird.
 3. **⚠️ Relativ-Geschwindigkeits-Gotcha:** Leibniz rast mit ~9,3 km/s um die Sonne. JEDE physikalisch sichtbare Geschwindigkeit (SAS-Prograde, Drag/airVel, Reentry-Hitze/Glühen, Navball, Knoten-Frame, Statistiken, Docking) MUSS relativ zum dominanten Körper (`vel - bodyVel(body,t)`) gerechnet werden.
 4. **Trajektorien als PATCHED CONICS (`Flight.traceOrbit`, EINE Routine für orange UND grün):** Vorhersagepunkte = `p_abs - bodyPos(frameBody, t) + anker`. Periode aus großer Halbachse, RK2 mit Substeps, Horizont ×1.08.
    - ⚠️⚠️ **Der Horizont kommt aus `Flight.orbitHorizon(p,v,t,b)` – EINE Quelle für beide Linien.** Ist die Bahn um `b` HYPERBOLISCH (jeder Ejection-Burn Richtung Nachbarplanet!), gibt es dort keine Umlaufzeit; dann zählt die Bahn um den **MUTTERKÖRPER** nach dem Verlassen der Sphäre (`v∞ = √(2E)` in Richtung der Relativgeschwindigkeit + Bahngeschwindigkeit des Körpers). Vorher fiel die Rechnung auf einen festen Notwert (120 000 s) zurück: Die grüne Linie war ein 1,5-Tage-Stummel neben Leibniz, die Transfer-Ellipse um die Sonne **nirgends zu sehen** (Bug-Report Simon: »der grüne Kreis ist nicht da«). ⚠️ `SUN.soi` gibt es nicht (die Sonne steht nicht in ORBIT_BODIES) – `Math.min(x, undefined)` ist NaN und die alte Rechnung fiel deshalb auch bei jeder Sonnenbahn still auf den Notwert zurück; darum `|| Infinity`.
+   - ⚠️ **HELLIGKEITSVERLAUF statt gleichmäßiger Farbe** (vorn hell → hinten verblassend,
+     Wunsch Simon): Eine gleichmäßig gefärbte Ellipse sagt nicht, in welche RICHTUNG man
+     fliegt. Gemacht über **Vertex-Farben** (`mkTraj`, Attribut `color`, `vertexColors:true`) –
+     kein zusätzlicher Draw-Call, und der Verlauf folgt automatisch der adaptiven Schrittweite.
+     ⚠️ `vertexColors` MULTIPLIZIERT mit `material.color`, das Material ist deshalb WEISS und
+     die Bahnfarbe steckt in den Vertex-Farben (`line.userData.baseCol`). Formel:
+     `k = 0,22 + 0,78·(1−f)^1,3` (Sockel 0,22, damit das Ende sich vom schwarzen Hintergrund
+     abhebt) plus ein weißer Anteil `0,45·(1−f)^6` nur ganz vorn – das markiert das »jetzt«.
+     Gemessen orange: vorn (0,98|0,77|0,51) → Ende (0,21|0,13|0,03).
    - ⚠️⚠️ **Schrittweite adaptiv, aber nur wo nötig:** `dt = total/n`, AUSSER ein solcher Schritt fräße mehr als ein Achtel des örtlichen Umlaufs – dann `clamp(T_lokal/90, dtMax/60, dtMax)`. Ohne das hätte auf einer Fluchtbahn (Horizont 2e7 s ⇒ 33 000 s je Schritt) EIN Schritt im 200-km-Parkorbit mehr Zeit als ein ganzer Umlauf und die Linie wäre frei erfunden. Weil r auf der Hyperbel schnell wächst (T ∝ r^1,5), fängt die Untergrenze das nach ~12 Punkten von allein ein; der Rest des Puffers zeichnet die Ellipse (gemessen: 20 Punkte Hyperbel + 580 Punkte Sonnen-Ellipse). **Die Achtel-Schwelle ist Pflicht:** ohne sie schrumpfte der Schritt auch am Periapsis einer stark elliptischen GEBUNDENEN Bahn (ap 12 000 / pe 200 km) und die gezeichnete Zeitspanne fiel von 108 % auf 93,5 % einer Umlaufzeit – die Ellipse schloss sich gerade noch. Mit Schwelle: 107,7 %, alle Kreis-/Ellipsenbahnen Punkt für Punkt identisch zu vorher.
    - ⚠️ Der örtliche Körper dafür ist `frameBody` (wird unten ohnehin nachgeführt) – ein zweites `bodyAt()` je Punkt wären 600 × 10 `bodyPos()` pro `predict()`. **Linien-Vertices IMMER relativ zu `Flight.pos` in den Float32-Buffer schreiben** und den großen Anteil in `line.position` legen (Float64-Matrixverkettung) – absolute ~1e10-Koordinaten haben in Float32 nur ~1 km Auflösung → Zitter-Bug beim Ranzoomen.
    - ⚠️⚠️ **Der Anker ist NICHT mehr pauschal `bodyPos(frameBody, jetzt)`.** Genau das war der »Orbit schließt sich nicht / ich bin plötzlich auf Fluchtbahn zur Sonne«-Bug: Bei jedem SOI-Wechsel sprang der Anker, und die Linie riss um die Strecke, die der neue Bezugskörper zwischen Wechselzeitpunkt und JETZT zurücklegt. Gemessen: Leibniz↔Monti nach 1 h 1 969 km, nach 17 h 23 511 km (mehr als Montis ganzer Bahnradius von 12 000 km); Leibniz↔Sonne nach 7 d **5 531 491 km**. Der größte Sprung in der grünen Linie lag bei **2 226 735 km** – heute 129 km.
@@ -843,12 +852,47 @@ Plattform 8×8 und Crawlerway 30×3), `makeScorchTex` (Brandfleck), `makePadWall
   Keil und füllt den Bildschirm, sobald die Kamera hineinfährt. Was ein Flutlicht nachts
   ausmacht, ist die Lichtpfütze am Boden plus das Glühen der Lampe. ⚠️ Die leuchtende Linse
   gehört VOR das Gehäuse, sonst sieht man einen schwarzen Kasten im eigenen Lichthof.
-- **Menschlicher Maßstab**: drei `buildAstronaut()`-Figuren (Skalierung 2,4 wie in der Halle)
-  am Rand der Sperrzone. Erst daneben sieht man, wie groß die Rakete ist.
+- ⚠️ **KEINE Figuren auf der Rampe** (August 2026, Wunsch Simon: »safety first«). Dort standen
+  drei `buildAstronaut()`-Figuren am Rand der Sperrzone als Größenvergleich – aber eine Rakete
+  wird nicht gezündet, solange noch jemand auf dem Gelände ist, und in einer Schul-AG ist genau
+  das die Botschaft, die auf dem Bild stehen soll. Den Maßstab tragen jetzt die Bauten
+  (Gitterturm, Geländer 3,4 hoch, Container, Treppen). In der HALLE bleiben die Figuren – dort
+  wird ja auch gearbeitet.
 - ⚠️ **Die Plattform ist mit dem Boden BÜNDIG** (Oberkante y = 0, damit die Rakete bei
   |pos| = R aufsetzt). Eine Treppe hatte hier nichts zu überwinden und stieg ins Leere –
   jetzt eine flache Betonschürze. Kabelpritschen laufen NEBEN der Rampe nach Westen, nicht
   quer übers Deck (dort schnitten sie durch Warnstreifen und Geländer).
+- **⚠️ FLAME DIVERTER (Flammengraben) an »Schulhof Süd« und Polarstation** (`padHasDiverter`,
+  `DIV_VENT_X` = 34): Was passiert eigentlich mit dem Abgasstrahl, wenn er auf den Boden trifft?
+  Er muss WEG, sonst prallt er auf die Rakete zurück. Deshalb hat jeder große Startplatz einen
+  Graben mit Stahlkeil: Der Keil teilt den Strahl, der Graben führt ihn zu zwei Mündungen
+  seitlich der Rampe – dort schießt die Wolke heraus (bei jedem Start von Cape Canaveral im
+  Bild). Achse ist OST–WEST (im Rampen-Mesh ±X).
+  ⚠️ Der kleine LMG-Schulstartplatz hat KEINEN – dort steht die Rakete auf einer Betonschürze
+  und der Rauch quillt rundum hervor. Genau dieser Unterschied macht sichtbar, was ein großer
+  Bahnhof mehr kann als ein Schulhof.
+  ⚠️ `DIV_VENT_X` ist die EINE Quelle für Mesh (`buildPad`) und Rauch (`Flight.frame`) – laufen
+  die auseinander, quillt der Rauch neben der Öffnung aus dem Beton.
+  (Der frühere Diverter hing an der Starship-Tech und gehörte nur zum Mechazilla-Turm; jetzt hat
+  ihn jede der beiden großen Rampen von Anfang an.)
+- **⚠️⚠️ STARTRAUCH: zwei Fälle, und der Unterschied ist Physik** (`PLUME_GROUND` = 170):
+  1. **In der Luft**: Die Fahne zieht nach hinten weg und fliegt MIT dem Schiff –
+     Basisgeschwindigkeit `this.vel`.
+  2. **Am Boden** (Unterkante < `PLUME_GROUND`): Der Strahl trifft auf und wird UMGELENKT. Die
+     Wolke entsteht am AUFTREFFPUNKT, breitet sich flach aus und steigt erst dabei auf. Ihre
+     Basisgeschwindigkeit ist die des BODENS (`bodyVel`), NICHT die des Schiffs: Eine
+     Startwolke bleibt liegen, während die Rakete davonfliegt. Vorher hing sie über `this.vel`
+     an der Rakete und zog wie ein Schweif mit nach oben – der auffälligste Fehler am alten
+     Start.
+  - Mit Graben treten die Partikel an den **Mündungen** aus (`DIV_VENT_X` entlang `padEastV`),
+    ohne Graben radial rundum.
+  - ⚠️ **Nur an der eigenen Rampe** (Abstand < 200 m): `this.pad` ist der Startplatz, nicht der
+    Ort, an dem das Schiff gerade steht – sonst quölle der Rauch auch bei einer Landung 1000 km
+    weiter aus Mündungen, die es dort nicht gibt, und entlang der falschen Achse.
+  - ⚠️ **Menge gemessen:** Mit 2 + 4·Intensität war der 170-Sprite-Pool nach einer Sekunde
+    Dauerbrand leer und das ganze Bild milchig-weiß – man sah weder Rampe noch Rakete. Jetzt
+    1 + 2,2·Intensität, kürzere Lebensdauer (1,2–2,4 s), kleinere Sprites, und am Boden nur EIN
+    Düsen-Partikel je Frame statt drei. Gemessen: `frame()` an der Rampe 0,53 ms.
 - **Küste:** ALLE Rampen liegen am Meer – `Flight.groundGroup` (Basis **X=Ost/Y=hoch/Z=SÜD** via `makeBasis`; ⚠️ {Ost,hoch,Nord} wäre LINKSHÄNDIG = Spiegelmatrix → setFromRotationMatrix kippt die Rampe! Gilt auch für `padGroup`; Mesh-Koordinaten: +Z=Süd, LZ bei z=−260, Mechazilla bei z=+34) enthält `groundPlane` (Land), `groundBeach` (Sand ab ~1 km Ost), `groundSea` (Ozean ab ~1,5 km Ost – Küste liegt bewusst NAH an den Rampen, Meerblick!) und `seaPatch`. Baum-Sperrzone Richtung Strand: ex < 700. ⚠️ Der Sand wird unter Wasser weggeschnitten (`beachClipU`) und der Seegrund abgesenkt – warum, steht im Ozean-Abschnitt unter »Fünfte Flimmer-Ursache«.
 - **⚠️ Die Bodenszene folgt dem SCHIFF, nicht der Rampe** (`Flight.reanchorGround(dir, key)`). Vorher hing sie starr am Startplatz: wer nach einem Wiedereintritt 1000 km entfernt wasserte, sah nur die nackte Planetenkugel – ein flaches türkises Nichts. `frame()` verankert neu, sobald der Bodenpunkt weiter als `max(700, min(12000, alt·0,30))` vom Anker weg ist und alt < 22 km. Drei Ausprägungen (`Flight.groundMode`), aus `landH` bestimmt:
   - ⚠️⚠️ **Die Schwelle MUSS mit der Höhe schrumpfen** – das war die zweite Hälfte des »Bellyflop crasht je nach Landeplatz«-Bugs. `shapeTerrain` legt den ANKER auf y = 0 und zeichnet alles Relief relativ dazu; Physik und Autopiloten messen dagegen die Höhe über der KUGEL. Beides stimmt nur überein, solange der Anker unter dem Schiff sitzt. Mit den alten festen 12 km lag er in hügeligem Gelände im Median **220 m**, im 90. Perzentil **700 m**, im Extremfall **2 km** daneben (gemessen über 300 Zufallspaare auf Land mit Relief). Worst Case verifiziert: Anker im Tal (604 m), Schiff 11 km weiter auf einem Grat (2350 m) → das Starship tauchte schon bei **1743 m** in den sichtbaren Hang, der Flip zündete planmäßig erst bei 240 m über der Kugel = **1,5 km im Berg**. Genau das sah wie »Landing Burn zu spät« aus. Mit 30 % der Höhe ist der Anker unter 3 km Höhe immer näher als 900 m, also **innerhalb der ebenen Zone von `shapeTerrain`** – der sichtbare Boden unter dem Schiff liegt dann exakt auf der Kugel (Raycast gegen das echte Mesh: 243 m bei HUD-Höhe 240 m, vorher 0 Treffer = Schiff unter der Oberfläche).
@@ -919,6 +963,53 @@ näher an die Kamera holen), nicht ein zweites System danebenstellen.
 - `makeCloudTexture()` (Wolkendecke des Planeten aus dem Orbit) bleibt und ist unberührt:
   FBM statt gemalter Ellipsen, Zonen-Maske über den Breitengrad, Schwelle 0.455/0.17 lässt
   bewusst Kontinente durchschauen.
+
+### Landestaub, Gischt & Fußspuren (`dustFx` / `touchdownDust` / `waterFx` / `addFootprint`)
+Was passiert, wenn ein Triebwerk auf den Boden zielt oder ein Stiefel ihn berührt.
+- **`dustFx(dt)`** – das Land-Gegenstück zur Gischt, zwei Sorten, und der Unterschied ist der
+  didaktische Witz:
+  - **LUFTLOSE WELT** (Monti, Minzi, Newton, Huygens-Monde …): Der Staub fliegt in FLACHEN,
+    GERADEN Bahnen radial davon und verschwindet schlagartig – er wölkt NICHT auf. Genau so
+    sehen die Apollo-Filme aus, und der Grund ist, dass keine Luft da ist, die den Staub
+    bremsen oder in Wirbeln halten könnte. Deshalb `grow = 0,15`, kaum Aufwärtskomponente,
+    kurze Lebensdauer.
+  - **LEIBNIZ** (Luft, über Land): eine echte Wolke – breitet sich AM BODEN aus und steigt
+    erst dabei auf (`grow` 1,8), staubbraun mit grünen Grasfetzen.
+  - ⚠️ **Tempo gemessen, nicht geschätzt:** Der erste Wurf schoss den Staub luftlos mit
+    45–115 m/s davon – physikalisch plausibel, aber bei 58 m Kameraabstand war jedes Korn nach
+    einem Wimpernschlag außerhalb des Bildes (gemessene Bildschirm-x bis 3877 bei 834 px
+    Fensterbreite). Jetzt 20–50 m/s: flach und schnell, aber im Bild.
+  - ⚠️ **Auf der RAMPE kein Erdstaub** (Radius 150 m um `padLocal`): Dort ist Beton, und was
+    man sieht, sind die umgelenkten Abgase (s. »Flame Diverter«).
+  - ⚠️ Über Wasser steigt der Zweig aus – dort macht `waterFx` die Gischt.
+  - ⚠️⚠️ `landedBody` gilt nur, SOLANGE das Schiff steht (es bleibt nach dem Abheben stehen):
+    ungeprüft übernommen zeigte der Staub beim Monti-Anflug noch auf Leibniz und kam nie.
+  - Farbe aus `shade2D[1]/[2]` des Körpers (dieselbe Quelle wie die 2D-Karte), auf Leibniz
+    fest Erdbraun/Grasgrün.
+- **`touchdownDust(b, vrel)`** – einmaliger Puff beim Aufsetzen, Menge nach
+  Aufschlaggeschwindigkeit (ab 0,4 m/s; ein Schwebe-Aufsetzen wirbelt nichts auf).
+- ⚠️⚠️ **BUG-FIX GISCHT (August 2026): `waterFx` hat nie etwas gezeigt.** Die Sprites hängen an
+  `Flight.world` und brauchen ABSOLUTE Weltkoordinaten (steht seit jeher im Partikel-Abschnitt)
+  – `at()` lieferte aber einen Offset RELATIV zum Schiff. Gemessen: Jeder Tropfen landete
+  1,36e10 m neben der Szene. Dazu fehlte die Basisgeschwindigkeit: Ein Partikel mit `vel = 0`
+  bleibt im Sonnensystem stehen und ist nach einer Sekunde 9,3 km weit weg. Beides korrigiert
+  (`this.pos` addieren, `vBase = bodyVel(LEIBNIZ)`), und `dustFx`/`touchdownDust` machen es von
+  Anfang an so.
+- **`spawnParticle(pos, vel, life, size, color, grow)`** hat dafür einen optionalen
+  `grow`-Parameter bekommen (Standard 1,8 wie bisher).
+- **Fußspuren im Regolith** (`addFootprint` / `footprintTexture`): das Apollo-Bild – eine Spur
+  aus Stiefelabdrücken, die von der Landefähre wegführt. Alle `FOOT_STEP` = 0,85 Einheiten ein
+  Abdruck, links/rechts versetzt.
+  - ⚠️ **Nur auf luftlosen Welten**: Auf Leibniz' Wiese sieht man keine Abdrücke, und Wind und
+    Regen hätten sie in Minuten geglättet.
+  - ⚠️ **EIN InstancedMesh als RINGPUFFER** (`FOOT_MAX` = 140): 1 Draw-Call, die ältesten
+    Abdrücke werden überschrieben statt zu wachsen.
+  - ⚠️⚠️ Die Instanzmatrizen sind KÖRPERFEST (relativ zum Mittelpunkt), die GRUPPE wird pro
+    Frame auf `bodyPos(body, t)` gesetzt – absolut gespeichert bliebe die Spur im Sonnensystem
+    stehen, während der Mond mit über einem km/s darunter wegfliegt.
+  - Die Spuren gehören zum FLUG, nicht zum Spielstand (Reset in `start()`) – anders als die
+    Flaggen, die man bewusst »für immer« setzt. Körperwechsel verwirft die alte Spur.
+  - Verifiziert: 4 s Laufen auf Monti = 16 Abdrücke, nach 11 s eine deutlich sichtbare Kette.
 
 ### Sonnenstand & Licht bodennah
 - ⚠️ `Flight.groundSunDir`: Die Rampen liegen **inertial fest** – ein echter Sonnen-"Tag" über dem Startplatz dauert deshalb ein Leibniz-JAHR (9,2e6 s), und die ECHTE Sonne stand beim Start unter dem Horizont (das Licht kam von UNTEN durch den Planeten, die ganze Bodenszene war reines Ambient-Grau, ohne Glitzern auf dem Meer und ohne Sonnenseite an den Wolken). Deshalb geht die Sonne nach der **Spieluhr** auf und unter: `φ = 2π(dayFrac−0.25)`, `clockSun = padEast·cos φ + padUp·sin φ + padNorth·0,18` → Osten auf, mittags Zenit, Westen unter.
@@ -1220,26 +1311,35 @@ ein paar technische Marken; `skinPart(g)` zieht sie am Ende von `buildPartMesh` 
   transparente Pixel von 5184 – deckt sich mit dem alten Referenzwert 432…2500, die geteilte
   Textur kommt also auch im fremden Icon-GL-Kontext an). `frame()` 0,54 ms.
 
-### ⚠️ Kondensation in der Luft ist RAUS (August 2026) – nicht wieder einbauen
-Bis August 2026 gab es drei Kondensations-Effekte aus EINEM Shader (`VAPOR_*`, `makeVapor`,
-`addFinTrails`, `cloudCoverHere`): den **Vapor Cone** um Mach 1, **Kondensstreifen** an den
-Flossenspitzen und den **Wolkendurchstoß**-Nebel samt Schwaden-Partikeln. Alles **komplett
-entfernt** (Bug-Report Simon mit Screenshot vom Aufstieg: »sieht aus wie Feenzauber, und da
-ist ne Lufthose um das Schiff rum«).
-- **Warum es nicht zu retten war:** Der Effekt ist bauartbedingt eine additiv gezeichnete
-  RÖHRE um den Rumpf. Physikalisch stimmte alles (Mach-Glocke × Staudruck, Schallgeschwindig-
-  keit aus `ambTemp()`), im BILD liest das Auge aber keine Kondensationsfront, sondern einen
-  weißen Schlauch, der die Rakete verschluckt – ausgerechnet in den Sekunden, in denen man
-  beim Aufstieg auf sie schaut. Dieselbe Falle wie beim »Plastiktrichter«-Plasmaschweif und
-  beim Kegel-Abgasstrahl, nur lässt sie sich hier NICHT durch eine weichere Silhouette
-  heilen: Ein Vapor Cone IST eine Hülle um das Fahrzeug.
-- Wer es wieder versucht, braucht einen volumetrischen Ansatz (Raymarch oder ein Partikelfeld,
-  das an der Rakete VORBEIzieht) statt einer Mantelfläche – und sollte vorher fragen, ob der
-  Aufstieg das überhaupt braucht. Die Flamme trägt den Moment schon.
-- Mit entfernt: `cloudCoverHere()` (Wolkendeckung aus dem Alpha der Wolkentextur) und der
-  `finTrail`-Sonderfall in `PartIcons.make`. `plumeGeometry()`/`FLAME_*` bleiben – die
-  gehören dem Abgasstrahl. Gegenprobe nach dem Ausbau: `frame()` im transsonischen Aufstieg
-  (Mach 1,09 in 11,5 km Höhe) zeigt **nichts** mehr um das Schiff.
+### Kondensstreifen an den Flossenspitzen (`TRAIL_*` / `addFinTrails`)
+Die Wirbelkerne an Flossen- und Gitterflossenspitzen saugen den Druck herunter; die Luft kühlt
+ab und die Feuchtigkeit kondensiert zu dünnen weißen Fäden, die nach hinten wegziehen.
+Geometrie ist `plumeGeometry()` (dieselbe wie bei der Flamme), die weiche Silhouette entsteht
+über `dot(n,V)`, EIN geteiltes Material für alle Streifen (`TRAIL_U.uI` steuert alle).
+- Einsatz ab **Mach 0,55** (Wirbelkerne gibt es auch subsonisch) × Staudruck-Faktor
+  (`q/22000`): in dünner Luft ist keine Feuchte mehr da, die kondensieren könnte.
+- ⚠️ `uOp` 0,22 – additiv + DoubleSide + weiß vor hellem Himmel brennt sonst aus (mit 0,42
+  waren es weiße Glasstäbe statt Kondensfäden).
+- ⚠️⚠️ Sie müssen in `PartIcons.make` auf die `drop`-Liste (wie die Flammen): In three r128
+  zählt `Box3.setFromObject` unsichtbare Kinder mit, ein 20 Einheiten langer Trail an einer
+  15 Einheiten großen Flosse schrumpft das Icon sonst auf ein Drittel.
+
+#### ⚠️⚠️ Vapor Cone und Wolkendurchstoß bleiben RAUS
+Die beiden anderen Kondensations-Effekte (»Lufthose« um Mach 1 und der Nebel beim Queren der
+Wolkenschicht) waren im August 2026 kurz da und sind auf Bug-Report Simon wieder entfernt
+worden (»sieht aus wie Feenzauber, und da ist ne Lufthose um das Schiff rum«) – die
+Flossenstreifen kamen auf seinen Wunsch zurück, die Hüllen nicht.
+- **Warum der Unterschied:** Beide waren additiv gezeichnete RÖHREN um den Rumpf. Physikalisch
+  stimmte alles (Mach-Glocke × Staudruck), im BILD liest das Auge aber keine
+  Kondensationsfront, sondern einen weißen Schlauch, der die Rakete verschluckt – und zwar
+  genau in den Sekunden, in denen man beim Aufstieg auf sie schaut. Ein Faden AN EINER KANTE
+  hat dieses Problem nicht. Dieselbe Falle wie beim »Plastiktrichter«-Plasmaschweif, nur ist
+  sie bei einer Hülle nicht durch eine weichere Silhouette zu heilen: Ein Vapor Cone IST eine
+  Hülle um das Fahrzeug.
+- Wer es nochmal versucht, braucht einen volumetrischen Ansatz (Raymarch oder ein Partikelfeld,
+  das an der Rakete VORBEIzieht) – und sollte vorher fragen, ob der Aufstieg das braucht.
+- Mit entfernt und nicht wiedergekommen: `cloudCoverHere()` (Wolkendeckung aus dem Alpha der
+  Wolkentextur).
 
 ### Abgasstrahl (`makeFlame` / `FLAME_U` / `FLAME_VERT` / `FLAME_FRAG`)
 Vorher ein opaker `ConeGeometry` mit `MeshBasicMaterial` – also genau die harte Silhouette,
@@ -1371,6 +1471,33 @@ Rauszoomen in der Wand, und bei einer hohen Rakete sieht man statt der Rakete nu
 Wer hier dreht, muss mitziehen: Stützen-/Binder-/Lampen-Loops (laufen über `HW`), die
 Textur-`repeat` (an `HW`/`HH` gekoppelt, sonst ziehen die Betonkacheln lang) und das
 Schatten-Ortho-Fenster (s. Licht-Abschnitt).
+### Ausblick durchs offene Hallentor (Südwand)
+Durch das offene Tor sieht man hinaus auf den **LMG-Startplatz** – die Rakete steht damit beim
+Bauen sichtbar in dem Zusammenhang, für den sie gebaut wird (Wunsch Simon).
+- Bewusst IMMER der LMG-Startplatz, egal welche Rampe gewählt ist: Er ist der Heimatbahnhof der
+  AG, und ein wechselnder Ausblick würde die Halle jedes Mal anders aussehen lassen, ohne etwas
+  zu erklären.
+- ⚠️⚠️ Die Rampe kommt aus DERSELBEN `Flight.buildPad("lmg")` wie im Flug – kein zweites
+  Modell, das auseinanderlaufen kann. Die Funktion benutzt kein `this`, ist also eine reine
+  Fabrik und aus dem VAB heraus aufrufbar.
+- ⚠️⚠️ **Die VAB-Szene hat FOG** (320…900) für die Hallenatmosphäre. Alles draußen bekommt
+  deshalb Materialien mit `fog = false`, sonst versinkt der Startplatz im dunkelblauen
+  Hallennebel, obwohl draußen Tag ist. Für die Rampe werden die Materialien dafür GEKLONT: Es
+  sind dieselben `MAT.*`-Singletons, die auch Hallenwände und Kisten benutzen (dieselbe Falle
+  wie bei den Teile-Icons), und die sollen ihren Nebel behalten.
+- ⚠️ Eine PlaneGeometry kann kein Loch – die Südwand ist deshalb eine `Shape` mit `holes`.
+  ⚠️ `ShapeGeometry` legt die UVs in SHAPE-Koordinaten an (0…600), nicht 0…1 wie eine Plane:
+  Die Trapezblech-Kachel braucht dafür einen eigenen Textur-Klon mit entsprechend kleinem
+  `repeat`, sonst ist die ganze Wand eine einzige riesige Kachel.
+- ⚠️ **Stützen und Sockelleiste im Torbereich weglassen** – sonst steht ein Stahlgitter im
+  Ausblick und das offene Tor sieht aus wie ein vergittertes Fenster (so passiert).
+- Das Torblatt ist nach oben gefahren (Paket über dem Sturz + Führungsschienen); Himmel, Wiese
+  und Betonvorfeld draußen sind unbeleuchtete Flächen (`MeshBasicMaterial`) – draußen ist Tag,
+  drinnen düster, und das kostet kein Licht. Dazu ein schwaches Richtungslicht, das durchs Tor
+  hereinfällt.
+- ⚠️ Kamera-`far` von 2000 auf **4000** – der Himmel steht 2400 Einheiten vor dem Tor. Auf die
+  Tiefengenauigkeit wirkt das praktisch nicht (die hängt bei far ≫ near fast nur an `near`).
+
 ### Formeltafel an der Nordwand (`makeFormulaBoardTex`)
 Die Wand gegenüber dem Tor war die einzige leere – und dorthin schaut man, sobald man um die
 Rakete dreht. 2048×960-Canvas, Schiefergrün, 8 Formeln mit den **echten** Konstanten des

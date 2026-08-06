@@ -3974,21 +3974,92 @@ function makeFlame(R, L, kind, name){
   return m;
 }
 
-/* ⚠️⚠️ HIER STAND DIE KONDENSATION IN DER LUFT (`VAPOR_*` / `makeVapor` /
-   `addFinTrails` / `cloudCoverHere`) – Vapor Cone um Mach 1, Kondensstreifen an
-   den Flossenspitzen und der Nebel beim Wolkendurchstoss. Alles RAUS (August
-   2026, Bug-Report Simon: »sieht aus wie Feenzauber, und da ist ne Lufthose um
-   das Schiff rum«).
-   Warum es nicht zu retten war: Der Effekt ist eine additiv gezeichnete ROEHRE
-   um den Rumpf. Physikalisch richtig, aber im Bild liest das Auge keine
-   Kondensationsfront, sondern einen weissen Schlauch, der die Rakete
-   verschluckt – und genau in dem Moment, in dem man beim Aufstieg auf sie
-   schaut. Dieselbe Falle wie beim »Plastiktrichter«-Plasmaschweif und beim
-   Kegel-Abgasstrahl, nur laesst sie sich hier nicht durch eine weichere
-   Silhouette heilen: Ein Vapor Cone IST eine Huelle um das Fahrzeug.
-   Wer es wieder versucht, braucht einen volumetrischen Ansatz (Raymarch oder
-   ein Partikelfeld, das an der Rakete VORBEIzieht), keine Mantelflaeche –
-   und sollte vorher fragen, ob der Aufstieg das ueberhaupt braucht. */
+/* =================================================================
+   KONDENSSTREIFEN an den Flossenspitzen (`TRAIL_*` / `addFinTrails`)
+   -----------------------------------------------------------------
+   Die Wirbelkerne an Flossen- und Gitterflossenspitzen saugen den Druck
+   herunter; die Luft kühlt ab und die Feuchtigkeit kondensiert zu dünnen
+   weißen Fäden, die nach hinten wegziehen.
+   ⚠️⚠️ Das ist der EINZIGE Rest der früheren Kondensations-Familie. Vapor
+   Cone (»Lufthose«) und Wolkendurchstoß sind raus und bleiben raus (August
+   2026, Bug-Report Simon): Beide waren HÜLLEN um den Rumpf, und eine additiv
+   gezeichnete Röhre liest das Auge nicht als Kondensationsfront, sondern als
+   weißen Schlauch, der die Rakete verschluckt. Ein Faden AN EINER KANTE hat
+   dieses Problem nicht – deshalb durfte genau er zurückkommen.
+   ⚠️ Die weiche Silhouette entsteht wie bei der Flamme über `dot(n,V)`: Nebel
+   ist ein Volumen, seine Helligkeit die Weglänge des Sehstrahls – in der Mitte
+   lang, am Rand null. Ohne das hätte der Faden eine gestanzte Kante.
+   ⚠️ `uOp` klein halten (0,22): additiv + DoubleSide + weiß vor hellem Himmel
+   brennt sonst aus – mit 0,42 waren es weiße Glasstäbe statt Kondensfäden. */
+const TRAIL_U = { uTime:{value:0}, uI:{value:0} };
+const TRAIL_VERT = `
+attribute float aT;
+attribute float aA;
+uniform float uTime;
+varying float vT;
+varying vec3 vN, vP;
+#include <common>
+#include <logdepthbuf_pars_vertex>
+float trailRad(float t){
+  // vorn dick (Wirbelkern an der Spitze), nach hinten auslaufend
+  return 0.55 + (0.10 - 0.55) * pow(clamp(t, 0.0, 1.0), 0.7);
+}
+void main(){
+  vT = aT;
+  float wob = 1.0 + 0.11*sin(uTime*7.0 + aA*3.0 + aT*9.0);
+  float r = trailRad(aT) * wob;
+  vec3 p = vec3(cos(aA)*r, -aT, sin(aA)*r);
+  float dr = (trailRad(aT+0.02) - trailRad(aT-0.02))/0.04;
+  vec3 n = normalize(vec3(cos(aA), dr, sin(aA)));
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  vP = mv.xyz;
+  vN = normalMatrix * n;
+  gl_Position = projectionMatrix * mv;
+  #include <logdepthbuf_vertex>
+}`;
+const TRAIL_FRAG = `
+precision highp float;
+uniform float uTime, uI;
+varying float vT;
+varying vec3 vN, vP;
+#include <common>
+#include <logdepthbuf_pars_fragment>
+void main(){
+  #include <logdepthbuf_fragment>
+  float mu = abs(dot(normalize(vN), normalize(-vP)));
+  float body = pow(mu, 0.8);
+  float fade = pow(max(0.0, 1.0 - vT), 1.4);
+  // Ausfransen nach hinten: vorn glatte Kondensationsfront, hinten Fetzen
+  float turb = 1.0 - 0.9*vT*(0.5 + 0.5*sin(vT*26.0 - uTime*9.0 + vP.y*0.25));
+  float a = body * fade * turb * uI * 0.22;
+  gl_FragColor = vec4(vec3(0.97, 0.98, 1.0), clamp(a, 0.0, 1.0));
+}`;
+let _trailMat = null;
+function trailMat(){
+  return _trailMat || (_trailMat = new THREE.ShaderMaterial({
+    uniforms:TRAIL_U, vertexShader:TRAIL_VERT, fragmentShader:TRAIL_FRAG,
+    transparent:true, depthWrite:false, side:THREE.DoubleSide,
+    blending:THREE.AdditiveBlending}));
+}
+/* Kondensstreifen an n Flossenspitzen (Azimut-Raster wie die Flossen selbst).
+   ⚠️ Sie hängen als KINDER am Bauteil und zeigen nach −Y, also nach hinten:
+   Beim Aufstieg fliegt die Rakete prograde, damit stimmt die Richtung von
+   selbst – ohne jede Ausrichtungsmathematik pro Frame.
+   ⚠️⚠️ Geometrie ist `plumeGeometry()`, dieselbe wie bei der Flamme – EIN
+   Parameterraum für alle Fahnen im Spiel, die Form macht der Vertex-Shader. */
+function addFinTrails(g, radius, y, n, azOff){
+  for(let k=0;k<n;k++){
+    const a = k*Math.PI*2/n + (azOff||0);
+    const t = new THREE.Mesh(plumeGeometry(), trailMat());
+    t.scale.set(1.1, 20, 1.1);
+    t.userData.len = 20;
+    t.name = "finTrail";
+    t.visible = false;
+    t.frustumCulled = false;
+    t.position.set(Math.cos(a)*radius, y, Math.sin(a)*radius);
+    g.add(t);
+  }
+}
 /* ---------- Landebeine: RADIALTEIL am Tank (wie Flossen/Seitenbooster) ----------
    ⚠️⚠️ Beine waren früher ein Stack-Teil: eine eigene Scheibe MITTEN in der
    Rakete, zwischen Tank und Triebwerk. Das machte jeden Lander unsinnig – die
@@ -4077,6 +4148,52 @@ const SANDBOX_ORBIT_ALT = 200000;
    ein zügiger Trab – langsamer wird das Erkunden im Raumanzug zäh, schneller
    sieht es aus wie ein Fehler in der Physik. */
 const EVA_FOOT = 0.65, EVA_WALK = 3.5, EVA_JUMP = 2.2;
+/* Fußspuren im Regolith (s. Flight.addFootprint): Ringpuffer-Größe und
+   Schrittlänge. 0,85 Einheiten ≈ ein Schritt der Figur (sie ist ~2,3 hoch). */
+const FOOT_MAX = 140, FOOT_STEP = 0.85;
+/* Flammengraben: welche Rampen einen haben und wo seine Mündungen liegen
+   (Rampen-Mesh-Koordinaten, ±X = Ost/West). ⚠️ EINE Quelle für Mesh
+   (`buildPad`) und Rauch (`Flight.frame`) – laufen die auseinander, quillt der
+   Rauch neben der Öffnung aus dem Beton. */
+const DIV_VENT_X = 34;
+function padHasDiverter(kind){ return kind === "eq" || kind === "polar"; }
+/* Höhe der Unterkante, bis zu der der Abgasstrahl den Boden trifft und
+   umgelenkt wird (s. Flight.frame, »Abgas & Startrauch«). Darüber zieht die
+   Fahne nur noch nach hinten. */
+const PLUME_GROUND = 170;
+/* Stiefelsohle als Kachel: abgerundetes Rechteck mit Querrillen. ⚠️ Weiß
+   gemalt, damit `material.color` sie tönt – dieselbe Rezeptur wie bei Boden-
+   und Rumpftexturen. */
+let _footTex = null;
+function footprintTexture(){
+  if(_footTex) return _footTex;
+  const c = document.createElement("canvas"); c.width = 64; c.height = 32;
+  const x = c.getContext("2d");
+  x.clearRect(0,0,64,32);
+  const rr = (px,py,w,h,r)=>{
+    x.beginPath();
+    x.moveTo(px+r,py); x.lineTo(px+w-r,py); x.quadraticCurveTo(px+w,py,px+w,py+r);
+    x.lineTo(px+w,py+h-r); x.quadraticCurveTo(px+w,py+h,px+w-r,py+h);
+    x.lineTo(px+r,py+h); x.quadraticCurveTo(px,py+h,px,py+h-r);
+    x.lineTo(px,py+r); x.quadraticCurveTo(px,py,px+r,py); x.closePath();
+  };
+  x.fillStyle = "rgba(255,255,255,0.85)";
+  rr(6, 6, 52, 20, 9); x.fill();                    // Sohle
+  // Profilrillen quer – erst sie machen aus dem Fleck einen Abdruck
+  x.globalCompositeOperation = "destination-out";
+  x.lineWidth = 2.2;
+  x.strokeStyle = "rgba(0,0,0,1)";
+  for(let i=1;i<7;i++){
+    x.beginPath(); x.moveTo(6 + i*7, 8); x.lineTo(6 + i*7, 24); x.stroke();
+  }
+  x.globalCompositeOperation = "source-over";
+  _footTex = new THREE.CanvasTexture(c);
+  return _footTex;
+}
+/* Höhe der Unterkante, ab der ein Triebwerk sichtbar Staub aufwirbelt
+   (s. Flight.dustFx). Dieselbe Größenordnung wie bei der Gischt (80 m) –
+   etwas mehr, weil loser Regolith leichter ist als Wasser. */
+const DUST_ALT = 140;
 /* ---------- Sauerstoff im Raumanzug (`Flight.evaO2`) ----------
    5 Minuten draußen (Wunsch Simon) – lang genug für eine Flagge, einen
    Rundgang oder den Weg zu einem zweiten Schiff, kurz genug, dass man nicht
@@ -4376,6 +4493,8 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       shp.closePath();
       const geo = new THREE.ExtrudeGeometry(shp, {depth:0.55, bevelEnabled:false});
       geo.translate(0,0,-0.275);
+      // Kondensstreifen an den Spitzen (s. addFinTrails)
+      addFinTrails(g, ar*0.97 + 4.6, 0.4 + fh*0.34, 4, 0);
       for(let k=0;k<4;k++){
         const a = k*Math.PI/2;
         const fin = new THREE.Mesh(geo, MAT.blue);
@@ -4416,6 +4535,7 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
         pivot.add(fin);
         g.add(pivot);
       }
+      addFinTrails(g, ar + 2.2, ay, 4, Math.PI/4);
       break;}
     case "legs":{
       /* RADIALTEIL: sitzt seitlich am Wirtstank, y=0 ist dessen UNTERKANTE
@@ -8774,13 +8894,13 @@ const PartIcons = {
       // verkleidung erkennt. Also die Ogive fürs Bild dazustellen.
       if(id==="fairing") mesh.add(buildFairingShell(PARTS[id].w/2, 26));
     }catch(e){ return cv; }
-    /* ⚠️ Flammen müssen RAUS, BEVOR die Bounding-Box gemessen wird: In three
-       r128 zählt `Box3.setFromObject` auch unsichtbare Kinder mit – sonst
-       schrumpft jedes Triebwerk auf ein Zehntel, weil sein Abgasstrahl
-       mitgemessen wird. */
+    /* ⚠️ Flammen und Kondensstreifen müssen RAUS, BEVOR die Bounding-Box
+       gemessen wird: In three r128 zählt `Box3.setFromObject` auch unsichtbare
+       Kinder mit – sonst schrumpft jedes Triebwerk auf ein Zehntel (Abgasstrahl)
+       und jede Flosse auf ein Drittel (20 Einheiten langer Trail). */
     const drop = [];
     mesh.traverse(o=>{
-      if(o.name==="flame" || o.name==="bflame") drop.push(o);
+      if(o.name==="flame" || o.name==="bflame" || o.name==="finTrail") drop.push(o);
     });
     for(const o of drop) if(o.parent) o.parent.remove(o);
     // Materialien klonen (s. o.) und die Hallen-Umgebung anlegen
@@ -8862,7 +8982,10 @@ const VAB = {
        flimmerten. Näher als ~14 Einheiten kommt die Kamera ohnehin nie an
        Geometrie heran (kleinster camDist ist 20, die Rakete misst ~6 im
        Radius), 1 ist also gefahrlos und bringt Faktor 10. */
-    this.camera = new THREE.PerspectiveCamera(50, 1, 1, 2000);
+    // far 4000: draußen vor dem Tor steht der Startplatz, dahinter der Himmel
+    // (s. »Ausblick durchs offene Tor«). Auf die Tiefengenauigkeit wirkt das
+    // praktisch nicht – die hängt bei far ≫ near fast nur an `near`.
+    this.camera = new THREE.PerspectiveCamera(50, 1, 1, 4000);
     /* =============================================================
        MONTAGEHALLE
        Alles prozedural (kein Bild-Asset, läuft per Doppelklick).
@@ -8923,19 +9046,50 @@ const VAB = {
       m.position.set(x, HH/2, z); m.rotation.y = ry;
       m.receiveShadow = true; this.scene.add(m);
     };
-    mkWall(0,-HW,0); mkWall(-HW,0,Math.PI/2); mkWall(HW,0,-Math.PI/2); mkWall(0,HW,Math.PI);
+    mkWall(-HW,0,Math.PI/2); mkWall(HW,0,-Math.PI/2); mkWall(0,HW,Math.PI);
+    /* ⚠️⚠️ SÜDWAND MIT TORÖFFNUNG (statt mkWall(0,-HW,0)): Durch das offene Tor
+       sieht man hinaus auf den LMG-Startplatz – die Rakete steht damit sichtbar
+       in dem Zusammenhang, für den sie gebaut wird (Wunsch Simon).
+       ⚠️ Eine PlaneGeometry kann kein Loch – deshalb `Shape` mit `holes`.
+       ⚠️ ShapeGeometry legt die UVs in SHAPE-KOORDINATEN an (also 0…600), nicht
+       0…1 wie eine Plane. Die Trapezblech-Kachel braucht dafür einen eigenen
+       Textur-Klon mit entsprechend kleinem `repeat`, sonst ist die ganze Wand
+       eine einzige riesige Kachel. */
+    const GATE_W = 132, GATE_H = 108;
+    {
+      const sh = new THREE.Shape();
+      sh.moveTo(-HW, 0); sh.lineTo(HW, 0); sh.lineTo(HW, HH); sh.lineTo(-HW, HH); sh.closePath();
+      const hole = new THREE.Path();
+      hole.moveTo(-GATE_W/2, 0); hole.lineTo(-GATE_W/2, GATE_H);
+      hole.lineTo(GATE_W/2, GATE_H); hole.lineTo(GATE_W/2, 0); hole.closePath();
+      sh.holes.push(hole);
+      const gTex = wallTex.clone(); gTex.needsUpdate = true;
+      gTex.repeat.set((HW/9)/(HW*2), (HH/32)/HH);
+      const gMat = new THREE.MeshStandardMaterial({color:0xffffff, map:gTex,
+        roughness:.75, metalness:.25, side:THREE.DoubleSide});
+      const w = new THREE.Mesh(new THREE.ShapeGeometry(sh), gMat);
+      w.position.set(0, 0, -HW); w.receiveShadow = true; this.scene.add(w);
+    }
     for(let i=-HW+50;i<=HW-50;i+=50){             // Stahlstützen an allen Wänden
-      box(i, HH/2, -HW+1.6, 5, HH, 3.2, 0x2b3554);
+      // ⚠️ In der Toröffnung KEINE Stütze – sonst steht ein Stahlgitter im
+      // Ausblick und das offene Tor sieht aus wie ein vergittertes Fenster.
+      if(Math.abs(i) > GATE_W/2 + 10) box(i, HH/2, -HW+1.6, 5, HH, 3.2, 0x2b3554);
       box(i, HH/2,  HW-1.6, 5, HH, 3.2, 0x2b3554);
       box(-HW+1.6, HH/2, i, 3.2, HH, 5, 0x2b3554);
       box( HW-1.6, HH/2, i, 3.2, HH, 5, 0x2b3554);
     }
-    box(0, 3, -HW+1.2, HW*2, 6, 2.4, 0x222b45);   // Sockelleisten
+    // Sockelleisten – an der Torwand in zwei Stücken, die Schwelle bleibt frei
+    for(const s of [-1, 1])
+      box(s*(HW + GATE_W/2)/2, 3, -HW+1.2, HW - GATE_W/2, 6, 2.4, 0x222b45);
     box(0, 3,  HW-1.2, HW*2, 6, 2.4, 0x222b45);
-    // Hallentor (die Rakete muss ja raus) mit Rahmen und Lamellen
-    box(0, 46, -HW+1.0, 122, 96, 2.0, 0x39456b);
-    box(0, 45, -HW+0.4, 110, 90, 1.2, 0x151d33);
-    for(let y=6;y<86;y+=10) box(0, y, -HW+0.1, 108, 1.2, 0.8, 0x27324f);
+    /* Hallentor: OFFEN – das Blatt ist nach oben gefahren und liegt als Paket
+       über dem Sturz, dazu die beiden Führungsschienen. (Vorher verschloss eine
+       Blech-Box die Öffnung; ein Tor, das nie aufgeht, ist in einer Halle, aus
+       der Raketen herausfahren, ein Widerspruch.) */
+    box(0, GATE_H + 13, -HW+1.0, GATE_W + 14, 22, 3.0, 0x39456b);   // aufgerolltes Blatt
+    for(let y=GATE_H+5;y<GATE_H+22;y+=5) box(0, y, -HW+2.4, GATE_W+6, 1.6, 1.0, 0x27324f);
+    for(const dx of [-GATE_W/2-4, GATE_W/2+4]) box(dx, GATE_H/2, -HW+1.6, 5, GATE_H, 3.4, 0x39456b);
+    box(0, GATE_H+1.5, -HW+1.6, GATE_W+14, 5, 3.4, 0x39456b);        // Sturz
     // Firmenschild ÜBER dem Tor (hing vorher schief rechts daneben in der Luft)
     box(0, 120, -HW+1.4, 150, 42, 1.6, 0x1a2440);
     for(const dx of [-70, 70]){ cyl(dx, 138, -HW+2.4, 1.1, 1.2, 0x8894b4, Math.PI/2, 0);
@@ -8949,6 +9103,61 @@ const VAB = {
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(132,33),
       new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(lc), transparent:true}));
     sign.position.set(0, 120, -HW+2.3); this.scene.add(sign);
+    /* ================================================================
+       AUSBLICK DURCHS OFFENE TOR: der LMG-Startplatz
+       ----------------------------------------------------------------
+       Die Rakete steht damit sichtbar in dem Zusammenhang, für den sie gebaut
+       wird – man sieht beim Bauen, wohin sie gleich rollt (Wunsch Simon).
+       Bewusst IMMER der LMG-Startplatz, egal welche Rampe gewählt ist: Er ist
+       der Heimatbahnhof der AG, und ein wechselnder Ausblick würde die Halle
+       jedes Mal anders aussehen lassen, ohne etwas zu erklären.
+       ⚠️⚠️ Die Rampe kommt aus DERSELBEN `Flight.buildPad("lmg")` wie im Flug –
+       kein zweites Modell, das auseinanderlaufen kann. Die Funktion benutzt
+       kein `this`, ist also eine reine Fabrik.
+       ⚠️⚠️ Die VAB-Szene hat FOG (320…900) für die Hallenatmosphäre. Alles
+       draußen bekommt deshalb Materialien mit `fog = false` – sonst versinkt
+       der Startplatz im dunkelblauen Hallennebel, obwohl draußen Tag ist.
+       Für die Rampe werden die Materialien dafür GEKLONT: Sie sind dieselben
+       `MAT.*`-Singletons, die auch Hallenwände und Kisten benutzen (dieselbe
+       Falle wie bei den Teile-Icons), und die sollen ihren Nebel behalten.
+       ⚠️ Der Boden draußen liegt bei y = −0,4: minimal unter dem Hallenboden,
+       damit an der Torschwelle kein Z-Fighting entsteht. */
+    {
+      const OUT = -HW - 30;                      // Beginn der Außenwelt (vor dem Tor)
+      const bas = (col)=> new THREE.MeshBasicMaterial({color:col, fog:false});
+      // Himmel: unbeleuchtet – draußen ist Tag, drinnen düster
+      const skyC = document.createElement("canvas"); skyC.width = 4; skyC.height = 128;
+      const sctx = skyC.getContext("2d");
+      const sgrad = sctx.createLinearGradient(0, 0, 0, 128);
+      sgrad.addColorStop(0, "#3f7cc4"); sgrad.addColorStop(0.55, "#8fbde4");
+      sgrad.addColorStop(1, "#d8e6f0");
+      sctx.fillStyle = sgrad; sctx.fillRect(0, 0, 4, 128);
+      const sky = new THREE.Mesh(new THREE.PlaneGeometry(4200, 1400),
+        new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(skyC), fog:false}));
+      sky.position.set(0, 480, OUT - 2100); this.scene.add(sky);
+      // Wiese bis zum Horizont, Betonvorfeld direkt vor dem Tor
+      const meadow = new THREE.Mesh(new THREE.PlaneGeometry(4200, 2200), bas(0x76935a));
+      meadow.rotation.x = -Math.PI/2; meadow.position.set(0, -0.4, OUT - 1100);
+      this.scene.add(meadow);
+      const apron = new THREE.Mesh(new THREE.PlaneGeometry(400, 260), bas(0x8b9099));
+      apron.rotation.x = -Math.PI/2; apron.position.set(0, -0.3, OUT - 130);
+      this.scene.add(apron);
+      // Der Startplatz selbst
+      const pad = Flight.buildPad("lmg");
+      pad.position.set(0, 0, OUT - 560);
+      pad.rotation.y = Math.PI;                  // Rampenfront zur Halle
+      pad.traverse(o=>{
+        if(!o.material) return;
+        const one = m=>{ const c = m.clone(); c.fog = false; return c; };
+        o.material = Array.isArray(o.material) ? o.material.map(one) : one(o.material);
+      });
+      this.scene.add(pad);
+      // Tageslicht, das durch das Tor hereinfällt
+      const sunIn = new THREE.DirectionalLight(0xfff2dd, 0.45);
+      sunIn.position.set(40, 210, OUT - 260);
+      sunIn.target.position.set(0, 30, 0);
+      this.scene.add(sunIn); this.scene.add(sunIn.target);
+    }
     /* --- Formeltafel an der Nordwand ----------------------------------
        Die Wand gegenüber dem Tor war die einzige komplett leere – und der
        Blick geht dort hin, sobald man um die Rakete herumdreht.
@@ -10637,31 +10846,36 @@ const Flight = {
       this.world.add(g);
       return {a, g};
     });
-    // geplante Bahn nach dem Manöver (grün)
-    const ng = new THREE.BufferGeometry();
-    ng.setAttribute("position", new THREE.BufferAttribute(new Float32Array(602*3),3));
-    this.nodeTrajLine = new THREE.Line(ng, new THREE.LineBasicMaterial({color:0x5fc46a}));
-    this.nodeTrajLine.frustumCulled = false; this.nodeTrajLine.visible = false;
-    this.world.add(this.nodeTrajLine);
-    // Trajektorienlinie
-    const tg = new THREE.BufferGeometry();
-    tg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(602*3),3));
-    this.trajLine = new THREE.Line(tg, new THREE.LineBasicMaterial({color:0xf7941d}));
-    this.trajLine.frustumCulled = false; this.trajLine.visible = false;
-    this.world.add(this.trajLine);
+    /* ⚠️⚠️ BAHNLINIEN MIT HELLIGKEITSVERLAUF (vorn hell → hinten verblassend).
+       Eine gleichmäßig gefärbte Ellipse sagt NICHT, in welche Richtung man
+       fliegt – man sieht die Bahn, aber nicht den Fahrplan. Mit dem Verlauf
+       liest man auf einen Blick ab, wo »jetzt« ist und wohin es weitergeht
+       (Wunsch Simon). Gemacht über VERTEX-FARBEN, nicht über mehrere Linien:
+       kein zusätzlicher Draw-Call, und der Verlauf folgt automatisch der
+       adaptiven Schrittweite von traceOrbit.
+       ⚠️ `vertexColors` MULTIPLIZIERT mit `material.color` – das Material ist
+       deshalb weiß, die eigentliche Bahnfarbe steckt in den Vertex-Farben
+       (Basisfarbe je Linie in `userData.baseCol`). */
+    const mkTraj = (col, opa)=>{
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(602*3),3));
+      g.setAttribute("color",    new THREE.BufferAttribute(new Float32Array(602*3),3));
+      const m = new THREE.LineBasicMaterial({color:0xffffff, vertexColors:true,
+        transparent: opa < 1, opacity: opa});
+      const l = new THREE.Line(g, m);
+      l.userData.baseCol = new THREE.Color(col);
+      l.frustumCulled = false; l.visible = false; this.world.add(l);
+      return l;
+    };
+    // geplante Bahn nach dem Manöver (grün) · aktuelle Bahn (orange)
+    this.nodeTrajLine = mkTraj(0x5fc46a, 1);
+    this.trajLine     = mkTraj(0xf7941d, 1);
     /* Zweiter Linienzug je Bahn: der Abschnitt NACH dem Verlassen einer
        Gravitationssphäre gehört um den Mutterkörper an seiner echten Stelle –
        dorthin gibt es keine durchgehende Linie (s. traceOrbit). Getrennte
        Objekte, damit three.js keine falsche Verbindung dazwischen zeichnet. */
-    const mk2 = (col)=>{
-      const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(602*3),3));
-      const l = new THREE.Line(g, new THREE.LineBasicMaterial({color:col, transparent:true, opacity:.55}));
-      l.frustumCulled = false; l.visible = false; this.world.add(l);
-      return l;
-    };
-    this.trajLine2 = mk2(0xf7941d);
-    this.nodeTrajLine2 = mk2(0x5fc46a);
+    this.trajLine2     = mkTraj(0xf7941d, 0.55);
+    this.nodeTrajLine2 = mkTraj(0x5fc46a, 0.55);
     /* »Geister-Monti«: der Mond an der Stelle, an der er bei der ANKUNFT steht.
        Ohne ihn schwebt die Begegnungsschleife im Nichts – mit ihm beantwortet
        die Karte die eigentliche Frage: »Wo treffe ich ihn?« */
@@ -10928,6 +11142,45 @@ const Flight = {
         box(x+s*w, ht+ht*0.1+3, z+d*0.15, w*0.13, 4, d*0.22, 0x76809a);
       box(x, 3.2, z-d/2-0.4, w*0.16, 6.4, 0.8, 0x39456b);             // Tür
     };
+    /* ================================================================
+       FLAME DIVERTER (Flammengraben)  – `padHasDiverter` / DIV_VENT_X
+       ----------------------------------------------------------------
+       Was passiert eigentlich mit dem Abgasstrahl, wenn er auf den Boden
+       trifft? Er muss WEG, sonst prallt er auf die Rakete zurück. Jeder große
+       Startplatz hat dafür einen Graben mit einem Stahlkeil darüber: Der Keil
+       teilt den Strahl, der Graben führt ihn zu zwei Mündungen seitlich der
+       Rampe – dort schießt die Wolke heraus (bei jedem Start von Cape
+       Canaveral im Bild zu sehen).
+       ⚠️ Die Achse ist OST–WEST (im Rampen-Mesh ±X, s. »Küste«: +Z = Süd), und
+       `Flight.frame()` lässt den Rauch an GENAU diesen Mündungen austreten
+       (`DIV_VENT_X`) – Mesh und Partikel müssen dieselbe Zahl benutzen.
+       ⚠️ Nur »Schulhof Süd« und Polarstation: Der kleine LMG-Schulstartplatz
+       hat keinen – dort steht die Rakete auf einer schlichten Betonschürze,
+       und genau dieser Unterschied macht sichtbar, was ein großer Bahnhof
+       mehr kann als ein Schulhof. */
+    if(padHasDiverter(kind)){
+      const scl = polar ? 0.7 : 1;                 // Polarstation: kleinere Anlage
+      const divDark = new THREE.MeshStandardMaterial({color:0x2a2f39, roughness:.92, metalness:.25});
+      const divSteel = new THREE.MeshStandardMaterial({color:0x6f7686, roughness:.45, metalness:.65});
+      // Grabensohle unter der Rampe (dunkel: da geht es hinunter)
+      const trench = new THREE.Mesh(new THREE.BoxGeometry(DIV_VENT_X*2*scl, 1, 22*scl), divDark);
+      trench.position.y = 0.35; g.add(trench);
+      // Stahlkeil unter dem Triebwerk – teilt den Strahl nach beiden Seiten
+      for(const sx of [1,-1]){
+        const wedge = new THREE.Mesh(new THREE.BoxGeometry(15*scl, 1.4, 19*scl), divSteel);
+        wedge.position.set(sx*10*scl, 3.2, 0); wedge.rotation.z = -sx*0.62;
+        g.add(wedge);
+      }
+      // Zwei Kanalmündungen: Seitenwangen + Sturz, Öffnung nach außen
+      for(const sx of [1,-1]){
+        const X = sx*DIV_VENT_X*scl;
+        box(X, 4.6*scl, 0, 9*scl, 9.2*scl, 26*scl, 0x767e8e);        // Rahmen
+        box(X + sx*1.2*scl, 4.0*scl, 0, 7*scl, 8*scl, 20*scl, 0x14181f); // dunkle Öffnung
+        for(const dz of [-1, 1])
+          box(X, 4.6*scl, dz*13*scl, 10*scl, 10*scl, 2.4*scl, 0x5d6472);
+        box(X, 9.8*scl, 0, 11*scl, 1.8*scl, 28*scl, 0x5d6472);       // Sturz
+      }
+    }
     if(kind==="lmg"){
       // Der bescheidene Schul-Startplatz: Montagehalle, 2 Tanks, 1 Schüssel
       hallAt(-130,60, 70,30,50);
@@ -10997,16 +11250,6 @@ const Flight = {
         }
         mz.position.set(0,0,34);   // +Z = Süd: Turm steht südlich, Arme reichen zur Rampe
         g.add(mz);
-        // Flame Diverter: Stahl-Keile lenken den Raptor-Strahl seitlich ab
-        const divMat = new THREE.MeshStandardMaterial({color:0x2a2f39, roughness:.9, metalness:.3});
-        const trench = new THREE.Mesh(new THREE.BoxGeometry(64,1,20), divMat);
-        trench.position.y = 0.5; g.add(trench);
-        for(const sx of [1,-1]){
-          const wedge = new THREE.Mesh(new THREE.BoxGeometry(16,1.4,18),
-            new THREE.MeshStandardMaterial({color:0x6f7686, roughness:.5, metalness:.6}));
-          wedge.position.set(sx*11, 3, 0); wedge.rotation.z = -sx*0.65;
-          g.add(wedge);
-        }
       }
     } else {
       // Polarstation »Skihütte«: zwei Container, kleiner Tank, Radarkuppel
@@ -11118,16 +11361,14 @@ const Flight = {
       pool.renderOrder = 3; g.add(pool);
       night.push({mat:poolMat, max:0.34});
     }
-    /* MENSCHLICHER MASSSTAB: drei Figuren am Rand der Sperrzone. Genau das
-       hat die Montagehalle von "riesig" auf "bewohnt" gebracht – und erst
-       daneben sieht man, dass die Rakete gut 40 m hoch ist.
-       Maßstab wie in der Halle (Modell 2,57 × 2,4 ≈ 6 Einheiten). */
-    for(const [fx, fz, fr] of [[-70, 26, 1.1], [-64, 33, -2.0], [-88, -20, 0.4]]){
-      const a = buildAstronaut();
-      a.scale.setScalar(2.4);
-      a.position.set(fx, 1.56, fz); a.rotation.y = fr;
-      g.add(a);
-    }
+    /* ⚠️ HIER STANDEN DREI FIGUREN am Rand der Sperrzone (menschlicher Maßstab,
+       wie in der Montagehalle). Sie sind RAUS – Wunsch Simon, »safety first«:
+       Eine Rakete wird nicht gezündet, solange noch jemand auf dem Gelände ist,
+       und in einer Schul-AG ist genau das die Botschaft, die auf dem Bild
+       stehen soll. Der Größenvergleich läuft jetzt über die Rampenbauten
+       selbst (Gitterturm, Geländer 3,4 hoch, Container, Treppen) – und in der
+       HALLE stehen die Figuren weiterhin, dort wird ja auch gearbeitet.
+       Nicht wieder einbauen, ohne zu fragen. */
     /* LOX-ABDAMPF: Der Sauerstoff kocht im Tank und wird abgeblasen – die
        weiße Fahne, die auf jedem Startfoto quer über die Rampe zieht.
        Billig gemacht: acht Sprites, Bewegung in Flight.updatePad. */
@@ -11437,6 +11678,9 @@ const Flight = {
        am »Erobern«. Sandbox/Tutorial haben eine eigene, leere Liste. */
     for(const f of (this.flagObjs||[])) this.world.remove(f.mesh);
     this.flagObjs = []; this.flagPlanted = null;
+    // Fußspuren gehören zum FLUG, nicht zum Spielstand (s. addFootprint)
+    if(this.footMesh){ this.footMesh.count = 0; }
+    this.footN = 0; this.footBody = null; this._footD = 0;
     if(!Game.sandbox){
       const byName = BODY_BY_NAME();
       for(const f of (Game.flags||[])){
@@ -12303,7 +12547,63 @@ const Flight = {
         if(rad < 0) this.eva.vel.addScaledVector(up, -rad);
         this.eva.onGround = true;
       } else if(rel.length() > surf + 0.3) this.eva.onGround = false;
+      /* Fußspuren: alle FOOT_STEP Einheiten ein Abdruck – aber nur auf einer
+         LUFTLOSEN Welt (s. addFootprint: auf Gras und im Wind bleibt nichts
+         stehen) und nur, solange die Figur wirklich läuft. */
+      if(this.eva.onGround && !(eb.atmoH > 0) && (this.eva.sp || 0) > 0.2){
+        this._footD = (this._footD || 0) + this.eva.sp*dt;
+        if(this._footD >= FOOT_STEP){ this._footD = 0; this.addFootprint(eb); }
+      }
     }
+  },
+  /* ================================================================
+     FUSSSPUREN im Regolith  (`footMesh` / `addFootprint`)
+     ----------------------------------------------------------------
+     Das Apollo-Bild: eine Spur aus Stiefelabdrücken, die von der Landefähre
+     wegführt. Sie bleibt, weil auf einer luftlosen Welt weder Wind noch Regen
+     sie wegwischt – deshalb gibt es sie NUR dort (auf Leibniz' Wiese sieht
+     man keine Abdrücke, und der Wind hätte sie in Minuten geglättet).
+     ⚠️ EIN InstancedMesh als RINGPUFFER (140 Abdrücke): 1 Draw-Call, und die
+     ältesten werden überschrieben statt zu wachsen. Einzelne Meshes wären bei
+     einem längeren Spaziergang hunderte Draw-Calls.
+     ⚠️⚠️ Die Instanzmatrizen sind KÖRPERFEST (relativ zum Mittelpunkt), und die
+     GRUPPE wird pro Frame auf `bodyPos(body, t)` gesetzt. Absolut gespeicherte
+     Abdrücke blieben im Sonnensystem stehen, während der Mond mit über einem
+     km/s darunter wegfliegt.
+     ⚠️ Die Spuren gehören zum FLUG, nicht zum Spielstand (Reset in `start()`)
+     – anders als die Flaggen, die man ja bewusst »für immer« setzt. */
+  ensureFootprints(){
+    if(this.footMesh) return;
+    const geo = new THREE.PlaneGeometry(0.38, 0.17);
+    geo.rotateX(-Math.PI/2);                    // liegt flach auf dem Boden
+    const mat = new THREE.MeshBasicMaterial({map:footprintTexture(), color:0x2b2b30,
+      transparent:true, opacity:0.55, depthWrite:false});
+    const im = new THREE.InstancedMesh(geo, mat, FOOT_MAX);
+    im.count = 0; im.frustumCulled = false; im.renderOrder = 1;
+    im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.footGroup = new THREE.Group();
+    this.footGroup.add(im);
+    this.world.add(this.footGroup);
+    this.footMesh = im; this.footN = 0;
+  },
+  addFootprint(b){
+    this.ensureFootprints();
+    // Körperwechsel: alte Spur verwerfen (sie gehört zu einer anderen Welt)
+    if(this.footBody !== b){ this.footBody = b; this.footN = 0; this.footMesh.count = 0; }
+    const up = this.eva.pos.clone().sub(this.bodyCenter(b)).normalize();
+    const face = this.eva.face.clone().addScaledVector(up, -this.eva.face.dot(up));
+    if(face.lengthSq() < 1e-6) return;
+    face.normalize();
+    const side = new THREE.Vector3().crossVectors(face, up).normalize();
+    this._footL = !this._footL;                 // links/rechts abwechselnd
+    const pos = up.clone().multiplyScalar(b.R + 0.03)
+      .addScaledVector(side, this._footL ? 0.13 : -0.13);
+    const m = new THREE.Matrix4().makeBasis(face, up, side).setPosition(pos);
+    const i = this.footN % FOOT_MAX;
+    this.footMesh.setMatrixAt(i, m);
+    this.footMesh.instanceMatrix.needsUpdate = true;
+    this.footN++;
+    this.footMesh.count = Math.min(this.footN, FOOT_MAX);
   },
   /* 🚩 Flagge aufstellen – nur zu Fuß auf einer Oberfläche.
      Die Flagge bleibt danach für immer stehen (Game.flags im Spielstand) und
@@ -14586,12 +14886,20 @@ const Flight = {
     const bottom = g.up - H/2;                    // Unterkante der Rakete
     // Szenen-Richtungen für die Partikel (Boden-System → Welt)
     const up = this.gUp, east = this.gEast, north = this.gNorth;
-    // ⚠️ Szenen-Ursprung ist das SCHIFF, nicht die Wasserlinie: die Höhe
-    // muss relativ zu `g.up` versetzt werden, sonst entsteht die Gischt auf
-    // Raketenhöhe statt an der Oberfläche.
-    const at = (e,n,h)=> up.clone().multiplyScalar(h - g.up)
+    /* ⚠️ Szenen-Ursprung ist das SCHIFF, nicht die Wasserlinie: die Höhe muss
+       relativ zu `g.up` versetzt werden, sonst entsteht die Gischt auf
+       Raketenhöhe statt an der Oberfläche.
+       ⚠️⚠️ Und dann MUSS `this.pos` dazu: Die Sprites hängen an `Flight.world`,
+       brauchen also ABSOLUTE Weltkoordinaten. Ohne diesen Summanden landete
+       jeder Tropfen 1,36e10 m neben der Szene – die Gischt war gebaut, aber
+       nie zu sehen (gemessen, August 2026). Gleiches gilt für die
+       GESCHWINDIGKEIT: Basis ist die Bahngeschwindigkeit des Planeten, sonst
+       bleibt der Tropfen im Sonnensystem stehen und ist nach einer Sekunde
+       9,3 km weit weg. */
+    const at = (e,n,h)=> this.pos.clone().addScaledVector(up, h - g.up)
       .addScaledVector(east, e - g.e).addScaledVector(north, n - g.n);
-    const vRel = this.vel.clone().sub(bodyVel(LEIBNIZ, this.t));
+    const vBase = bodyVel(LEIBNIZ, this.t);
+    const vRel = this.vel.clone().sub(vBase);
     const vDown = -vRel.dot(up);
     // --- 1) SPLASH beim Durchstoßen der Oberfläche ---------------------
     const under = bottom < surf;
@@ -14604,7 +14912,7 @@ const Flight = {
         this.spawnParticle(
           at(g.e + Math.cos(a)*r, g.n + Math.sin(a)*r, surf),
           outw.multiplyScalar(3 + 14*power*Math.random())
-              .addScaledVector(up, 8 + 30*power*Math.random()),
+              .addScaledVector(up, 8 + 30*power*Math.random()).add(vBase),
           1.0 + Math.random()*1.2, 4 + 11*power*Math.random(),
           Math.random() < 0.7 ? 0xffffff : 0xbfe8f0);
       }
@@ -14627,13 +14935,132 @@ const Flight = {
         this.spawnParticle(
           at(g.e + Math.cos(a)*r, g.n + Math.sin(a)*r, surf),
           outw.multiplyScalar(10 + 26*Math.random())
-              .addScaledVector(up, 7 + 26*inten*Math.random()),
+              .addScaledVector(up, 7 + 26*inten*Math.random()).add(vBase),
           0.8 + Math.random()*0.9, 5 + 12*inten*Math.random(),
           Math.random() < 0.6 ? 0xffffff : 0xd8f0f6);
       }
     }
   },
-  spawnParticle(pos, vel, life, size, color){
+  /* ================================================================
+     LANDESTAUB  (`dustFx` / `touchdownDust`)
+     ----------------------------------------------------------------
+     Das Land-Gegenstück zur Gischt (`waterFx`). Zwei Sorten, und der
+     Unterschied ist der ganze didaktische Witz:
+     - **LUFTLOSE WELT** (Monti, Minzi, Newton, Huygens-Monde …): Der Staub
+       fliegt in FLACHEN, GERADEN Bahnen radial davon und verschwindet
+       schlagartig – er wölkt NICHT auf. Genau so sehen die Apollo-Filme aus,
+       und der Grund ist, dass keine Luft da ist, die den Staub bremsen oder
+       in Wirbeln halten könnte. Deshalb: kaum Aufwärtskomponente, hohe
+       Geschwindigkeit, kein Wachstum der Sprites (`grow` 0), kurze Lebensdauer.
+     - **LEIBNIZ** (Luft, über Land): eine echte Wolke – aufsteigend, sich
+       ausbreitend (`grow` groß), staubbraun mit ein paar grünen Grasfetzen.
+     ⚠️ Über Wasser macht das `waterFx` (Gischt) – dieser Zweig steigt dort aus,
+     sonst gibt es beides gleichzeitig.
+     ⚠️ Position UND Geschwindigkeit ABSOLUT (Sprites hängen an `Flight.world`,
+     s. spawnParticle), Basis der Geschwindigkeit ist die Bahngeschwindigkeit
+     des Körpers – der Staub gehört zum Boden, nicht zum Schiff. */
+  dustFx(dt){
+    if(this.map || this.crashed || this.eva || WARPS[this.warpI] > 2) return;
+    /* ⚠️ `landedBody` gilt nur, SOLANGE das Schiff steht – es bleibt nach dem
+       Abheben stehen. Ungeprüft übernommen zeigte der Staub beim Monti-Anflug
+       noch auf Leibniz und der Effekt kam nie (so gemessen). */
+    const b = this.landed ? (this.landedBody || this.body()) : this.body();
+    if(!b || b === SUN || b.kind === "gas") return;
+    const c = this.bodyCenter(b);
+    const up = this.pos.clone().sub(c).normalize();
+    const alt = this.pos.distanceTo(c) - b.R;
+    const clear = alt - this.height()/2;          // Unterkante über Grund
+    if(clear > DUST_ALT || clear < -60) return;
+    if(b === LEIBNIZ){
+      // Über Wasser ist die Gischt zuständig (nur Leibniz hat Meer)
+      if(this.groundGroup.visible && this._padQInv){
+        const g = this.toGround(V3(0,0,0));
+        if(g && this.isWaterAt(g.e, g.n)) return;
+      }
+      /* ⚠️ Auf der RAMPE wirbelt kein Gras auf – dort ist Beton, und was man
+         sieht, sind Abgase aus dem Flame Diverter (s. updatePad/frame). Der
+         Radius deckt die ganze Startplattform ab; beim Aufstieg ist man
+         ohnehin bald über DUST_ALT. */
+      if(this.padLocal &&
+         this.pos.distanceTo(bodyPos(LEIBNIZ, this.t).add(this.padLocal)) < 150) return;
+    }
+    const s = this.activeSeg();
+    if(!(s && s.ignited && s.fuelLeft > 0 && s.thrust && this.throttle > 0)) return;
+    // quadratisch: dicht überm Boden schlagartig heftig (wie bei der Gischt)
+    const inten = Math.pow(1 - Math.max(0, clear)/DUST_ALT, 2)*Math.min(1, this.throttle);
+    if(inten < 0.02) return;
+    const airless = !(b.atmoH > 0);
+    const fr = this.frameAt(this.pos, b);
+    const ground = this.pos.clone().addScaledVector(up, -alt);
+    const vBase = bodyVel(b, this.t);
+    const col = this.dustColor(b);
+    const nP = Math.min(6, Math.floor(inten*6.5) + (Math.random() < inten ? 1 : 0));
+    for(let i=0;i<nP;i++){
+      const a = Math.random()*6.283;
+      const r = (airless ? 2 : 4) + Math.random()*(airless ? 12 : 24)*(0.4+inten);
+      const outw = fr.east.clone().multiplyScalar(Math.cos(a)).addScaledVector(fr.north, Math.sin(a));
+      /* ⚠️ Tempo GEMESSEN, nicht geschätzt: Der erste Wurf schoss den Staub mit
+         45–115 m/s davon – physikalisch plausibel, aber bei 58 m Kameraabstand
+         war jedes Korn nach einem Wimpernschlag außerhalb des Bildes (gemessen:
+         Bildschirmkoordinaten bis x = 3877 bei 834 px Fensterbreite). 20–50 m/s
+         bleiben flach und schnell, aber im Bild. */
+      const vel = airless
+        // flach und schnell davon – ohne Luft bremst und verwirbelt nichts
+        ? outw.multiplyScalar(20 + 30*inten*Math.random()).addScaledVector(up, 0.5 + 3.5*Math.random())
+        /* mit Luft: träger, breitet sich AM BODEN aus und steigt erst dabei –
+           deshalb viel seitliches und wenig senkrechtes Tempo. Eine Wolke, die
+           gleich hochschießt, sieht aus wie Rauch aus einem Schornstein. */
+        : outw.multiplyScalar(12 + 26*Math.random()).addScaledVector(up, 3 + 11*inten*Math.random());
+      this.spawnParticle(
+        ground.clone().addScaledVector(outw, r).addScaledVector(up, airless ? 0.5 : 2),
+        vel.add(vBase),
+        airless ? 0.7 + Math.random()*0.8 : 1.0 + Math.random()*1.1,
+        (airless ? 4 : 5) + (airless ? 6 : 13)*inten*Math.random(),
+        Math.random() < 0.75 ? col.main : col.alt,
+        airless ? 0.15 : 1.8);
+    }
+  },
+  /* Farbe des aufgewirbelten Materials: die Mittelfarbe des Körpers aus
+     `shade2D` (dieselbe Quelle, aus der auch die 2D-Karte malt) – so passt der
+     Staub zum Boden, auf dem man wirklich steht. Auf Leibniz kommt Grün dazu:
+     dort ist es Grasnarbe und Erde, kein Regolith. */
+  dustColor(b){
+    if(b === LEIBNIZ) return {main:0xa8926f, alt:0x6f8a4a};
+    const sh = b.shade2D || ["#cfd3da","#9aa0ac","#5a6068"];
+    return {main:new THREE.Color(sh[1]).getHex(), alt:new THREE.Color(sh[2]).getHex()};
+  },
+  /* Einmaliger Puff beim AUFSETZEN – Menge nach Aufschlaggeschwindigkeit.
+     Der Moment, in dem man sieht, dass die Landung wirklich stattgefunden hat. */
+  touchdownDust(b, vrel){
+    if(this.map || !b || b === SUN || b.kind === "gas" || vrel < 0.4) return;
+    if(b === LEIBNIZ && this.groundGroup.visible && this._padQInv){
+      const g = this.toGround(V3(0,0,0));
+      if(g && this.isWaterAt(g.e, g.n)) return;   // das macht der SPLASH
+    }
+    const c = this.bodyCenter(b);
+    const up = this.pos.clone().sub(c).normalize();
+    const alt = this.pos.distanceTo(c) - b.R;
+    const fr = this.frameAt(this.pos, b);
+    const ground = this.pos.clone().addScaledVector(up, -alt);
+    const vBase = bodyVel(b, this.t), col = this.dustColor(b);
+    const airless = !(b.atmoH > 0);
+    const power = Math.min(1, vrel/9);
+    const nP = Math.round(8 + 20*power);
+    for(let i=0;i<nP;i++){
+      const a = Math.random()*6.283, r = 2 + Math.random()*9*(0.4+power);
+      const outw = fr.east.clone().multiplyScalar(Math.cos(a)).addScaledVector(fr.north, Math.sin(a));
+      this.spawnParticle(
+        ground.clone().addScaledVector(outw, r).addScaledVector(up, 1),
+        outw.multiplyScalar((airless ? 9 : 5) + (airless ? 22 : 14)*power*Math.random())
+            .addScaledVector(up, (airless ? 1 : 4) + (airless ? 4 : 16)*power*Math.random())
+            .add(vBase),
+        airless ? 0.8 + Math.random()*0.8 : 1.1 + Math.random()*1.0,
+        (airless ? 4 : 5) + (airless ? 7 : 12)*power*Math.random(),
+        Math.random() < 0.75 ? col.main : col.alt,
+        airless ? 0.15 : 1.6);
+    }
+  },
+  spawnParticle(pos, vel, life, size, color, grow){
     const p = this.particles.find(p=>p.life<=0);
     if(!p) return;
     p.fresh = true;   // erstes Update überspringen (sonst 1 Frame Versatz zur Rakete)
@@ -14641,7 +15068,10 @@ const Flight = {
     p.vel.copy(vel);
     p.spr.position.copy(pos);
     p.spr.scale.set(size, size, 1);
-    p.grow = 1.8;
+    // ⚠️ `grow` ist optional: Rauch und Gischt wölken auf (Standard 1,8),
+    // Staub auf einer luftlosen Welt darf das NICHT (dort gibt es nichts, was
+    // ihn verwirbelt) – s. dustFx.
+    p.grow = grow === undefined ? 1.8 : grow;
     p.spr.material.color.set(color);
     p.spr.material.opacity = 0.85;
     p.spr.visible = true;
@@ -15931,6 +16361,7 @@ const Flight = {
           this.landed = true;
           this.showMsg("🛬 Gelandet auf "+b.name+"! ("+vrel.toFixed(1)+" m/s)"+
             (this.crew.length?" Die Crew ist wohlauf! 👋":""),5);
+          this.touchdownDust(b, vrel);      // aufgewirbelter Staub beim Aufsetzen
           this.onLanded(b);
         }
       }
@@ -16303,6 +16734,8 @@ const Flight = {
        sobald die Sonne der Bezug wurde. Das sah aus wie eine Fluchtbahn. */
   traceOrbit(lineA, lineB, p, v, t, total, n, wantApPe){
     const aA = lineA.geometry.attributes.position, aB = lineB.geometry.attributes.position;
+    const cAt = lineA.geometry.attributes.color, cBt = lineB.geometry.attributes.color;
+    const colA = lineA.userData.baseCol, colB = lineB.userData.baseCol;
     const dtMax = total/n, dtMin = dtMax/60;
     let frameBody = this.bodyAt(p, t), fbNow = this.anchorFor(frameBody, t);
     const originBody = frameBody;
@@ -16360,6 +16793,17 @@ const Flight = {
       }
       const rel = p.clone().sub(bodyPos(frameBody, t));
       const plot = rel.clone().add(fbNow);
+      /* Helligkeitsverlauf: `f` = 0 am Schiff, 1 am Horizont. Der Exponent
+         zieht das Verblassen nach hinten (die erste Hälfte der Bahn bleibt gut
+         lesbar), der Sockel 0,22 hält auch das Ende vom schwarzen Hintergrund
+         unterscheidbar. Der weiße Anteil ganz vorn (^6, also nur die ersten
+         Prozent) markiert das »jetzt« – da steht das Schiff. */
+      const f = i/n;
+      const k = 0.22 + 0.78*Math.pow(1 - f, 1.3);
+      const wt = 0.45*Math.pow(1 - f, 6);
+      const bc = onB ? colB : colA, ca = onB ? cBt : cAt;
+      const idx = onB ? cB : cA;
+      ca.setXYZ(idx, (bc.r + (1-bc.r)*wt)*k, (bc.g + (1-bc.g)*wt)*k, (bc.b + (1-bc.b)*wt)*k);
       attr.setXYZ(onB ? cB++ : cA++, plot.x-this.pos.x, plot.y-this.pos.y, plot.z-this.pos.z);
       // Ap/Pe nur auf dem Stück im URSPRUNGS-Bezugssystem suchen
       if(wantApPe && !onB && frameBody === originBody){
@@ -16372,9 +16816,9 @@ const Flight = {
       if(MOONS.some(m=>p.distanceTo(bodyPos(m,t))<m.R)) break;
     }
     lineA.geometry.setDrawRange(0, cA); lineA.position.copy(this.pos);
-    aA.needsUpdate = true;
+    aA.needsUpdate = true; cAt.needsUpdate = true;
     lineB.geometry.setDrawRange(0, cB); lineB.position.copy(this.pos);
-    aB.needsUpdate = true;
+    aB.needsUpdate = true; cBt.needsUpdate = true;
     lineB.visible = cB > 1 && this.map;
     return {ghost, pMin, pMax};
   },
@@ -17215,37 +17659,102 @@ const Flight = {
           }
         }
       }
-      // Abgas-Partikel: nur in der Atmosphäre (im Vakuum gibt es keine Rauchwolke)
+      /* ---- Abgas & Startrauch (nur in der Atmosphäre – im Vakuum gibt es
+             keine Rauchwolke, dort trägt die Flamme allein) ----
+         ⚠️⚠️ ZWEI FÄLLE, und der Unterschied ist die Physik:
+         1. IN DER LUFT: Die Fahne zieht nach hinten weg und fliegt mit dem
+            Schiff mit – Basis der Partikelgeschwindigkeit ist `this.vel`.
+         2. AM BODEN (Unterkante < PLUME_GROUND): Der Strahl trifft auf und
+            wird UMGELENKT. Die Wolke entsteht dann nicht an der Düse, sondern
+            am AUFTREFFPUNKT, breitet sich flach über den Boden aus und steigt
+            erst dabei auf. ⚠️ Ihre Basisgeschwindigkeit ist die des BODENS
+            (`bodyVel`), NICHT die des Schiffs: Eine Startwolke bleibt liegen,
+            während die Rakete davonfliegt – vorher hing sie mit `this.vel` an
+            der Rakete und zog wie ein Schweif mit nach oben, was der
+            auffälligste Fehler am alten Start war. */
       if((burning || boosterBurn) && !this.map && alt < LEIBNIZ.atmoH){
         const nozzle = this.pos.clone().addScaledVector(dir, -hh);
-        for(let i=0;i<3;i++){
+        const thr = Math.max(0.3, this.throttle);
+        const hOver = alt - hh;                       // Unterkante über Grund
+        const ground = hOver < PLUME_GROUND && !this.eva;
+        // Am Boden trägt die Bodenwolke – dort reicht EIN Düsen-Partikel,
+        // sonst ist der Pool (170 Sprites) in einer Sekunde leer.
+        for(let i=0;i<(ground?1:3);i++){
           const spread = V3((Math.random()-0.5)*8,(Math.random()-0.5)*8,(Math.random()-0.5)*8);
-          const pvel = dir.clone().multiplyScalar(-35*Math.max(0.3,this.throttle)).add(spread).add(this.vel);
-          // am Boden: Abgase seitlich ablenken
-          if(alt < 60){
-            const fr0 = this.frameAt(this.pos);
-            pvel.addScaledVector(fr0.up, 20);
-            pvel.addScaledVector(Math.random()<0.5?fr0.east:fr0.east.clone().negate(), 15+Math.random()*20);
-          }
-          this.spawnParticle(nozzle, pvel, 0.8+Math.random()*0.9,
-            2.5+Math.random()*3, i===0 ? 0xffa030 : 0xbfc4cf);
+          this.spawnParticle(nozzle,
+            dir.clone().multiplyScalar(-35*thr).add(spread).add(this.vel),
+            0.8+Math.random()*0.9, 2.5+Math.random()*3,
+            i===0 ? 0xffa030 : 0xbfc4cf);
         }
-        // Flame Diverter am Starship-Pad: EXTRA Dampf-/Rauchfontänen schießen
-        // seitlich aus den Stahl-Keilen – 33 Raptors wollen irgendwohin!
-        if(alt < 100 && this.pad && this.pad.id==="eq" &&
-           this.v.stack.some(id=>PARTS[id].type==="superheavy")){
-          const fr1 = this.frameAt(this.pos);
-          for(let k=0;k<4;k++){
-            const sgn = k%2 ? 1 : -1;
-            const side = fr1.east.clone().multiplyScalar(sgn)
-              .addScaledVector(fr1.north, (Math.random()-0.5)*0.6).normalize();
-            this.spawnParticle(
-              this.pos.clone().addScaledVector(dir, -hh).addScaledVector(side, 7+Math.random()*10),
-              this.vel.clone().addScaledVector(side, 45+Math.random()*40).addScaledVector(fr1.up, 8+Math.random()*16),
-              1.5+Math.random()*1.3, 7+Math.random()*8, k===0 ? 0xffb060 : 0xe2e7f0);
+        if(ground){
+          const fr0 = this.frameAt(this.pos);
+          const vG = bodyVel(LEIBNIZ, this.t);        // die Wolke gehört zum Boden
+          const hit = this.pos.clone().addScaledVector(fr0.up, -alt);   // Aufprallpunkt
+          const inten = (1 - Math.max(0, hOver)/PLUME_GROUND)*thr;
+          /* Mit Flammengraben schießt alles aus den beiden MÜNDUNGEN (Ost/West,
+             s. padHasDiverter/DIV_VENT_X), ohne Graben quillt es rundum unter
+             der Rakete hervor. Genau daran sieht man den Unterschied zwischen
+             einem großen Bahnhof und einer Betonschürze. */
+          /* ⚠️ NUR an der eigenen Rampe: `this.pad` ist der Startplatz, nicht
+             der Ort, an dem das Schiff gerade steht. Ohne den Abstands-Check
+             quölle der Rauch auch bei einer Landung 1000 km weiter aus
+             Mündungen, die es dort gar nicht gibt – und entlang der falschen
+             Achse, denn `padEastV` gehört zum Rampen-Frame. */
+          const div = this.pad && padHasDiverter(this.pad.id) && this.padEastV &&
+                      hOver < 120 && this.padLocal &&
+                      this.pos.distanceTo(bodyPos(LEIBNIZ, this.t).add(this.padLocal)) < 200;
+          /* ⚠️ Menge GEMESSEN: Mit 2 + 4·inten war der 170-Sprite-Pool nach
+             einer Sekunde Dauerbrand leer und das ganze Bild milchig-weiß –
+             man sah weder Rampe noch Rakete. Eine Startwolke soll am Boden
+             wegziehen, nicht die Szene ersetzen. */
+          const nP = 1 + Math.round(2.2*inten);
+          for(let k=0;k<nP;k++){
+            const sgn = Math.random() < 0.5 ? 1 : -1;
+            const out = div
+              ? this.padEastV.clone().multiplyScalar(sgn)
+                  .addScaledVector(fr0.north, (Math.random()-0.5)*0.45).normalize()
+              : (()=>{ const a = Math.random()*6.283;
+                       return fr0.east.clone().multiplyScalar(Math.cos(a))
+                         .addScaledVector(fr0.north, Math.sin(a)); })();
+            const from = div
+              // an der Mündung austreten, nicht unter der Rakete
+              ? this.pos.clone().addScaledVector(fr0.up, -alt)
+                  .addScaledVector(out, DIV_VENT_X).addScaledVector(fr0.up, 4)
+              : hit.clone().addScaledVector(out, 5 + Math.random()*16)
+                  .addScaledVector(fr0.up, 1 + Math.random()*4);
+            this.spawnParticle(from,
+              out.clone().multiplyScalar((div ? 42 : 26) + 46*inten*Math.random())
+                 .addScaledVector(fr0.up, 3 + 13*Math.random()).add(vG),
+              1.2 + Math.random()*1.2,
+              (div ? 7 : 6) + 11*inten*Math.random(),
+              Math.random() < 0.18 ? 0xffb060 : (Math.random() < 0.5 ? 0xdfe4ee : 0xa8adb8),
+              1.7);
           }
         }
       }
+    }
+    /* ---- Kondensstreifen an den Flossenspitzen (s. addFinTrails) ----
+       Wirbelkerne gibt es auch schon unterhalb Mach 1, deshalb setzt der
+       Streifen früher ein als der frühere Vapor Cone (ab ~Mach 0,55) – und er
+       hängt zusätzlich am Staudruck: in dünner Luft ist keine Feuchte mehr da,
+       die kondensieren könnte. */
+    {
+      const airW2 = this.vel.clone().sub(bodyVel(LEIBNIZ, this.t));
+      const vA2 = airW2.length();
+      const rhoA = alt < LEIBNIZ.atmoH
+        ? LEIBNIZ.rho0*Math.exp(-Math.max(0, alt)/LEIBNIZ.scaleH) : 0;
+      const qDyn2 = 0.5*rhoA*vA2*vA2;
+      // Schallgeschwindigkeit aus der Lufttemperatur: c = 20,05·√(T in K)
+      const cSnd = 20.05*Math.sqrt(Math.max(60, this.ambTemp() + 273.15));
+      const live2 = !this.map && !this.crashed && !this.landed && !this.eva &&
+                    alt < LEIBNIZ.atmoH && this.rocketGroup;
+      const trailI = live2
+        ? THREE.MathUtils.smoothstep(vA2/cSnd, 0.55, 0.95) *
+          THREE.MathUtils.clamp(qDyn2/22000, 0, 1) : 0;
+      TRAIL_U.uI.value = trailI;
+      TRAIL_U.uTime.value = (this.fxT || 0) % 600;
+      if(this.rocketGroup)
+        this.rocketGroup.traverse(o=>{ if(o.name==="finTrail") o.visible = trailI > 0.01; });
     }
     /* RCS-Steuerdüsen: Gasstöße + Zischen (Zustand kommt aus step(), gezeichnet
        wird hier – s. Kommentar dort; dort steckt auch die Vakuum-Bedingung:
@@ -17325,6 +17834,7 @@ const Flight = {
     this.updateRaptor(1/60);
     // Partikel altern mit SIMULATIONS-Zeit (sonst driften sie bei Warp gegen die Planetenbewegung)
     this.waterFx(simmed);
+    this.dustFx(simmed);          // Land-Gegenstück: Staub bzw. Grasnarbe
     this.updateParticles(simmed);
     for(const sat of this.sats) sat.mesh.position.copy(sat.pos);
     if(this.tutTanker && this.tutTankerMesh)
@@ -17443,6 +17953,14 @@ const Flight = {
         e.mesh.quaternion.setFromUnitVectors(V3(0,1,0), eUp);
       }
       e.mesh.visible = !this.map;
+    }
+    /* Fußspuren mit ihrem Körper mitführen (die Instanzmatrizen sind
+       körperfest, s. addFootprint) – ohne das bliebe die Spur im
+       Sonnensystem stehen, während der Mond darunter wegfliegt. */
+    if(this.footGroup){
+      const fb = this.footBody;
+      this.footGroup.visible = !this.map && !!fb && this.footMesh.count > 0;
+      if(fb) this.footGroup.position.copy(bodyPos(fb, this.t));
     }
     // Aufgestellte LMG-Flaggen auf ihrer Oberfläche halten
     for(const f of this.flagObjs){
