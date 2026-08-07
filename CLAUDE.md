@@ -180,12 +180,29 @@ worden.
 3. **⚠️ Relativ-Geschwindigkeits-Gotcha:** Leibniz rast mit ~9,3 km/s um die Sonne. JEDE physikalisch sichtbare Geschwindigkeit (SAS-Prograde, Drag/airVel, Reentry-Hitze/Glühen, Navball, Knoten-Frame, Statistiken, Docking) MUSS relativ zum dominanten Körper (`vel - bodyVel(body,t)`) gerechnet werden.
 4. **Trajektorien als PATCHED CONICS (`Flight.traceOrbit`, EINE Routine für orange UND grün):** Vorhersagepunkte = `p_abs - bodyPos(frameBody, t) + anker`. Periode aus großer Halbachse, RK2 mit Substeps, Horizont ×1.08.
    - ⚠️⚠️ **Der Horizont kommt aus `Flight.orbitHorizon(p,v,t,b)` – EINE Quelle für beide Linien.** Ist die Bahn um `b` HYPERBOLISCH (jeder Ejection-Burn Richtung Nachbarplanet!), gibt es dort keine Umlaufzeit; dann zählt die Bahn um den **MUTTERKÖRPER** nach dem Verlassen der Sphäre (`v∞ = √(2E)` in Richtung der Relativgeschwindigkeit + Bahngeschwindigkeit des Körpers). Vorher fiel die Rechnung auf einen festen Notwert (120 000 s) zurück: Die grüne Linie war ein 1,5-Tage-Stummel neben Leibniz, die Transfer-Ellipse um die Sonne **nirgends zu sehen** (Bug-Report Simon: »der grüne Kreis ist nicht da«). ⚠️ `SUN.soi` gibt es nicht (die Sonne steht nicht in ORBIT_BODIES) – `Math.min(x, undefined)` ist NaN und die alte Rechnung fiel deshalb auch bei jeder Sonnenbahn still auf den Notwert zurück; darum `|| Infinity`.
+   - ⚠️⚠️ **Die Bahn ist ein BAND, keine Linie** (`TRAJ_U`/`TRAJ_VERT`/`TRAJ_FRAG`, August
+     2026): `LineBasicMaterial.linewidth` ist auf praktisch jeder Grafikkarte wirkungslos
+     (ANGLE unter Windows, jedes OpenGL-Core-Profil) – die Vorhersagebahn war deshalb IMMER
+     genau ein Pixel breit und vor dem hellen Planeten kaum zu finden (Bug-Report Simon).
+     In WebGL1 geht ein dickerer Strich nur als Geometrie: Jeder Bahnpunkt liefert ZWEI
+     Scheitel (`aSide` ±1), je zwei Punkte ergeben ein Viereck (Indexpuffer EINMAL gebaut),
+     und die Breite spannt der Vertex-Shader in **Bildschirmpixeln** auf – in jeder Zoomstufe
+     gleich dick (`TRAJ_W` = 1,7 halbe Breite ⇒ ~3,4 px).
+     ⚠️⚠️ Die Laufrichtung kommt als zweiter PUNKT (`aNext`), nicht als addierte
+     Weltrichtung: Die Positionen liegen trotz Bezug auf `Flight.pos` bei bis zu 1e9 m, ein
+     paar addierte Meter verschwinden in float32 (dieselbe Falle wie bei den Vertices selbst).
+     ⚠️ `DoubleSide` ist Pflicht (die Wicklung des Bandes hängt an der Blickrichtung),
+     ebenso die logdepthbuf-Chunks mit `common` davor (Log-Z-Puffer). Der letzte Punkt hat
+     keinen Nachfolger – seine Richtung wird aus dem vorletzten fortgeschrieben (`finish`).
+     ⚠️ `uHalfRes` (pro Frame in `frame()` gesetzt) und `uW` rechnen BEIDE in CSS-Pixeln,
+     damit sich das Pixelverhältnis herauskürzt. Kosten gemessen: Schreiben 0,045 ms je
+     `predict()` (gegen 3,7 ms Integration), weiterhin 1 Draw-Call je Linie.
    - ⚠️ **HELLIGKEITSVERLAUF statt gleichmäßiger Farbe** (vorn hell → hinten verblassend,
      Wunsch Simon): Eine gleichmäßig gefärbte Ellipse sagt nicht, in welche RICHTUNG man
-     fliegt. Gemacht über **Vertex-Farben** (`mkTraj`, Attribut `color`, `vertexColors:true`) –
-     kein zusätzlicher Draw-Call, und der Verlauf folgt automatisch der adaptiven Schrittweite.
-     ⚠️ `vertexColors` MULTIPLIZIERT mit `material.color`, das Material ist deshalb WEISS und
-     die Bahnfarbe steckt in den Vertex-Farben (`line.userData.baseCol`). Formel:
+     fliegt. Gemacht über **Vertex-Farben** (`mkTraj`, Attribut `color`) – kein zusätzlicher
+     Draw-Call, und der Verlauf folgt automatisch der adaptiven Schrittweite.
+     ⚠️ Das Attribut heißt weiterhin `color`, wird aber im eigenen Shader als
+     `attribute vec3 color` deklariert (kein `vertexColors`-Flag – ShaderMaterial). Formel:
      `k = 0,22 + 0,78·(1−f)^1,3` (Sockel 0,22, damit das Ende sich vom schwarzen Hintergrund
      abhebt) plus ein weißer Anteil `0,45·(1−f)^6` nur ganz vorn – das markiert das »jetzt«.
      Gemessen orange: vorn (0,98|0,77|0,51) → Ende (0,21|0,13|0,03).
@@ -1091,7 +1108,7 @@ Was passiert, wenn ein Triebwerk auf den Boden zielt oder ein Stiefel ihn berüh
 - ⚠️ `Flight.setViewUniforms(cam, h)` setzt die kamera-abhängigen Uniforms von Meer & Wolken (`uEye`, `uPixel`, `uCamRight/Up`) und **muss direkt vor JEDEM render() mit der jeweiligen Kamera laufen** – die Booster-PiP rendert dieselbe Szene aus einer anderen Perspektive.
 
 ## Booster-Landeplätze (RTLS / Droneship / Mechazilla-Catch)
-- **Tech-Kette:** reuse → landZone (40, Landing-Zone-Plattform »LZ-1« an JEDER Rampe, in `buildPad` bei lokal (10,0,260)) → droneship (60). `Game.boosterSite` ("rtls"/"ship", VAB-Wähler »Booster-Landeplatz« erscheint bei Gitterflossen im Stack, `VAB.setBoosterSite`), `Flight.boosterSiteEff(parts)` = rtls/ship/null. **Bergungswert:** LZ 100 % · Droneship 90 % · Gelände 60 % · Wasserung 50 % (ohne Forschung wassert der Booster downrange – reuse1 bleibt erfüllbar!). Missionen lz1 (`s.lzLanded`) → ship1 (`s.shipLanded`), catch1 (`s.caught`, req reuse1). Orange Tankmarke rutscht bei RTLS auf 30 % (Boostback braucht Sprit). ⚠️ Tutorial "booster" hat deshalb 2× tankL in Stufe 1 + Ziel 10 km (getestet: 12 km bei 37 % – die alte 1-Tank-Version lief vor der Marke leer).
+- **Tech-Kette:** reuse → landZone (40, Landing-Zone-Plattform »LZ-1« an JEDER Rampe, in `buildPad` bei lokal (10,0,260)) → droneship (60). `Game.boosterSite` ("rtls"/"ship", VAB-Wähler »Booster-Landeplatz« erscheint bei Gitterflossen im Stack, `VAB.setBoosterSite`), `Flight.boosterSiteEff(parts)` = rtls/ship/null. **Bergungswert:** LZ 100 % · Droneship 90 % · Gelände 60 % · Wasserung 50 % (ohne Forschung wassert der Booster downrange – reuse1 bleibt erfüllbar!). Missionen lz1 (`s.lzLanded`) → ship1 (`s.shipLanded`), catch1 (`s.caught`, req reuse1). Orange Tankmarke rutscht bei RTLS auf 30 % (Boostback braucht Sprit) – die Prozentwerte stehen in **`BOOSTER_RESERVE`/`boosterReserve(site)`**, der EINEN Quelle für Tankmarke UND die Δv-Zeile »mit Bergung« in der Halle (s. dort). ⚠️ Tutorial "booster" hat deshalb 2× tankL in Stufe 1 + Ziel 10 km (getestet: 12 km bei 37 % – die alte 1-Tank-Version lief vor der Marke leer).
 - ⚠️⚠️ **Der SUPERHEAVY fährt NIE zur See** (Prüfung in `boosterSiteEff`, `launchFee`, `VAB.setBoosterSite` und der Landeplatz-Sektion von `renderInfo`). Ein Mechazilla-Fangturm passt auf keine Barge – bei SpaceX ist es genauso: Falcon-Booster landen auf dem Droneship, Superheavy nicht. Das war **kein Kosmetik-Problem**: `boosterSiteEff()` las nur `Game.boosterSite`, und an DIESER Funktion hing die orange Tankmarke. Mit gewähltem »Droneship« stand sie bei 12 % statt der 30 %, die der Boostback zum Turm braucht – wer nach der Marke trennte, kam nicht zurück und landete »🏞 im Gelände« (60 % statt 100 %), und die Booster-Cam zeigte dabei ins Leere (s. u.). Dazu wurden 50 🪙 Droneship-Gebühr für eine Barge kassiert, die nie ausfährt. `boosterSiteEff` nimmt deshalb die **Teileliste der betroffenen Stufe** (`stage()` reicht `dropped.parts`, die Tankmarke `s.parts`) – nicht den ganzen Stack von `this.v`, sonst zählt ein längst abgeworfener Superheavy weiter mit.
   - ⚠️ Die Tankmarke erscheint jetzt auch **ohne Gitterflossen**, sobald ein Superheavy in der aktiven Stufe sitzt: Ihn fängt der Turm, Flossen braucht er dafür nicht – den Boostback-Sprit schon.
   - Verifiziert: Superheavy+Starship mit `Game.boosterSite="ship"` → Marke 30 %, `site="catch"`, Gebühr 0, VAB zeigt die Droneship-Zeile gesperrt (»🚫 nicht für Superheavy«) · klassische Rakete mit Gitterflossen unverändert (ship → 12 %/`site="ship"`/50 🪙, rtls → 30 %/`site="rtls"`).
@@ -1423,6 +1440,17 @@ deren **Form und Deckkraft der Shader rechnet**.
   Vakuumdüsen am Boden nichts, was als Text im »Ochsen« steht, aber nirgends zu SEHEN war.
   Gemessene Halbbreite entlang der Achse (Düse → Ende): **Boden 18 → 0** (verjüngt monoton),
   **Vakuum 18 → 26** (Maximum bei t ≈ 0,5). 0 km → 0 · 5,6 km → 0,63 · 20 km → 0,97.
+- ⚠️⚠️ **Der Ursprung gehört an die DÜSENMÜNDUNG, nicht in die Glocke hinein.** Der Strahl
+  ist bei t = 0 am BREITESTEN (`R` = 0,7·r beim Triebwerk), die Glocke verjüngt sich nach
+  oben: Bei den alten `h·0,2` hatte sie dort nur noch 0,57·r – der helle Anfangsring stach
+  also **seitlich durch die Glockenwand**, und genau das sah aus, als setze der Strahl »ein
+  Stück zu weit in der Düse« an (Bug-Report Simon). Jetzt liegt er knapp innerhalb des
+  Austrittsrings: kein Durchstoßen und trotzdem kein Spalt. Werte: engine `h·0,02` ·
+  srb/Strap-on `0` · superheavy `h·0,005` · starship `h·0,008`. Gemessen als Überstand über
+  die Unterkante des Bauteils (vorher → nachher): »Ochse« 2,0 → **0,20** · »Böller« 2,4 →
+  0 · Superheavy 4,4 → **0,34** · Starship 2,6 → **0,42**. ⚠️ Wer ein Triebwerk umbaut,
+  prüft es genauso nach: Plume-Radius (`fl.userData.rad`) gegen den Düsenradius an der
+  Ursprungshöhe – der Radius der Düse dort MUSS größer sein.
 - **Mach-Diamanten**: `sin(t·f)^6`, nur bei dichter Luft, nur vorn, nur achsennah, mit dem
   Schub enger gestaffelt. Gemessener Kontrast gegen dieselbe Stelle im Vakuum: **+39 %**.
 - ⚠️⚠️ **`op` niedrig halten (0,26–0,58).** Additiv UND DoubleSide heißt: jedes Fragment zählt
@@ -1537,6 +1565,15 @@ Rauszoomen in der Wand, und bei einer hohen Rakete sieht man statt der Rakete nu
 Wer hier dreht, muss mitziehen: Stützen-/Binder-/Lampen-Loops (laufen über `HW`), die
 Textur-`repeat` (an `HW`/`HH` gekoppelt, sonst ziehen die Betonkacheln lang) und das
 Schatten-Ortho-Fenster (s. Licht-Abschnitt).
+- ⚠️⚠️ **`VAB.rebuild()` MUSS denselben Deckel benutzen** (`clamp(h·1,7, 45, 250)`). Die
+  automatische Einpassung kannte ihn nicht: Gemessen bei 11 Teilen (h = 182) landete sie bei
+  **camDist 309** – also außerhalb der 300 Einheiten Halbbreite, die Kamera stand IM
+  Trapezblech (Bug-Report Simon mit Screenshot).
+- ⚠️⚠️ **Und sie läuft nur bei ECHTER Änderung** (`this._fitH`, Toleranz 0,5): `refresh()`
+  wird nicht nur beim Bauen aufgerufen, sondern bei JEDEM Wechsel auf den Hallen-Bildschirm
+  (`UI.show("vab")`). Wer kurz in die ⚙️ Optionen schaut und zurückkommt, bekam sonst seinen
+  Zoom zurückgesetzt. Verifiziert: heranzoomen (90) → Optionen → zurück = 90 · Rakete wächst
+  (h 182 → 224) = wieder eingepasst.
 ### Ausblick durchs offene Hallentor (Südwand)
 Durch das offene Tor sieht man hinaus auf den **LMG-Startplatz** – die Rakete steht damit beim
 Bauen sichtbar in dem Zusammenhang, für den sie gebaut wird (Wunsch Simon).
@@ -1732,6 +1769,25 @@ länger als der Kern, schieben sie den Rest allein.
   (5 Fälle, inkl. Booster+SRB in derselben Stufe und Kern, der VOR den Boostern leer
   ist). Beispiel Sondenkapsel + Tank M + »Floh«: ohne Booster 4360 · ×2 5540 · ×4 6077 –
   der abnehmende Zugewinn ist die mitgeschleppte Leermasse, didaktisch genau richtig.
+
+#### ♻️ Zweite Zeile: Δv MIT Bergung (`BOOSTER_RESERVE` / `boosterReserve`)
+Die Δv-Zahl einer Stufe war immer der **Wegwerf-Wert** – sie verheizt den Tank bis auf den
+letzten Tropfen. Eine bergbare Erststufe darf das nicht: Boostback und Landung kosten Sprit,
+und genau der fehlt beim Aufstieg. Deshalb steht bei jeder Stufe mit **Gitterflossen oder
+Superheavy** eine zweite, grüne Zeile »♻️ mit Bergung« samt Verlust und Landeplatz
+(Wunsch Simon).
+- Gerechnet mit derselben `stageDeltaV`, nur zwei Änderungen: Der Kern verbrennt nur
+  `(1 − Reserve)` seines FLÜSSIG-Tanks, und die Reserve hängt am Brennschluss noch als
+  MASSE mit dran (`mEnd`). ⚠️ Feststoff (`srbFuel`) wird NICHT reserviert – ein
+  Feststoffbooster lässt sich nicht abstellen. Gegen Ziolkowski von Hand geprüft
+  (3987,7 / 2070,2 m/s, auf 0,1 m/s identisch).
+- ⚠️⚠️ **`BOOSTER_RESERVE` (rtls 0,30 · ship 0,12) ist die EINE Quelle** – für die orange
+  Tankmarke im Flug (`#fuelMark`) UND für diese Zeile. Laufen sie auseinander, zeigt die
+  Halle eine andere Zahl als das Cockpit. Der Landeplatz kommt aus `Flight.boosterSiteEff`
+  (der Superheavy fährt nie zur See ⇒ immer RTLS-Reserve, s. »Booster-Landeplätze«).
+- Gemessen an derselben Rakete (Δv 3587 expendable): Droneship/Wasserung 2793 (−793) ·
+  RTLS 1929 (−1658) · Superheavy+Starship 2862 → 1713 (−1149). Genau dieser Unterschied ist
+  der Grund, warum SpaceX für schwere Nutzlasten aufs Droneship geht statt zur Rampe.
 - **Bau-Caps:** `VAB.capError(stack)` – **max. EIN Triebwerk (`type:"engine"`) pro
   STUFE** (zwei Düsen übereinander gibt es an keiner Rakete, die obere säße im Tank der
   unteren – und `buildRocketGroup` malt genau das; gemeldet von Simon. Die Regel greift
@@ -2054,6 +2110,72 @@ Drei Dinge zusammen, sonst ist es kein Fotomodus:
 - Erreichbar per **⇧F**, über den Knopf »📸 Foto [⇧F]« in der Knopfleiste (bleibt auch bei
   EVA stehen) und in der Tastentabelle unter »Ansicht«.
 
+## 🧭 Navball (echte 3D-Kugel, `NAV_*` / `navballTexture` / `renderNavball` / `drawNavball`)
+Der Navball war ein gemalter Kreis mit waagerechtem Horizontstrich – flach, und Kurs/Neigung
+standen nur als Zahlen daneben. Jetzt eine texturierte KUGEL wie in KSP (Wunsch Simon, mit
+KSP-Screenshot als Vorlage), drumherum das Instrumentenbrett: links der Schubregler, rechts
+der G-Kraft-Bogen, oben die Geschwindigkeit MIT Bezugssystem, unten Kurs/Neigung.
+- ⚠️⚠️ **KEIN eigener WebGL-Kontext.** Die Kugel zeichnet der SCHON VORHANDENE Flug-Renderer
+  nach dem Hauptbild in einen eigenen Bildausschnitt (`setViewport` + `setScissor` +
+  `clearDepth`, `autoClear = false` – sonst löscht der zweite `render()` das Bild). Ein
+  weiterer Kontext wäre auf dem Flug-Bildschirm der dritte (Szene, Booster-PiP, Navball) und
+  im VAB gibt es schon drei; Browser geben bei ~16 auf und werfen den ÄLTESTEN weg – dann ist
+  die Flugszene schwarz. Rahmen, Marker und Zeiger malt weiter das 2D-Canvas `#navball`, das
+  transparent GENAU über diesem Ausschnitt liegt (kein `background`, kein `border-radius`!).
+- ⚠️⚠️ **Die Beschriftung der Kugel ist SPIEGELVERKEHRT aufgemalt – das ist die Definition
+  eines Navballs, kein Fehler.** Was in der Welt rechts von der Nase liegt, muss auf der Kugel
+  rechts von der Mitte erscheinen (sonst zeigt der Prograde-Marker in die falsche Richtung).
+  Das Tripel (rechts, Rücken, Nase) eines Fahrzeugs ist aber LINKSHÄNDIG – eine starre Drehung
+  einer normalen Weltkugel kann das nie leisten. Also: Kugel-+X trägt die Beschriftung OST,
+  +Y ZENIT, +Z NORD (Determinante −1), die Blickbasis `V = (bodyX, bodyZ, bodyY)` ebenfalls,
+  und `Q = Vᵀ·L` ist damit wieder eine echte Rotation.
+  Daraus folgt die Textur-Zuordnung (SphereGeometry-UV, s. »UV-Konvention«):
+  **x = B·((Kurs + 90°)/360°)** (Kurs wächst nach RECHTS) · **y = H·(0,5 − Neigung/180°)**.
+  Verifiziert: Nase nach Norden ⇒ Texturpunkt (0,25 | 0,5) = »N« in der Mitte, Osten exakt am
+  rechten Rand (x = cx + R), Zenit oben, Süden hinter dem Ball.
+- ⚠️ **`navProject(richtung)` ist die EINE Quelle für alle Marker** (Prograde ⊕, Ziel ◆,
+  Knoten/Anflug ✛). Vorher rechnete jeder Marker Kurs- und Neigungsdifferenzen mit `clamp`
+  auf einen 2D-Kreis – jetzt sitzt jeder exakt auf seiner Weltrichtung. Liegt die Richtung
+  HINTER dem Ball, wandert der Marker blass (34 %) an den Rand und zeigt weiter die Drehrich-
+  tung; steht sie exakt hinter dem Schiff (Projektion < 0,08), wird gar nichts gezeichnet –
+  dort gibt es keine hilfreiche Richtung mehr.
+- ⚠️ **Die Textur bleibt HELL, auch an den Polen.** Der erste Wurf lief zum Zenit hin auf ein
+  sehr dunkles Blau: Auf der Rampe zeigt der Ball genau diesen Punkt, und die Kugel war vor
+  dem dunklen HUD praktisch unsichtbar. Schrift wird mit `cos(Neigung)` vorgestaucht (die
+  Kugel streckt sie zu den Polen hin um 1/cos) und an der Naht (Kurs 270° = x 0) doppelt
+  gezeichnet.
+- ⚠️⚠️ **Der schräge Horizont beim Ost-Aufstieg ist KORREKT, kein Bug.** [A]/[D] drehen um die
+  Rücken-Achse (`apply(V3(0,0,1))`), der Rücken bleibt beim Gravity Turn also nach Süden
+  zeigen – die Bahnebene steht damit quer zum »Bildschirm-oben« des Balls, und der Horizont
+  läuft senkrecht. Das war beim alten 2D-Navball genauso (nur weniger auffällig). Level ginge
+  nur, wenn der Ost-Schwenk ein NICKEN wäre – dann müsste [D] etwas anderes tun, und das steht
+  in Tutorials, Hilfetexten und `padQ`. Wer den Ball roll-stabilisieren will (Bildschirm-oben
+  = Zenit statt Schiffsrücken), verliert dafür die Rollanzeige (Bauchlage, Andocken).
+- **Schubregler links** (`this.throttle`): aus der Gauge-Leiste hierher gewandert; dort stehen
+  nur noch die VORRÄTE (Tank, Booster, ⚡, 🫁). **G-Kraft rechts** (`this.gLoad`, Bogen bis 5 g,
+  grün/gelb/rot): ⚠️ Am BODEN ist das die Stützkraft des Untergrunds, nicht null – auf der
+  Rampe 1,0 g, auf Monti 0,17 g (`this.gLoad = g/G0` im `landed`-Zweig von `step()`). Genau
+  das würde eine Waage anzeigen.
+- **Geschwindigkeit oben MIT Bezugssystem** (`navRef`): Eine Geschwindigkeit ohne Bezug ist im
+  Weltraum eine sinnlose Zahl – deshalb steht der Bezugskörper darüber, und die Zeile
+  »Geschwindigkeit« ist aus der Info-Tafel oben links VERSCHWUNDEN. Ist ein Ziel gewählt und
+  näher als 50 km (dieselbe Schwelle wie der ◆-Marker), zählt automatisch die RELATIV-
+  geschwindigkeit zu ihm – die Zahl, auf die es beim Andocken ankommt. ⚠️ Lange Namen werden
+  gekürzt (»Raumstation »Große Pause«« → »Große Pause«, danach notfalls mit »…«), sonst läuft
+  der Text aus dem Kasten.
+- ⚠️ **Position: der Navball weicht der KNOPFLEISTE aus** (`this.navBottom`, alle 400 ms aus
+  `getBoundingClientRect()`). Die Leiste bricht je nach Fensterbreite auf zwei bis vier Reihen
+  um; mit festem Abstand lag der Ball auf einem schmalen Laptop mitten unter den Knöpfen.
+  `#hudMsg` wird im selben Schritt darüber gesetzt – sonst deckt die Meldung die
+  Geschwindigkeitsanzeige zu.
+- ⚠️ Gezeichnet wird NICHT im Fotomodus und nicht ab HUD-Stufe 2 (`renderNavball` steigt
+  vorher aus): Die Kugel steckt im Bild des Renderers und stünde sonst mitten im
+  gespeicherten Foto bzw. bliebe trotz ausgeblendetem Overlay sichtbar.
+- Kosten gemessen: **0,175 ms je `frame()`** (Kugel + Overlay zusammen), 1 Draw-Call extra.
+- **Bewusst NICHT übernommen** (aus dem KSP-Vorbild): SAS-/RCS-Schalter und der Knopfkranz der
+  SAS-Modi. Die Marker AUF dem Ball bleiben – auf sie zeigen die Tutorials ausdrücklich
+  (»Nase aufs rosa ✛«).
+
 ## HUD-Kleinkram
 - ⚠️⚠️ **`#hudRight` braucht ein `max-width`** (`min(640px, calc(100vw − 380px))`): Sobald ein
   Reiseziel gewählt ist, hängt `travelPanel` unten einen langen Tipp an (»Ziel: unter 6.066 km
@@ -2082,7 +2204,7 @@ Drei Dinge zusammen, sonst ist es kein Fotomodus:
 ## Tastenkürzel
 (Im Spiel nachschlagbar: ⚙️ Optionen → **⌨️ Tastenbelegung**, `KEYMAP` in index.html.
 Wer hier etwas ändert, ändert es dort UND in tutorials.js mit.)
-Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge, ⇧F 📸 Fotomodus** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · **M Karte, ⇧M Kartenfilter »nur Ziel«** · U ∞Tank (Sandbox) · H HUD (3-stufig) · **⇧F Fotomodus (Bild einfrieren, freie Kamera, [⏎] speichert PNG)** · Esc Pause · ,/. Warp, **⇧. = Zeitsprung zum Knoten/Startfenster** · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
+Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge, ⇧F 📸 Fotomodus** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · **M Karte, ⇧M Kartenfilter »nur Ziel«** · U ∞Tank (Sandbox) · **H HUD (4-stufig: alles → Knopfleiste weg → Instrumente weg (Navball/Balken/Crew) → alles weg)** · **⇧F Fotomodus (Bild einfrieren, freie Kamera, [⏎] speichert PNG)** · Esc Pause · ,/. Warp, **⇧. = Zeitsprung zum Knoten/Startfenster** · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
 - ⚠️⚠️ **[Z] war bis August 2026 im Flug VOLLGAS und die Zielwahl brauchte ⇧Z** – »zu
   umständlich und verwirrend« (Simon), weil dieselbe Taste je nach Flugzustand etwas völlig
   anderes tat. Jetzt liegt der Schub komplett auf **[X]** (aus / ⇧ voll) und [Z] ist überall

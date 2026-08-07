@@ -14,8 +14,9 @@ const TUTORIALS = [
     {text:`Deine erste Rakete steht startklar auf der Rampe: Fallschirm, Kapsel, Tank, Triebwerk.<br><br>
       Zünde die erste Stufe mit der <b>[Leertaste]</b>!`,
      check:(o,F)=>!F.landed && F.flew},
-    {text:`Liftoff! 🔥 Die Rakete steigt senkrecht. Links siehst du Höhe und Geschwindigkeit,
-      unten links Schub und Tank.<br><br>Steig auf <b>5 km Höhe</b>!`,
+    {text:`Liftoff! 🔥 Die Rakete steigt senkrecht. Links siehst du die Höhe, am <b>Navball</b>
+      unten die Geschwindigkeit (mit Bezugskörper), links daneben den Schub und rechts die
+      G-Kraft; unten links stehen Tank und Strom.<br><br>Steig auf <b>5 km Höhe</b>!`,
      check:o=>o.alt>5000},
     {text:`5 km! 🏆 Gleich ist der Tank leer und die Rakete fällt zurück.<br><br>
       Warte, bis sie wieder <b>fällt</b> (Geschwindigkeit zeigt nach unten), und öffne dann

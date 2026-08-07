@@ -128,7 +128,10 @@ button{cursor:pointer;font-family:inherit;}
    Zeilenlänge auf breiten Schirmen, sonst läuft der Tipp über den halben
    Bildschirm und liest sich schlecht. */
 #hudRight{top:12px;right:12px;text-align:right;max-width:min(640px, calc(100vw - 380px));}
-#hudMsg{bottom:310px;z-index:6;left:50%;transform:translateX(-50%);font-size:18px;font-weight:700;
+/* ⚠️ Über dem Navball-Element bleiben (dessen Oberkante liegt bei
+   NAV_BOTTOM + NAV_H ≈ 374 px) – sonst deckt die Meldung die
+   Geschwindigkeitsanzeige zu. */
+#hudMsg{bottom:390px;z-index:6;left:50%;transform:translateX(-50%);font-size:18px;font-weight:700;
   color:var(--orange);display:none;text-align:center;}
 #hudControls{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
 #hudControls .btn{padding:8px 14px;font-size:13px;}
@@ -139,10 +142,15 @@ button{cursor:pointer;font-family:inherit;}
   border-radius:6px;background:rgba(10,16,32,.8);overflow:hidden;}
 .gauge .fill{position:absolute;bottom:0;width:100%;}
 .gauge label{font-size:10px;color:var(--muted);background:rgba(10,16,32,.8);padding:2px 6px;border-radius:4px;}
-#throttleFill{background:linear-gradient(180deg,var(--orange),#c46a08);}
 #fuelFill{background:linear-gradient(180deg,#5fc46a,#2c7a38);}
-#navball{position:absolute;bottom:118px;left:50%;transform:translateX(-50%);
-  border-radius:50%;border:3px solid var(--blue-dark);background:#0a0e1a;z-index:3;}
+/* ⚠️ Das Navball-Canvas ist ein TRANSPARENTES Overlay: Die Kugel selbst
+   rendert der Flug-Renderer in genau diesen Ausschnitt (s. renderNavball),
+   hier liegen nur Rahmen, Marker, Schub- und G-Anzeige darüber. Ein
+   Hintergrund oder ein border-radius würde die Kugel zudecken bzw. den
+   Rahmen abschneiden. Maße/Position kommen aus NAV_W/NAV_H/NAV_BOTTOM und
+   werden von drawNavball gesetzt – hier steht nur die Verankerung. */
+#navball{position:absolute;bottom:100px;left:50%;transform:translateX(-50%);
+  z-index:3;pointer-events:none;}
 #hudControls.hidden{display:none !important;}
 /* ---- Fotomodus [⇧F] -------------------------------------------------------
    Alles Bediengedöns weg, übrig bleiben Bild (#flight3d + #lensflare) und die
@@ -385,8 +393,10 @@ input[type=file]{display:none;}
   </div>
   <button id="hudToggle" class="btn" style="position:absolute;left:150px;bottom:12px;
     padding:5px 10px;font-size:11px;z-index:5;opacity:.85;" onclick="Flight.toggleControlsBar()">⌨ [H]</button>
+  <!-- ⚠️ Der Schubregler ist hier RAUS und sitzt jetzt links am Navball
+       (wie in KSP, Wunsch Simon) – hier bleiben nur die Vorräte: Tank,
+       (Booster), Strom und der Sauerstoff des Raumanzugs. -->
   <div id="gauges">
-    <div class="gauge"><div class="bar"><div id="throttleFill" class="fill"></div></div><label>Schub</label></div>
     <div class="gauge"><div class="bar"><div id="fuelFill" class="fill"></div>
       <div id="fuelMark" style="display:none;position:absolute;left:0;right:0;bottom:12%;height:2px;z-index:2;
         background:var(--orange);box-shadow:0 0 5px var(--orange);pointer-events:none;"></div>
@@ -725,7 +735,8 @@ const KEYMAP = [
   {group:"Ansicht", keys:[
     ["Maus ziehen", "Kamera um das Schiff drehen"],
     ["Mausrad",     "heran- und herauszoomen"],
-    ["H",           "Knopfleiste umschalten (voll → schmal → aus)"],
+    ["H",           "HUD in vier Stufen ausblenden: <b>alles → Knopfleiste weg → "+
+                    "Instrumente weg</b> (Navball, Balken, Crew) <b>→ alles weg → wieder alles</b>"],
     ["⇧ F",         "<b>📸 Fotomodus</b>: das Bild friert ein, die Kamera wird frei "+
                     "(WASD schieben, Q/E hoch/runter) und das HUD verschwindet. "+
                     "Mit [⏎] wird das Bild als PNG gespeichert."]
@@ -1440,6 +1451,14 @@ const BOOSTER_GIVEUP = 7000;
    Bild ruhig – der Start ist der einzige Moment, den das Rütteln erzählt
    (s. Flight.applyShake). */
 const SHAKE_LIFTOFF = 2;
+/* ---------- Landereserve einer bergbaren Erststufe ----------
+   Wie viel Treibstoff muss im Tank bleiben, damit der Booster-Autopilot noch
+   heimkommt? EINE Quelle für beide Anzeigen: die orange Tankmarke im Flug
+   (#fuelMark) und die Δv-Zeile »mit Bergung« in der Montagehalle.
+   ⚠️ RTLS/Catch brauchen mehr als das Doppelte – der Boostback-Burn zurück zur
+   Rampe kostet extra, während das Droneship dem Booster entgegenfährt. */
+const BOOSTER_RESERVE = {rtls: 0.30, ship: 0.12};
+function boosterReserve(site){ return site==="rtls" ? BOOSTER_RESERVE.rtls : BOOSTER_RESERVE.ship; }
 function launchFee(stack){
   if(Game.sandbox) return 0;
   if(!stack.some(id=>PARTS[id].type==="gridfin")) return 0;   // ohne Gitterflossen landet nichts
@@ -2498,8 +2517,10 @@ const HINTS = {
   flight3d:{title:"🧭 3D-Flugsteuerung", text:
     `<b>W/S</b> = nicken · <b>A/D</b> = gieren · <b>Q/E</b> = rollen ·
      <b>↑/↓</b> = Schub (<b>⇧X</b> = Vollgas, <b>X</b> = aus)<br><br>
-     Der <b>Navball</b> unten zeigt deine Fluglage: blau = Himmel, braun = Boden.
-     Das grüne Symbol ist dein <b>Prograde</b> (Flugrichtung).<br><br>
+     Die <b>Navball-Kugel</b> unten zeigt deine Fluglage: blau = Himmel, braun = Boden,
+     dazu Himmelsrichtung und Neigung. Das grüne Symbol ist dein <b>Prograde</b>
+     (Flugrichtung). Links am Ball der <b>Schub</b>, rechts die <b>G-Kraft</b>, oben deine
+     Geschwindigkeit und worauf sie sich bezieht.<br><br>
      <b>[T]</b> schaltet das <b>SAS</b> durch: Prograde halten → Retrograde halten → aus.
      Perfekt zum Zirkularisieren und Bremsen!<br>
      Maus ziehen = Kamera, Mausrad = Zoom, <b>[M]</b> = Orbitkarte.<br>
@@ -2585,8 +2606,9 @@ const TUTORIALS_LEGACY = [   // alt & ungenutzt – die interaktiven Tutorials l
      Packe <b>Landebeine</b> ein: Sie verzeihen Landungen bis 12 m/s (statt 8).`,
     `Im Mond-Orbit: SAS auf <b>RETROGRADE</b> [T], dann brennen, bis die Bahn in die
      Oberfläche zeigt (Pe unter 0). Jetzt fällst du auf den Mond zu.`,
-    `Der wichtigste Wert ist deine <b>Geschwindigkeit</b> links im HUD. Halte SAS auf
-     Retrograde – so bremst dein Triebwerk immer genau gegen die Fallrichtung.`,
+    `Der wichtigste Wert ist deine <b>Geschwindigkeit</b> – sie steht über dem Navball,
+     zusammen mit dem Bezugskörper. Halte SAS auf Retrograde, dann bremst dein Triebwerk
+     immer genau gegen die Fallrichtung.`,
     `Faustregel: Über 2000 m Höhe fast frei fallen lassen, dann kräftig bremsen, ab 200 m
      langsam wie ein Fahrstuhl sinken (5–10 m/s). Geringe Schwerkraft = wenig Schub nötig.
      Bei Minzi (0,5 g!) reicht der kleinste Schubs.<br><br>
@@ -4385,7 +4407,16 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       // Flamme (wird im Flug ein-/ausgeblendet)
       // Ein Mesh genügt: Kern, Verlauf und weicher Rand stecken im Shader
       const fl = makeFlame(r*0.7, h*3.2, p.raptor ? "raptor" : (id==="engIon" ? "ion" : "kero"));
-      fl.position.y = h*0.2;
+      /* ⚠️⚠️ Der Ursprung der Fahne gehört an die DÜSENMÜNDUNG, nicht in die
+         Glocke hinein. Der Strahl ist bei t = 0 am BREITESTEN (R = 0,7·r) und
+         die Glocke verjüngt sich nach oben: Bei h·0,2 hatte sie nur noch
+         0,57·r – der helle Anfangsring stach also seitlich durch die
+         Glockenwand, und genau das sah aus, als setze der Strahl »ein Stück zu
+         weit in der Düse« an (Bug-Report Simon). h·0,02 liegt knapp INNERHALB
+         des Austrittsrings (Radius 0,81·r): kein Durchstoßen und trotzdem kein
+         Spalt zwischen Düse und Fahne. Gilt genauso für srb, superheavy,
+         starship und die Strap-ons – überall dieselbe Rechnung. */
+      fl.position.y = h*0.02;
       g.add(fl);
       break;}
     case "srb":{
@@ -4393,7 +4424,7 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       add(cylinder(r*1.01,r*1.01,h*0.12,MAT.red), h*0.93);
       add(cylinder(r*0.55,r*0.7,h*0.1,MAT.dark), 0.03*h);
       const fl = makeFlame(r*0.65, h*1.6, "srb");
-      fl.position.y = h*0.1;
+      fl.position.y = 0;              // Düsenaustritt liegt bei −0,02·h (s. engine)
       g.add(fl);
       break;}
     case "decoupler":
@@ -4426,7 +4457,7 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       }
       add(cylinder(0.6, 1.1, 2.6, MAT.gray, 10), 0.5);
       const fl = makeFlame(r*0.85, h*0.85, "raptor");
-      fl.position.y = h*0.065;
+      fl.position.y = h*0.005;        // Unterkante der Triebwerksschürze (s. engine)
       g.add(fl);
       break;}
     case "starship":{
@@ -4482,7 +4513,7 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
         g.add(bell);
       }
       const sfl = makeFlame(r*0.6, h*0.7, "raptor");
-      sfl.position.y = h*0.05;
+      sfl.position.y = h*0.008;       // Unterkante des Triebwerksrings (s. engine)
       g.add(sfl);
       break;}
     case "fin":{
@@ -4852,7 +4883,7 @@ function buildStrapOnMesh(H, withFlame){
   const noz = cylinder(1.5, 1.9, H*0.06, MAT.dark, 10); noz.position.y = H*0.02; g.add(noz);
   if(withFlame){
     const fl = makeFlame(1.8, H*0.85, "srb", "bflame");
-    fl.position.y = H*0.025;
+    fl.position.y = 0;              // Düsenaustritt, nicht in die Düse hinein (s. engine)
     g.add(fl);
   }
   return skinPart(g);
@@ -10059,6 +10090,38 @@ const VAB = {
         coreFuel: st.fuel+st.srbFuel, coreThrust: st.thrust+st.srbThrust, coreIsp: st.isp,
         bDry: sb.dry, bFuel: sb.fuel, bThrust: sb.thrust, bIsp: sb.isp});
       const twr = totalThrust/((m0+sb.mass)*G0);
+      /* ---------- ♻️ Δv, wenn die Stufe ZURÜCKKOMMEN soll ----------
+         Die Zahl darüber ist der Wegwerf-Wert (expendable): sie verheizt den
+         Tank bis auf den letzten Tropfen. Eine bergbare Erststufe darf das
+         nicht – sie braucht Sprit für Boostback und Landung, und genau dieser
+         Anteil fehlt beim Aufstieg (Wunsch Simon: die Anzeige soll beides
+         zeigen, je nach gewähltem Landeplatz).
+         Gerechnet mit derselben Routine, nur mit zwei Änderungen: Der Kern
+         verbrennt nur (1 − Reserve) seines Flüssigtanks, und die Reserve
+         hängt am Brennschluss noch als MASSE mit dran (mEnd).
+         ⚠️ Nur der Flüssigtreibstoff wird reserviert – ein Feststoffbooster
+         lässt sich nicht abstellen und brennt in jedem Fall leer.
+         ⚠️ Der Landeplatz kommt aus derselben Quelle wie die orange Tankmarke
+         im Flug (`boosterSiteEff` + `boosterReserve`), sonst zeigt die Halle
+         eine andere Zahl als das Cockpit. Der Superheavy fährt nie zur See –
+         ihn fängt der Turm, er braucht also immer die RTLS-Reserve. */
+      const segHeavy = segs[i].some(id=>PARTS[id].type==="superheavy");
+      const reusable = segHeavy || segs[i].some(id=>PARTS[id].type==="gridfin");
+      let reuseHtml = "";
+      if(reusable && st.fuel > 0 && totalThrust > 0){
+        const site = segHeavy ? "rtls" : Flight.boosterSiteEff(segs[i]);
+        const res  = boosterReserve(site);
+        const dvR  = this.stageDeltaV({mEnd: upper+st.dry + st.fuel*res,
+          coreFuel: st.fuel*(1-res)+st.srbFuel, coreThrust: st.thrust+st.srbThrust, coreIsp: st.isp,
+          bDry: sb.dry, bFuel: sb.fuel, bThrust: sb.thrust, bIsp: sb.isp});
+        const way = segHeavy ? "🦾 Fang durch den Turm"
+                  : site==="rtls" ? "🎯 Rückkehr zur Rampe (RTLS)"
+                  : site==="ship" ? "🚢 Landung auf dem Droneship"
+                  : "🌊 Wasserung downrange";
+        reuseHtml = `<br><span style="color:var(--green)">♻️ mit Bergung: Δv ≈ ${dvR.toFixed(0)} m/s</span>
+          <small style="color:var(--muted)">(−${(dv-dvR).toFixed(0)} m/s · ${way}: ${
+          Math.round(res*100)} % Sprit bleiben im Tank)</small>`;
+      }
       // Kosten JE STUFE: Für Wiederverwendbarkeits-Builds ist das die
       // entscheidende Zahl – zurück kommt immer nur der gelandete Reststack
       // bzw. der vom Autopiloten geborgene Booster (`b.value = stackCost`).
@@ -10066,7 +10129,7 @@ const VAB = {
       html += `<div class="stage-box"><b>Stufe ${i+1}</b> – ${(massOf(st)/1000).toFixed(2)} t
         <small style="color:var(--muted)">(leer ${(st.dry/1000).toFixed(2)} t)</small><br>
         Δv ≈ ${dv.toFixed(0)} m/s · TWR ${twr.toFixed(2)}${sb.n?
-          ' <small style="color:var(--muted)">(beides inkl. Seitenbooster)</small>':""}
+          ' <small style="color:var(--muted)">(beides inkl. Seitenbooster)</small>':""}${reuseHtml}
         ${Game.sandbox?"":`<br>💰 <b>🪙 ${segCost}</b> <small style="color:var(--muted)">(${
           partsCost?Math.round(segCost/partsCost*100):0} % der Rakete${
           segs[i].some(id=>PARTS[id].type==="gridfin")?" · mit Gitterflossen bergbar":""})</small>`}
@@ -10135,8 +10198,22 @@ const VAB = {
     this.rocket.traverse(o=>{ if(o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
     applyEnv(this.rocket, this.envTex, 0.9);
     this.scene.add(this.rocket);
+    /* ---------- Kamera einpassen: nur bei ECHTER Änderung, und nie in die Wand
+       ⚠️⚠️ `refresh()` läuft nicht nur beim Bauen, sondern bei JEDEM Wechsel
+       auf den Hallen-Bildschirm (`UI.show("vab")`). Wer kurz in die Optionen
+       schaut und zurückkommt, bekam deshalb seinen Zoom zurückgesetzt – bei
+       einer großen Rakete sprang die Kamera weit heraus (Bug-Report Simon).
+       Deshalb wird nur neu eingepasst, wenn die Rakete wirklich eine andere
+       Höhe hat.
+       ⚠️⚠️ Und der Deckel ist DERSELBE wie im wheel-Handler (250 bei HW 300).
+       Ohne ihn fuhr die Automatik bei hohen Raketen über die Hallenwand
+       hinaus – gemessen: 11 Teile, h = 182 → camDist 309 bei einer Halbbreite
+       von 300, die Kamera stand also IM Trapezblech. */
     const h = this.rocket.userData.height;
-    this.camDist = Math.max(45, h*1.7);
+    if(this._fitH === undefined || Math.abs(this._fitH - h) > 0.5){
+      this._fitH = h;
+      this.camDist = THREE.MathUtils.clamp(h*1.7, 45, 250);
+    }
   },
   /* Auflösung der Schattenkarte an die Grafikstufe anpassen (0 = aus) */
   setShadowRes(px){
@@ -10446,6 +10523,169 @@ const SUN_CLOCK_R0 = LEIBNIZ.R + 2.0e6;    // bis 2000 km Höhe: reine Spieluhr
 const SUN_CLOCK_R1 = LEIBNIZ.R + 8.0e6;    // ab 8000 km Höhe: echte Sonnenrichtung
 const SUN_SLEW = 0.05;                     // max. rad pro ECHTER Sekunde dazwischen
                                            // (auch bei Warp – nie wieder Zeitraffer)
+
+/* =================================================================
+   BAHNLINIEN ALS BÄNDER  (`TRAJ_*` / `mkTraj` / `traceOrbit`)
+   -----------------------------------------------------------------
+   ⚠️⚠️ `LineBasicMaterial.linewidth` ist auf praktisch jeder Grafikkarte
+   WIRKUNGSLOS (ANGLE unter Windows und jedes OpenGL-Core-Profil ignorieren
+   ihn) – die Vorhersagebahn war deshalb immer genau EIN Pixel breit und vor
+   dem hellen Planeten kaum zu finden (Bug-Report Simon, Screenshot aus dem
+   100-km-Orbit). Ein dickerer Strich geht in WebGL1 nur als Geometrie:
+   Jeder Bahnpunkt liefert ZWEI Scheitel (`aSide` ±1), aus je zwei Punkten
+   wird ein Viereck, und die Breite spannt der Vertex-Shader in
+   BILDSCHIRM-Pixeln auf – die Bahn ist damit in jeder Zoomstufe gleich dick.
+   ⚠️⚠️ Die Laufrichtung kommt als zweiter PUNKT (`aNext`), nicht als
+   Weltrichtung: Die Positionen sind zwar relativ zu Flight.pos, liegen aber
+   trotzdem bei bis zu 1e9 m – eine addierte Richtung von ein paar Metern
+   verschwindet in float32 (dieselbe Falle wie bei den Linien-Vertices).
+   ⚠️ Die Normale steht auf der Richtung zum NÄCHSTEN Punkt; benachbarte
+   Vierecke teilen sich ihre Scheitel also, es klafft an Kurven nichts auf.
+   ⚠️ Der Flug-Renderer hat `logarithmicDepthBuffer` → die logdepthbuf-Chunks
+   sind Pflicht, und `common` MUSS davor stehen (isPerspectiveMatrix/EPSILON).
+   ⚠️ `uHalfRes` und `uW` rechnen beide in CSS-Pixeln – dadurch kürzt sich das
+   Pixelverhältnis heraus und die Bahn ist auf Retina genauso breit. */
+/* =================================================================
+   NAVBALL – eine ECHTE KUGEL  (`navballTexture` / `Flight.buildNavball`)
+   -----------------------------------------------------------------
+   Vorher ein gemalter Kreis mit waagerechtem Horizontstrich: Der Ball
+   sah flach aus, und Kurs und Neigung standen nur als Zahlen daneben.
+   Jetzt eine texturierte Kugel im 3D-Raum, genau wie in KSP (Wunsch
+   Simon, mit KSP-Screenshot als Vorlage).
+
+   ⚠️⚠️ KEIN eigener WebGL-Kontext! Die Kugel wird mit dem SCHON
+   VORHANDENEN Flug-Renderer gezeichnet – nach dem Hauptbild, in einen
+   eigenen Bildausschnitt (`setViewport` + `setScissor`). Ein weiterer
+   Kontext wäre auf dem Flug-Bildschirm der dritte (Szene, Booster-PiP,
+   Navball) und im VAB gäbe es schon drei – Browser geben irgendwo bei
+   ~16 auf und werfen den ÄLTESTEN weg (dann ist die Flugszene schwarz).
+   Bezel, Zeiger, Marker und Zahlen malt weiterhin das 2D-Canvas
+   #navball, das GENAU über diesem Ausschnitt liegt.
+
+   ⚠️⚠️ Die Beschriftung der Kugel ist SPIEGELVERKEHRT aufgemalt – das
+   ist keine Schlamperei, sondern die Definition eines Navballs: Was in
+   der Welt RECHTS von der Nase liegt, muss auf der Kugel RECHTS von der
+   Mitte erscheinen (sonst zeigt der Prograde-Marker in die falsche
+   Richtung). Das Tripel (rechts, Rücken, Nase) eines Fahrzeugs ist aber
+   LINKSHÄNDIG, eine starre Drehung einer normalen Weltkugel kann das
+   also nie leisten. Deshalb: Kugel-+X trägt die Beschriftung OST,
+   Kugel-+Y ZENIT, Kugel-+Z NORD (Determinante −1), und die Drehung
+   `Q = Vᵀ·L` ist damit wieder eine echte Rotation.
+   Daraus folgt die Textur-Zuordnung (SphereGeometry-UV, s. CLAUDE.md):
+      x_Pixel = B·((Kurs + 90°)/360°)      Kurs wächst nach RECHTS
+      y_Pixel = H·(0,5 − Neigung/180°)     Zenit oben
+   ⚠️ Wer daran dreht, prüft mit `Flight.navProject(richtung)` nach:
+   Nase nach Norden ⇒ »N« in der Mitte, Osten am RECHTEN Rand. */
+const NAV_W = 252, NAV_H = 232;      // Größe des HUD-Elements in CSS-Pixeln
+const NAV_CX = 126, NAV_CY = 130;    // Kugelmittelpunkt darin
+const NAV_R  = 67;                   // Kugelradius
+const NAV_BOTTOM = 100;              // Mindestabstand zum unteren Bildrand
+                                     // (der echte Wert weicht der Knopfleiste aus,
+                                     //  s. Flight.navBottom in renderNavball)
+let _navTex = null;
+function navballTexture(){
+  if(_navTex) return _navTex;
+  const W = 1024, H = 512;
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const x = c.getContext("2d");
+  const XP = h => W*((((h+90)/360)%1+1)%1);
+  const YP = p => H*(0.5 - p/180);
+  // ---- Himmel (oben) und Boden (unten), Farben wie in KSP
+  /* ⚠️ Beide Hälften bleiben HELL – auch an den Polen. Der erste Wurf lief
+     zum Zenit hin auf ein sehr dunkles Blau: Auf der Rampe zeigt der Ball
+     genau diesen Punkt, und die Kugel war vor dem dunklen HUD-Hintergrund
+     praktisch unsichtbar. */
+  let g = x.createLinearGradient(0,0,0,H/2);
+  g.addColorStop(0,"#3f7fbe"); g.addColorStop(0.55,"#5aa0da"); g.addColorStop(1,"#a8d6f2");
+  x.fillStyle = g; x.fillRect(0,0,W,H/2);
+  g = x.createLinearGradient(0,H/2,0,H);
+  g.addColorStop(0,"#dcb079"); g.addColorStop(0.5,"#b98046"); g.addColorStop(1,"#7d5326");
+  x.fillStyle = g; x.fillRect(0,H/2,W,H/2);
+  // ---- Längengrade (alle 30° Kurs) und Breitenkreise (alle 15°)
+  x.lineWidth = 2; x.strokeStyle = "rgba(255,255,255,.20)";
+  for(let h=0; h<360; h+=30){
+    const px = XP(h);
+    x.beginPath(); x.moveTo(px, 0); x.lineTo(px, H); x.stroke();
+  }
+  for(let p=-75; p<=75; p+=15){
+    if(!p) continue;
+    x.lineWidth = (p%30===0) ? 2.5 : 1.2;
+    x.strokeStyle = (p%30===0) ? "rgba(255,255,255,.34)" : "rgba(255,255,255,.16)";
+    const py = YP(p);
+    x.beginPath(); x.moveTo(0,py); x.lineTo(W,py); x.stroke();
+  }
+  // ---- Horizontband: die wichtigste Linie auf dem ganzen Ball
+  x.fillStyle = "rgba(255,255,255,.16)"; x.fillRect(0, YP(0)-13, W, 26);
+  x.fillStyle = "#ffffff"; x.fillRect(0, YP(0)-2.5, W, 5);
+  /* Beschriftung. ⚠️ Die Kugel STRECKT die Textur zu den Polen hin um
+     1/cos(Neigung) – Schrift dort unkorrigiert aufgemalt wird breit und
+     unleserlich. Deshalb wird sie mit cos(Neigung) vorgestaucht. */
+  const label = (h, p, txt, font, col)=>{
+    const px = XP(h), py = YP(p), k = Math.max(0.28, Math.cos(p*Math.PI/180));
+    x.save(); x.translate(px, py); x.scale(k, 1);
+    x.font = font; x.fillStyle = col; x.textAlign = "center"; x.textBaseline = "middle";
+    x.fillText(txt, 0, 0);
+    // am Rand ein zweites Mal, damit die Naht bei Kurs 270° nicht abschneidet
+    if(px < 60 || px > W-60){ x.translate((px<60 ? W : -W)/k, 0); x.fillText(txt, 0, 0); }
+    x.restore();
+  };
+  for(const [h, L] of [[0,"N"],[90,"O"],[180,"S"],[270,"W"]])
+    label(h, 9.5, L, "bold 62px system-ui,sans-serif", "#ffffff");
+  for(let h=30; h<360; h+=30){
+    if(h%90===0) continue;
+    label(h, 8.5, String(h), "bold 34px system-ui,sans-serif", "rgba(255,255,255,.92)");
+  }
+  // Neigungszahlen an den vier Hauptmeridianen
+  for(const h of [0,90,180,270])
+    for(const p of [-60,-30,30,60])
+      label(h, p, (p>0?"+":"")+p, "bold 30px system-ui,sans-serif", "rgba(255,255,255,.8)");
+  // Pole: kleiner Kranz, damit Zenit/Nadir erkennbar bleiben
+  for(const s of [1,-1]){
+    x.strokeStyle = s>0 ? "rgba(190,225,255,.9)" : "rgba(255,210,170,.9)";
+    x.lineWidth = 6;
+    x.beginPath(); x.moveTo(0, YP(s*82)); x.lineTo(W, YP(s*82)); x.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  return _navTex = t;
+}
+const TRAJ_U = { uHalfRes: {value: new THREE.Vector2(640, 360)} };
+const TRAJ_W = 1.7;        // halbe Bandbreite in Bildschirmpixeln (≈3,4 px breit)
+const TRAJ_VERT = `
+attribute float aSide;
+attribute vec3 aNext;
+attribute vec3 color;
+uniform vec2 uHalfRes;
+uniform float uW;
+varying vec3 vCol;
+#include <common>
+#include <logdepthbuf_pars_vertex>
+void main(){
+  vCol = color;
+  vec4 c0 = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vec4 c1 = projectionMatrix * modelViewMatrix * vec4(aNext, 1.0);
+  // Richtung IM BILD. abs(w) haelt den Vektor brauchbar, wenn der Nachbarpunkt
+  // hinter der Kamera liegt – das Dreieck wird dort ohnehin weggeschnitten.
+  vec2 s0 = c0.xy / max(1e-6, abs(c0.w)) * uHalfRes;
+  vec2 s1 = c1.xy / max(1e-6, abs(c1.w)) * uHalfRes;
+  vec2 d = s1 - s0;
+  float dl = length(d);
+  vec2 dir = dl > 1e-4 ? d/dl : vec2(1.0, 0.0);
+  c0.xy += vec2(-dir.y, dir.x) * uW * aSide / uHalfRes * abs(c0.w);
+  gl_Position = c0;
+  #include <logdepthbuf_vertex>
+}`;
+const TRAJ_FRAG = `
+precision mediump float;
+uniform float uOp;
+varying vec3 vCol;
+#include <common>
+#include <logdepthbuf_pars_fragment>
+void main(){
+  #include <logdepthbuf_fragment>
+  gl_FragColor = vec4(vCol, uOp);
+}`;
 const Flight = {
   renderer:null, scene:null, camera:null,
   leibnizMesh:null, montiMesh:null, cloudShell:null, atmoShell:null,
@@ -10885,12 +11125,29 @@ const Flight = {
        deshalb weiß, die eigentliche Bahnfarbe steckt in den Vertex-Farben
        (Basisfarbe je Linie in `userData.baseCol`). */
     const mkTraj = (col, opa)=>{
+      const N = 602;                       // Bahnpunkte – je 2 Scheitel = 1204 < 65536
       const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(602*3),3));
-      g.setAttribute("color",    new THREE.BufferAttribute(new Float32Array(602*3),3));
-      const m = new THREE.LineBasicMaterial({color:0xffffff, vertexColors:true,
-        transparent: opa < 1, opacity: opa});
-      const l = new THREE.Line(g, m);
+      g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(N*2*3),3));
+      g.setAttribute("aNext",    new THREE.BufferAttribute(new Float32Array(N*2*3),3));
+      g.setAttribute("color",    new THREE.BufferAttribute(new Float32Array(N*2*3),3));
+      const side = new Float32Array(N*2);
+      for(let i=0;i<N;i++){ side[2*i] = 1; side[2*i+1] = -1; }
+      g.setAttribute("aSide", new THREE.BufferAttribute(side,1));
+      // Indexpuffer EINMAL: Punkt i und i+1 spannen ein Viereck aus 2 Dreiecken
+      const idx = new Uint16Array((N-1)*6);
+      for(let i=0;i<N-1;i++){
+        const a = 2*i;
+        idx.set([a, a+1, a+2,  a+1, a+3, a+2], i*6);
+      }
+      g.setIndex(new THREE.BufferAttribute(idx,1));
+      /* ⚠️ DoubleSide: Ob ein Band im oder gegen den Uhrzeigersinn gewickelt
+         ist, hängt an der Blickrichtung – einseitig verschwindet die halbe
+         Bahn, sobald man auf die andere Seite der Ellipse schaut. */
+      const m = new THREE.ShaderMaterial({
+        uniforms: Object.assign({}, TRAJ_U, {uW:{value:TRAJ_W}, uOp:{value:opa}}),
+        vertexShader:TRAJ_VERT, fragmentShader:TRAJ_FRAG,
+        transparent: opa < 1, side:THREE.DoubleSide});
+      const l = new THREE.Mesh(g, m);
       l.userData.baseCol = new THREE.Color(col);
       l.frustumCulled = false; l.visible = false; this.world.add(l);
       return l;
@@ -12346,16 +12603,26 @@ const Flight = {
     if(d.lengthSq() > 1e-9)
       this.photoPan.addScaledVector(d.normalize(), cd*0.018*(K.shift ? 4 : 1));
   },
+  /* ---------- [H]: VIER Stufen statt drei ----------
+     Der Sprung von »Tastenleiste weg« direkt auf »alles weg« war zu grob
+     (Wunsch Simon): Wer ein ruhiges Bild will, aber Höhe und Bahn im Auge
+     behalten muss, hatte keine Stufe dazwischen.
+       0 = alles · 1 = Tastenleiste weg · 2 = zusätzlich Instrumente weg
+       (Navball, Tank/Strom, Crew) · 3 = alles weg · dann wieder 0.
+     ⚠️ Stufe ≥ 2 blendet nicht nur das Canvas aus, sondern hält auch
+     `renderNavball`/`drawNavball` an – die Kugel steckt IM Bild des
+     Renderers und wäre sonst weiter zu sehen. */
   toggleControlsBar(){
-    // 3 Stufen: alles → Tastenleiste aus → komplettes HUD aus → wieder alles
-    this.hudMode = ((this.hudMode||0)+1)%3;
-    document.getElementById("hudControls").classList.toggle("hidden", this.hudMode>=1);
-    const vis = this.hudMode===2 ? "hidden" : "";
-    for(const id of ["navball","gauges","crewCam","hudLeft","hudRight","nodeUI"])
-      document.getElementById(id).style.visibility = vis;
+    this.hudMode = ((this.hudMode||0)+1)%4;
+    const m = this.hudMode;
+    document.getElementById("hudControls").classList.toggle("hidden", m>=1);
+    for(const id of ["navball","gauges","crewCam"])
+      document.getElementById(id).style.visibility = m>=2 ? "hidden" : "";
+    for(const id of ["hudLeft","hudRight","nodeUI"])
+      document.getElementById(id).style.visibility = m>=3 ? "hidden" : "";
     const btn = document.getElementById("hudToggle");
-    btn.textContent = this.hudMode===0 ? "⌨ [H]" :
-      this.hudMode===1 ? "⌨ HUD aus [H]" : "⌨ alles zeigen [H]";
+    btn.textContent = m===0 ? "⌨ [H]" : m===1 ? "⌨ Instrumente aus [H]" :
+                      m===2 ? "⌨ alles aus [H]" : "⌨ alles zeigen [H]";
   },
   igniteBoosters(){
     if(!this.v || this.crashed || this.ended) return;
@@ -13620,6 +13887,10 @@ const Flight = {
        das > 90° nur die Konvention. */
     return {deg: a > 90 ? 180 - a : a, retro: a > 90 && tg.kind !== "body"};
   },
+  /* ⚠️ `targetInfo` liefert HTML (die Δ-Bahnebene ist farbig) – `showMsg`
+     setzt aber `textContent`. In der Meldung nach [Z] standen deshalb die
+     rohen Tags mitten im Satz. Für Meldungen also durch `plainInfo`. */
+  plainInfo(tg){ return this.targetInfo(tg).replace(/<[^>]*>/g, ""); },
   targetInfo(tg){
     if(!tg) return "";
     /* Ebenen-Differenz: unter 0,5° ist man »in der Ebene«, darüber lohnt der
@@ -13673,11 +13944,11 @@ const Flight = {
         " Details im HUD rechts.",6);
     } else if(this.landed && !this.flew){
       const tw = this.nextLaunchWindow(this.target);
-      this.showMsg("🎯 Ziel: "+this.target.name+" – "+this.targetInfo(this.target)+
+      this.showMsg("🎯 Ziel: "+this.target.name+" – "+this.plainInfo(this.target)+
         " – Startfenster um "+this.clockStr(tw)+" Uhr. Mit [.] vorspulen!",5);
     } else {
       const d = this.pos.distanceTo(this.target.pos(this.t));
-      this.showMsg("🎯 Ziel: "+this.target.name+" – "+this.targetInfo(this.target)+
+      this.showMsg("🎯 Ziel: "+this.target.name+" – "+this.plainInfo(this.target)+
         " – Entfernung "+(d>=10000 ? (d/1000).toFixed(1)+" km" : d.toFixed(0)+" m")+
         ". Das rosa ✛ auf dem Navball führt hin.",5);
     }
@@ -16208,6 +16479,11 @@ const Flight = {
       const g = lb.mu/(dLB*dLB);
       if(thrust/m > g){ this.landed=false; this.flew=true; }
       else {
+        /* ⚠️ G-Kraft am BODEN ist die Stützkraft des Untergrunds, nicht null:
+           Wer auf der Rampe steht, spürt genau 1 g – auf Monti dagegen 0,17 g.
+           Genau das ist die Zahl, die der G-Messer am Navball zeigen soll
+           (und dieselbe, die eine Waage anzeigen würde). */
+        this.gLoad = g/G0;
         // gelandet: mit dem Himmelskörper mitbewegen
         this.t += dt;
         this.pos.copy(bodyPos(lb,this.t)).add(this.landedRel);
@@ -16761,13 +17037,34 @@ const Flight = {
        zurückgelegt hat – gemessen 2 740 km bei Monti und bis zu 5,5 Mio. km,
        sobald die Sonne der Bezug wurde. Das sah aus wie eine Fluchtbahn. */
   traceOrbit(lineA, lineB, p, v, t, total, n, wantApPe){
-    const aA = lineA.geometry.attributes.position, aB = lineB.geometry.attributes.position;
-    const cAt = lineA.geometry.attributes.color, cBt = lineB.geometry.attributes.color;
     const colA = lineA.userData.baseCol, colB = lineB.userData.baseCol;
+    /* Ein Bahnpunkt = ZWEI Bandscheitel (s. TRAJ_VERT). Die Laufrichtung
+       steckt als `aNext` im jeweils VORIGEN Punkt – der wird also beim
+       Schreiben des nächsten nachgetragen. */
+    const put = (line, k, x, y, z, r, g, b)=>{
+      const at = line.geometry.attributes, i = k*2;
+      at.position.setXYZ(i, x,y,z); at.position.setXYZ(i+1, x,y,z);
+      at.color.setXYZ(i, r,g,b);    at.color.setXYZ(i+1, r,g,b);
+      if(k > 0){ at.aNext.setXYZ(i-2, x,y,z); at.aNext.setXYZ(i-1, x,y,z); }
+    };
+    /* Abschluss: Der letzte Punkt hat keinen Nachfolger – seine Richtung wird
+       aus dem vorletzten fortgeschrieben, sonst stünde das Band dort quer.
+       Gezeichnet werden (c−1) Vierecke, also (c−1)·6 Indizes. */
+    const finish = (line, c)=>{
+      const at = line.geometry.attributes;
+      if(c > 1){
+        const i = (c-1)*2, j = (c-2)*2, ps = at.position;
+        const x = 2*ps.getX(i)-ps.getX(j), y = 2*ps.getY(i)-ps.getY(j), z = 2*ps.getZ(i)-ps.getZ(j);
+        at.aNext.setXYZ(i, x,y,z); at.aNext.setXYZ(i+1, x,y,z);
+      }
+      line.geometry.setDrawRange(0, Math.max(0, (c-1)*6));
+      at.position.needsUpdate = at.aNext.needsUpdate = at.color.needsUpdate = true;
+      line.position.copy(this.pos);
+    };
     const dtMax = total/n, dtMin = dtMax/60;
     let frameBody = this.bodyAt(p, t), fbNow = this.anchorFor(frameBody, t);
     const originBody = frameBody;
-    let attr = aA, cA = 0, cB = 0, onB = false, ghost = null;
+    let cA = 0, cB = 0, onB = false, ghost = null;
     let rMin = Infinity, rMax = -Infinity, pMin = null, pMax = null;
     for(let i=0;i<n;i++){
       /* ⚠️⚠️ SCHRITTWEITE AN DEN ÖRTLICHEN UMLAUF GEKOPPELT (wie in
@@ -16814,7 +17111,7 @@ const Flight = {
           fbNow = g;
         } else {
           if(onB) break;                       // mehr als zwei Patches wird unlesbar
-          onB = true; attr = aB;
+          onB = true;
           fbNow = bodyPos(bHere, this.t);
         }
         frameBody = bHere;
@@ -16829,10 +17126,10 @@ const Flight = {
       const f = i/n;
       const k = 0.22 + 0.78*Math.pow(1 - f, 1.3);
       const wt = 0.45*Math.pow(1 - f, 6);
-      const bc = onB ? colB : colA, ca = onB ? cBt : cAt;
-      const idx = onB ? cB : cA;
-      ca.setXYZ(idx, (bc.r + (1-bc.r)*wt)*k, (bc.g + (1-bc.g)*wt)*k, (bc.b + (1-bc.b)*wt)*k);
-      attr.setXYZ(onB ? cB++ : cA++, plot.x-this.pos.x, plot.y-this.pos.y, plot.z-this.pos.z);
+      const bc = onB ? colB : colA;
+      put(onB ? lineB : lineA, onB ? cB++ : cA++,
+          plot.x-this.pos.x, plot.y-this.pos.y, plot.z-this.pos.z,
+          (bc.r + (1-bc.r)*wt)*k, (bc.g + (1-bc.g)*wt)*k, (bc.b + (1-bc.b)*wt)*k);
       // Ap/Pe nur auf dem Stück im URSPRUNGS-Bezugssystem suchen
       if(wantApPe && !onB && frameBody === originBody){
         const rr = rel.length();
@@ -16843,10 +17140,7 @@ const Flight = {
       if(p.length()<SUN.R) break;
       if(MOONS.some(m=>p.distanceTo(bodyPos(m,t))<m.R)) break;
     }
-    lineA.geometry.setDrawRange(0, cA); lineA.position.copy(this.pos);
-    aA.needsUpdate = true; cAt.needsUpdate = true;
-    lineB.geometry.setDrawRange(0, cB); lineB.position.copy(this.pos);
-    aB.needsUpdate = true; cBt.needsUpdate = true;
+    finish(lineA, cA); finish(lineB, cB);
     lineB.visible = cB > 1 && this.map;
     return {ghost, pMin, pMax};
   },
@@ -18042,12 +18336,103 @@ const Flight = {
     } else this.shake = 0;
     this.renderer.setSize(w,h,false);
     this.camera.aspect = w/h; this.camera.updateProjectionMatrix();
+    // Bahnbänder: Breite in Bildschirmpixeln, also braucht der Shader das
+    // Fensterformat (CSS-Pixel – das Pixelverhältnis kürzt sich heraus).
+    TRAJ_U.uHalfRes.value.set(w/2, h/2);
     this.setViewUniforms(this.camera, h);   // Meer & Wolken auf die Hauptkamera
     this.renderer.render(this.scene, this.camera);
+    this.renderNavball(w, h);
     this.drawLensflare(w, h);
     this.drawNavball();
     this.drawHUD();
     Tut.frame();
+  },
+  /* ---------- Die Navball-KUGEL in ihren Bildausschnitt rendern ----------
+     Läuft mit dem Haupt-Renderer (kein zweiter WebGL-Kontext, s. o.):
+     Ausschnitt setzen, Tiefe darin löschen, Mini-Szene zeichnen, alles
+     zurückstellen. ⚠️ `autoClear` MUSS aus sein – sonst löscht dieser
+     zweite render() das eben gezeichnete Bild.
+     ⚠️ Im Fotomodus und bei ausgeblendetem HUD gar nicht erst zeichnen:
+     Das 2D-Overlay ist dann per CSS weg, die Kugel steckt aber IM Bild
+     des Renderers und stünde sonst mitten im gespeicherten Foto. */
+  renderNavball(w, h){
+    if(this.photo || (this.hudMode||0) >= 2) return;
+    this.buildNavball();
+    const V = this.navView();
+    const mV = new THREE.Matrix4().makeBasis(V.Xv, V.Yv, V.Zv).transpose();
+    const fr = this.frameAt(this.pos);
+    const mL = new THREE.Matrix4().makeBasis(fr.east, fr.up, fr.north);
+    this.navBall.quaternion.setFromRotationMatrix(mV.multiply(mL));
+    /* ⚠️ Der Navball muss der KNOPFLEISTE ausweichen: die bricht je nach
+       Fensterbreite auf zwei oder drei Reihen um, und mit festem Abstand lag
+       er auf einem schmalen Laptop mitten unter den Knöpfen. Höhe alle 400 ms
+       messen (getBoundingClientRect erzwingt ein Layout) und nur, solange die
+       Leiste sichtbar ist – sonst spränge er beim Ausblenden nach unten. */
+    const now = performance.now();
+    if(!this._navBotAt || now - this._navBotAt > 400){
+      this._navBotAt = now;
+      const bh = document.getElementById("hudControls").getBoundingClientRect().height;
+      if(bh > 0){
+        this.navBottom = Math.max(NAV_BOTTOM, Math.round(14 + bh + 8));
+        document.getElementById("navball").style.bottom = this.navBottom + "px";
+        // Die Meldungszeile sitzt DARÜBER – sonst deckt sie die
+        // Geschwindigkeitsanzeige zu, sobald die Knopfleiste umbricht.
+        document.getElementById("hudMsg").style.bottom = (this.navBottom + NAV_H + 14) + "px";
+      }
+    }
+    const R = NAV_R, x0 = w/2 - R;
+    const y0 = (this.navBottom || NAV_BOTTOM) + (NAV_H - NAV_CY) - R;
+    const rd = this.renderer;
+    rd.autoClear = false;
+    rd.setViewport(x0, y0, 2*R, 2*R);
+    rd.setScissor(x0, y0, 2*R, 2*R);
+    rd.setScissorTest(true);
+    rd.clearDepth();
+    rd.render(this.navScene, this.navCam);
+    rd.setScissorTest(false);
+    rd.setViewport(0, 0, w, h);
+    rd.autoClear = true;
+  },
+  buildNavball(){
+    if(this.navScene) return;
+    this.navScene = new THREE.Scene();
+    /* Orthografisch – ein Navball ist eine Kugel, die man aus »unendlicher«
+       Entfernung ansieht; mit Perspektive wölbte sich die Beschriftung zum
+       Rand hin auf. Der Rahmen liegt bei Radius 1, deshalb 1,004 Luft, damit
+       die Silhouette nicht am Ausschnitt abgeschnitten wird. */
+    this.navCam = new THREE.OrthographicCamera(-1.004, 1.004, 1.004, -1.004, 0.1, 10);
+    this.navCam.position.set(0, 0, 4);
+    this.navCam.lookAt(0, 0, 0);
+    this.navBall = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 40),
+      new THREE.MeshLambertMaterial({map: navballTexture()}));
+    this.navScene.add(this.navBall);
+    /* Viel Umgebungslicht, wenig Richtungslicht: Die Textur IST die
+       Information – eine dunkle Seite würde Zahlen unlesbar machen. Das
+       bisschen Schattierung macht aus dem Kreis aber erst eine Kugel. */
+    this.navScene.add(new THREE.AmbientLight(0xffffff, 0.86));
+    const dl = new THREE.DirectionalLight(0xffffff, 0.5);
+    dl.position.set(-0.45, 0.8, 1.1);
+    this.navScene.add(dl);
+  },
+  /* Blickbasis des Navballs in WELTkoordinaten:
+       Zv = Nase (zeigt zum Betrachter, also in die Kugelmitte)
+       Yv = Rücken des Schiffs (Bildschirm oben)  ·  Xv = rechte Seite
+     ⚠️ (rechts, Rücken, Nase) ist LINKSHÄNDIG (Xv = −Yv×Zv) – genau das
+     ist der Spiegel, der oben in der Textur steckt. */
+  navView(){
+    return {
+      Xv: V3(1,0,0).applyQuaternion(this.q),
+      Yv: V3(0,0,1).applyQuaternion(this.q),
+      Zv: V3(0,1,0).applyQuaternion(this.q)
+    };
+  },
+  /* Weltrichtung → Punkt auf dem Navball (2D-Canvas-Koordinaten).
+     `front` sagt, ob sie auf der sichtbaren Halbkugel liegt. */
+  navProject(dir, V){
+    V = V || this.navView();
+    const d = dir.clone().normalize();
+    const sx = d.dot(V.Xv), sy = d.dot(V.Yv), sz = d.dot(V.Zv);
+    return {x: NAV_CX + sx*NAV_R, y: NAV_CY - sy*NAV_R, front: sz > 0, sx, sy};
   },
   /* ---------- Lens-Flare: Sonnen-Spikes + Blendenreflexe ("optische Blasen") ----------
      2D-Overlay über der 3D-Szene: Kern + Strahlenkranz an der Sonnenposition,
@@ -18221,167 +18606,228 @@ const Flight = {
       x.fillText(name.replace(/^[^ ]+ /,""), cx, 84);
     });
   },
-  /* ---------- Navball ---------- */
+  /* ---------- Navball-Overlay: Rahmen, Zeiger, Marker, Anzeigen ----------
+     Die KUGEL selbst kommt aus `renderNavball` (WebGL, direkt darunter im
+     Bild des Flug-Renderers). Hier liegt nur noch das 2D-Beiwerk drüber:
+     Rahmen, Nasen-Fadenkreuz, die Richtungsmarker, links der Schubregler
+     (aus der Gauge-Leiste hierher gewandert – Wunsch Simon), rechts der
+     G-Kraft-Messer und oben die Relativgeschwindigkeit MIT Bezugssystem.
+     ⚠️ Das Canvas ist transparent! Es liegt über dem 3D-Bild – ein Hinter-
+     grund würde die Kugel zudecken. */
   drawNavball(){
-    const c = document.getElementById("navball"), x = c.getContext("2d");
-    const R = 64, cx = 70, cy = 70;
-    x.clearRect(0,0,140,140);
+    if((this.hudMode||0) >= 2) return;      // Navball ausgeblendet: nichts zu tun
+    const c = document.getElementById("navball");
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if(c.width !== Math.round(NAV_W*dpr)){
+      c.width = Math.round(NAV_W*dpr); c.height = Math.round(NAV_H*dpr);
+      c.style.width = NAV_W+"px"; c.style.height = NAV_H+"px";
+    }
+    const x = c.getContext("2d");
+    x.setTransform(dpr,0,0,dpr,0,0);
+    x.clearRect(0,0,NAV_W,NAV_H);
+    const cx = NAV_CX, cy = NAV_CY, R = NAV_R;
+    const V = this.navView();
+    const fr = this.frameAt(this.pos);
+
+    // ---- Rahmen: deckt die Silhouette der Kugel ab (dort franst sie aus)
+    const ring = x.createLinearGradient(cx-R, cy-R, cx+R, cy+R);
+    ring.addColorStop(0, "#33507f"); ring.addColorStop(0.5, "#16233d");
+    ring.addColorStop(1, "#2a4066");
+    x.beginPath(); x.arc(cx,cy,R+8,0,7); x.arc(cx,cy,R-0.6,0,7,true);
+    x.fillStyle = ring; x.fill();
+    x.beginPath(); x.arc(cx,cy,R+8.5,0,7);
+    x.strokeStyle = "rgba(10,16,32,.9)"; x.lineWidth = 2; x.stroke();
+    x.beginPath(); x.arc(cx,cy,R+0.4,0,7);
+    x.strokeStyle = "rgba(255,255,255,.16)"; x.lineWidth = 1; x.stroke();
+
+    // ---- Richtungsmarker auf der Kugel
     x.save();
     x.beginPath(); x.arc(cx,cy,R,0,7); x.clip();
-    const fr = this.frameAt(this.pos);
-    const nose = V3(0,1,0).applyQuaternion(this.q);
-    const pitch = 90 - THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(nose.dot(fr.up),-1,1)));
+    /* Ein Marker sitzt EXAKT dort, wo seine Weltrichtung auf der Kugel
+       liegt (`navProject`) – nicht mehr über Kurs-/Neigungsdifferenzen
+       genähert wie in der alten 2D-Fassung. Liegt die Richtung hinter dem
+       Ball, wandert der Marker blass an den Rand: Er zeigt dann immer noch,
+       wohin man drehen muss, drängt sich aber nicht auf. */
+    const mark = (dir, col, kind)=>{
+      if(!dir) return;
+      const p = this.navProject(dir, V);
+      let px = p.x, py = p.y, a = 1;
+      if(!p.front){
+        const l = Math.hypot(p.sx, p.sy);
+        // Genau HINTER dem Schiff gibt es keine Drehrichtung, die hilft –
+        // dann lieber gar keinen Marker als einen an willkürlicher Stelle.
+        if(l < 0.08) return;
+        px = cx + p.sx/l*R*0.94; py = cy - p.sy/l*R*0.94; a = 0.34;
+      }
+      x.globalAlpha = a; x.strokeStyle = col; x.lineWidth = 2.5;
+      x.beginPath();
+      if(kind === "pro"){                      // ⊕ Prograde
+        x.arc(px,py,7,0,7); x.stroke();
+        x.beginPath();
+        x.moveTo(px,py-12); x.lineTo(px,py-6);
+        x.moveTo(px-12,py); x.lineTo(px-6,py);
+        x.moveTo(px+6,py); x.lineTo(px+12,py);
+      } else if(kind === "dia"){               // ◆ Ziel
+        x.moveTo(px,py-8); x.lineTo(px+8,py); x.lineTo(px,py+8); x.lineTo(px-8,py);
+        x.closePath();
+      } else {                                 // ✛ Knoten / Anflug
+        x.moveTo(px,py-9); x.lineTo(px,py-3); x.moveTo(px,py+3); x.lineTo(px,py+9);
+        x.moveTo(px-9,py); x.lineTo(px-3,py); x.moveTo(px+3,py); x.lineTo(px+9,py);
+      }
+      x.stroke();
+      x.beginPath(); x.arc(px,py,2.2,0,7); x.stroke();
+      x.globalAlpha = 1;
+    };
+    // Prograde (relativ zum dominanten Körper – s. Relativ-Geschwindigkeits-Gotcha)
+    const relV = this.vel.clone().sub(bodyVel(this.body(), this.t));
+    if(relV.length() > 5) mark(relV, "#5fc46a", "pro");
+    // ◆ Ziel/Station, solange sie in Reichweite ist
+    const tPos = this.target ? this.target.pos(this.t) : stationPos(this.t);
+    const tRel = tPos.clone().sub(this.pos);
+    if(!this.docked && tRel.length() > 1 && tRel.length() < 50000)
+      mark(tRel, "#39c2ff", "dia");
+    // ✛ Manöverknoten – und wenn keiner gesetzt ist, der Anflug-Assistent
+    if(this.node && this.nodeDir) mark(this.nodeDir, "#ff6ad5", "cross");
+    else if(!this.docked && !this.landed && tRel.length() > 40 && tRel.length() < 50000){
+      const tVel = this.target ? this.target.vel(this.t) : stationVel(this.t);
+      const d = tRel.length();
+      const vWant = Math.min(45, Math.max(2, d/60));
+      const burn = tRel.clone().normalize().multiplyScalar(vWant)
+        .sub(this.vel.clone().sub(tVel));
+      if(burn.length() > 0.3) mark(burn, "#ff6ad5", "cross");
+    }
+    x.restore();
+
+    // ---- Nase: das feste Fadenkreuz in der Mitte (die Kugel dreht sich darunter)
+    x.strokeStyle = "#f7941d"; x.lineWidth = 3; x.lineCap = "round";
+    x.beginPath();
+    x.moveTo(cx-17,cy); x.lineTo(cx-6,cy);
+    x.moveTo(cx+6,cy); x.lineTo(cx+17,cy);
+    x.moveTo(cx,cy); x.lineTo(cx,cy+8);
+    x.stroke(); x.lineCap = "butt";
+
+    // ---- links: SCHUB (aus der Gauge-Leiste hierher gewandert)
+    const gx0 = 26, gy0 = 66, gw = 20, gh = 128;
+    const rr = (px,py,pw,ph,r)=>{
+      x.beginPath();
+      x.moveTo(px+r,py); x.lineTo(px+pw-r,py); x.quadraticCurveTo(px+pw,py,px+pw,py+r);
+      x.lineTo(px+pw,py+ph-r); x.quadraticCurveTo(px+pw,py+ph,px+pw-r,py+ph);
+      x.lineTo(px+r,py+ph); x.quadraticCurveTo(px,py+ph,px,py+ph-r);
+      x.lineTo(px,py+r); x.quadraticCurveTo(px,py,px+r,py);
+      x.closePath();
+    };
+    rr(gx0,gy0,gw,gh,5); x.fillStyle = "rgba(10,16,32,.82)"; x.fill();
+    x.strokeStyle = "#1c2b4d"; x.lineWidth = 1; x.stroke();
+    const thr = THREE.MathUtils.clamp(this.throttle || 0, 0, 1);
+    if(thr > 0.001){
+      x.save(); rr(gx0,gy0,gw,gh,5); x.clip();
+      const tg = x.createLinearGradient(0,gy0+gh,0,gy0);
+      tg.addColorStop(0,"#c46a08"); tg.addColorStop(1,"#f7941d");
+      x.fillStyle = tg; x.fillRect(gx0, gy0+gh*(1-thr), gw, gh*thr);
+      x.restore();
+    }
+    /* Die Marke für die Landereserve gehört mit an den Schubregler – sie
+       stand bisher an der Tank-Gauge, und dort bleibt sie auch (das ist die
+       Treibstoffmarke). Hier zeigt nur die Prozentzahl, wie weit offen ist. */
+    x.save();
+    x.translate(gx0+gw/2, gy0+gh/2); x.rotate(-Math.PI/2);
+    x.fillStyle = "rgba(255,255,255,.72)"; x.font = "bold 10px system-ui,sans-serif";
+    x.textAlign = "center"; x.textBaseline = "middle";
+    x.fillText("SCHUB", 0, 0);
+    x.restore();
+    x.fillStyle = "#e8ecf5"; x.font = "bold 10px system-ui,sans-serif";
+    x.textAlign = "center"; x.textBaseline = "middle";
+    x.fillText(Math.round(thr*100)+"%", gx0+gw/2, gy0+gh+9);
+
+    /* ---- rechts: G-KRAFT (wie in KSP)
+       `gLoad` ist die SPÜRBARE Beschleunigung (Triebwerk + Luftwiderstand,
+       am Boden die Stützkraft) in Vielfachen von g – also genau das, was die
+       Crew in den Sitz drückt. Bogen wie im Original, dazu die Zahl. */
+    const gLoad = this.gLoad || 0;
+    const gCol = gLoad >= 4 ? "#ff5c5c" : gLoad >= 2.5 ? "#ffc93c" : "#5fc46a";
+    const gA0 = -Math.PI*0.35, gA1 = Math.PI*0.35, gR = R + 17;
+    x.lineWidth = 8; x.lineCap = "round";
+    x.strokeStyle = "rgba(255,255,255,.18)";      // Skala bis 5 g immer sichtbar
+    x.beginPath(); x.arc(cx,cy,gR,gA0,gA1); x.stroke();
+    const gf = THREE.MathUtils.clamp(gLoad/5, 0, 1);
+    if(gf > 0.002){
+      x.strokeStyle = gCol;
+      x.beginPath(); x.arc(cx,cy,gR,gA0,gA0+(gA1-gA0)*gf); x.stroke();
+    }
+    x.lineCap = "butt";
+    // Beschriftung spiegelbildlich zum Schubregler: Wort senkrecht am Bogen,
+    // Zahl darunter – so bleibt die Bogenöffnung frei und nichts überlappt.
+    x.save();
+    x.translate(cx + gR + 11, cy); x.rotate(-Math.PI/2);
+    x.fillStyle = "rgba(255,255,255,.6)"; x.font = "bold 10px system-ui,sans-serif";
+    x.textAlign = "center"; x.textBaseline = "middle";
+    x.fillText("G-KRAFT", 0, 0);
+    x.restore();
+    x.textAlign = "right"; x.textBaseline = "middle";
+    x.fillStyle = gCol; x.font = "bold 14px system-ui,sans-serif";
+    x.fillText(gLoad.toFixed(1)+" g", NAV_W-4, cy + gR*0.78);
+
+    /* ---- oben: Geschwindigkeit MIT Bezugssystem
+       Eine Geschwindigkeit ohne Bezug ist im Weltraum eine sinnlose Zahl –
+       genau darum steht der Bezugskörper hier drüber (und darum ist die
+       Zeile aus der Info-Tafel oben links verschwunden). Nah an einem Ziel
+       zählt automatisch die RELATIVgeschwindigkeit zu ihm: Das ist die
+       Zahl, auf die es beim Andocken ankommt. */
+    const ref = this.navRef();
+    rr(46, 4, NAV_W-92, 37, 7);
+    x.fillStyle = "rgba(10,16,32,.86)"; x.fill();
+    x.strokeStyle = "#1c2b4d"; x.lineWidth = 1.5; x.stroke();
+    x.textAlign = "center";
+    x.fillStyle = ref.col; x.font = "bold 10.5px system-ui,sans-serif";
+    // ⚠️ Lange Zielnamen kürzen – »◆ Raumstation »Große Pause«« lief sonst
+    // links und rechts aus dem Kasten heraus.
+    let nm = ref.name, maxW = NAV_W-104;
+    while(nm.length > 3 && x.measureText(nm).width > maxW) nm = nm.slice(0, -1);
+    if(nm !== ref.name) nm = nm.slice(0, -1) + "…";
+    x.fillText(nm, NAV_W/2, 14);
+    x.fillStyle = "#e8ecf5"; x.font = "bold 16px system-ui,sans-serif";
+    x.fillText(ref.v.toFixed(1)+" m/s", NAV_W/2, 30);
+
+    // ---- unten: Kurs & Neigung (wie das HDG-Feld im Original)
+    const nose = V.Zv;
+    const pitch = 90 - THREE.MathUtils.radToDeg(
+      Math.acos(THREE.MathUtils.clamp(nose.dot(fr.up),-1,1)));
     const hor = nose.clone().addScaledVector(fr.up, -nose.dot(fr.up));
-    let heading = 90;
-    if(hor.lengthSq()>1e-8){
+    let heading = 0;
+    if(hor.lengthSq() > 1e-8){
       hor.normalize();
       heading = THREE.MathUtils.radToDeg(Math.atan2(hor.dot(fr.east), hor.dot(fr.north)));
-      if(heading<0) heading += 360;
+      if(heading < 0) heading += 360;
     }
-    // Roll: Projektion der lokalen X-Achse auf die Horizontebene
-    const wing = V3(1,0,0).applyQuaternion(this.q);
-    const roll = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(wing.dot(fr.up),-1,1)));
-    // Horizont
-    const off = pitch*1.6;
-    x.save();
-    x.translate(cx,cy); x.rotate(-THREE.MathUtils.degToRad(roll));
-    x.fillStyle="#2d7ad0"; x.fillRect(-R,-R*2+off,R*2,R*2);   // Himmel
-    x.fillStyle="#8a5a2b"; x.fillRect(-R,off,R*2,R*2);        // Boden
-    x.strokeStyle="#fff"; x.lineWidth=2;
-    x.beginPath(); x.moveTo(-R,off); x.lineTo(R,off); x.stroke();
-    // Pitch-Leiter
-    x.strokeStyle="rgba(255,255,255,.5)"; x.lineWidth=1;
-    x.fillStyle="rgba(255,255,255,.7)"; x.font="8px sans-serif"; x.textAlign="center";
-    for(let pd=-60;pd<=60;pd+=30){
-      if(pd===0) continue;
-      const yy = off + pd*1.6*-1;
-      x.beginPath(); x.moveTo(-18,yy); x.lineTo(18,yy); x.stroke();
-      x.fillText(Math.abs(pd)+"°", 30, yy+3);
+    rr(NAV_W/2-58, NAV_H-30, 116, 26, 6);
+    x.fillStyle = "rgba(10,16,32,.86)"; x.fill();
+    x.strokeStyle = "#1c2b4d"; x.lineWidth = 1.5; x.stroke();
+    x.fillStyle = "rgba(255,255,255,.55)"; x.font = "9px system-ui,sans-serif";
+    x.textAlign = "left"; x.fillText("KURS", NAV_W/2-51, NAV_H-17);
+    x.fillStyle = "#5fc46a"; x.font = "bold 13px system-ui,sans-serif";
+    x.fillText(heading.toFixed(0).padStart(3,"0")+"°", NAV_W/2-24, NAV_H-16);
+    x.fillStyle = "rgba(255,255,255,.55)"; x.font = "9px system-ui,sans-serif";
+    x.fillText("NEIG", NAV_W/2+14, NAV_H-17);
+    x.fillStyle = "#5fc46a"; x.font = "bold 13px system-ui,sans-serif";
+    x.fillText((pitch>=0?"+":"")+pitch.toFixed(0)+"°", NAV_W/2+40, NAV_H-16);
+    x.textBaseline = "alphabetic";
+  },
+  /* Bezugssystem der angezeigten Geschwindigkeit: normal der Körper, in
+     dessen Sphäre wir stecken – in Zielnähe (< 50 km, dieselbe Schwelle wie
+     der ◆-Marker) das ZIEL, denn beim Rendezvous ist nur die Relativ-
+     geschwindigkeit interessant. */
+  navRef(){
+    const tg = this.target;
+    // »Raumstation »Große Pause«« → »Große Pause« (der Kasten ist schmal)
+    const short = n => { const m = /»([^«]+)«/.exec(n); return m ? m[1] : n; };
+    if(tg && !this.docked){
+      const d = tg.pos(this.t).distanceTo(this.pos);
+      if(d < 50000) return {name: "◆ " + short(tg.name), col: "#39c2ff",
+        v: this.vel.clone().sub(tg.vel(this.t)).length()};
     }
-    x.restore();
-    // Himmelsrichtungen: wandern mit dem Heading über den Ball (O = 90° = Orbit-Richtung)
-    x.fillStyle = "rgba(255,255,255,.9)";
-    x.font = "bold 11px sans-serif"; x.textAlign = "center";
-    for(const [hd, L] of [[0,"N"],[90,"O"],[180,"S"],[270,"W"]]){
-      let dh = hd - heading;
-      while(dh > 180) dh -= 360;
-      while(dh < -180) dh += 360;
-      if(Math.abs(dh) < 65){
-        const lx = cx + dh*1.05;
-        x.fillText(L, lx, cy - 38);
-        x.fillStyle = "rgba(255,255,255,.45)";
-        x.fillRect(lx-0.5, cy-34, 1, 5);
-        x.fillStyle = "rgba(255,255,255,.9)";
-      }
-    }
-    // Prograde-Marker (relativ zum dominanten Körper)
-    const nbRel = this.vel.clone().sub(bodyVel(this.body(), this.t));
-    if(nbRel.length()>5){
-      const pv = nbRel.normalize();
-      const pPitch = 90 - THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(pv.dot(fr.up),-1,1)));
-      const ph = pv.clone().addScaledVector(fr.up, -pv.dot(fr.up));
-      let pHead = heading;
-      if(ph.lengthSq()>1e-8){
-        ph.normalize();
-        pHead = THREE.MathUtils.radToDeg(Math.atan2(ph.dot(fr.east), ph.dot(fr.north)));
-        if(pHead<0) pHead+=360;
-      }
-      let dh = pHead-heading; if(dh>180)dh-=360; if(dh<-180)dh+=360;
-      const px = cx + THREE.MathUtils.clamp(dh,-50,50)*1.1;
-      const py = cy + THREE.MathUtils.clamp(pitch-pPitch,-50,50)*1.1;
-      x.strokeStyle="#5fc46a"; x.lineWidth=2.5;
-      x.beginPath(); x.arc(px,py,7,0,7); x.stroke();
-      x.beginPath(); x.moveTo(px,py-11); x.lineTo(px,py-5);
-      x.moveTo(px-11,py); x.lineTo(px-5,py);
-      x.moveTo(px+5,py); x.lineTo(px+11,py); x.stroke();
-    }
-    // Ziel-Marker: türkises ◆ zeigt Richtung Ziel/Raumstation (nur wenn nah)
-    const stDir = (this.target ? this.target.pos(this.t) : stationPos(this.t)).sub(this.pos);
-    if(!this.docked && stDir.length()>1 && stDir.length()<50000){
-      const tv = stDir.normalize();
-      const tPitch = 90 - THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(tv.dot(fr.up),-1,1)));
-      const th2 = tv.clone().addScaledVector(fr.up, -tv.dot(fr.up));
-      let tHead = heading;
-      if(th2.lengthSq()>1e-8){
-        th2.normalize();
-        tHead = THREE.MathUtils.radToDeg(Math.atan2(th2.dot(fr.east), th2.dot(fr.north)));
-        if(tHead<0) tHead+=360;
-      }
-      let dh2 = tHead-heading; if(dh2>180)dh2-=360; if(dh2<-180)dh2+=360;
-      const tx = cx + THREE.MathUtils.clamp(dh2,-50,50)*1.1;
-      const ty = cy + THREE.MathUtils.clamp(pitch-tPitch,-50,50)*1.1;
-      x.strokeStyle="#39c2ff"; x.lineWidth=2.5;
-      x.beginPath();
-      x.moveTo(tx,ty-8); x.lineTo(tx+8,ty); x.lineTo(tx,ty+8); x.lineTo(tx-8,ty);
-      x.closePath(); x.stroke();
-      x.beginPath(); x.arc(tx,ty,2,0,7); x.stroke();
-    }
-    // Manöver-Marker: rosa ✛ = Brennrichtung des gesetzten Knotens.
-    // Nase draufhalten (oder SAS [T] auf Knoten) und zum Zeitpunkt zünden!
-    if(this.node && this.nodeDir){
-      const nv2 = this.nodeDir;
-      const nPitch = 90 - THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(nv2.dot(fr.up),-1,1)));
-      const nh = nv2.clone().addScaledVector(fr.up, -nv2.dot(fr.up));
-      let nHead = heading;
-      if(nh.lengthSq()>1e-8){
-        nh.normalize();
-        nHead = THREE.MathUtils.radToDeg(Math.atan2(nh.dot(fr.east), nh.dot(fr.north)));
-        if(nHead<0) nHead+=360;
-      }
-      let dhn = nHead-heading; if(dhn>180)dhn-=360; if(dhn<-180)dhn+=360;
-      const nx2 = cx + THREE.MathUtils.clamp(dhn,-50,50)*1.1;
-      const ny2 = cy + THREE.MathUtils.clamp(pitch-nPitch,-50,50)*1.1;
-      x.strokeStyle="#ff6ad5"; x.lineWidth=2.5;
-      x.beginPath();
-      x.moveTo(nx2,ny2-9); x.lineTo(nx2,ny2-3); x.moveTo(nx2,ny2+3); x.lineTo(nx2,ny2+9);
-      x.moveTo(nx2-9,ny2); x.lineTo(nx2-3,ny2); x.moveTo(nx2+3,ny2); x.lineTo(nx2+9,ny2);
-      x.stroke();
-      x.beginPath(); x.arc(nx2,ny2,2.5,0,7); x.stroke();
-    }
-    // Anflug-Marker: rosa ✛ = OPTIMALE Brennrichtung fürs Rendezvous.
-    // Nase draufhalten + Schub geben → die Relativgeschwindigkeit dreht sich
-    // automatisch aufs Ziel und bremst mit der Entfernung ab (kein Vorbeischießen).
-    // (Pausiert, solange ein Manöverknoten gesetzt ist – ein ✛ zur Zeit!)
-    if(!this.docked && !this.landed && !this.node){
-      const tPos = this.target ? this.target.pos(this.t) : stationPos(this.t);
-      const tVel = this.target ? this.target.vel(this.t) : stationVel(this.t);
-      const ap = tPos.clone().sub(this.pos);
-      const d = ap.length();
-      if(d>40 && d<50000){
-        const vWant = Math.min(45, Math.max(2, d/60));   // Wunsch-Annäherung: langsamer je näher
-        const burn = ap.normalize().multiplyScalar(vWant).sub(this.vel.clone().sub(tVel));
-        if(burn.length()>0.3){
-          const bv = burn.normalize();
-          const bPitch = 90 - THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(bv.dot(fr.up),-1,1)));
-          const bh = bv.clone().addScaledVector(fr.up, -bv.dot(fr.up));
-          let bHead = heading;
-          if(bh.lengthSq()>1e-8){
-            bh.normalize();
-            bHead = THREE.MathUtils.radToDeg(Math.atan2(bh.dot(fr.east), bh.dot(fr.north)));
-            if(bHead<0) bHead+=360;
-          }
-          let dhb = bHead-heading; if(dhb>180)dhb-=360; if(dhb<-180)dhb+=360;
-          const bx = cx + THREE.MathUtils.clamp(dhb,-50,50)*1.1;
-          const by = cy + THREE.MathUtils.clamp(pitch-bPitch,-50,50)*1.1;
-          x.strokeStyle="#ff6ad5"; x.lineWidth=2.5;
-          x.beginPath();
-          x.moveTo(bx,by-9); x.lineTo(bx,by-3); x.moveTo(bx,by+3); x.lineTo(bx,by+9);
-          x.moveTo(bx-9,by); x.lineTo(bx-3,by); x.moveTo(bx+3,by); x.lineTo(bx+9,by);
-          x.stroke();
-          x.beginPath(); x.arc(bx,by,2.5,0,7); x.stroke();
-        }
-      }
-    }
-    // Fadenkreuz (Nase)
-    x.strokeStyle="#f7941d"; x.lineWidth=3;
-    x.beginPath(); x.moveTo(cx-16,cy); x.lineTo(cx-5,cy);
-    x.moveTo(cx+5,cy); x.lineTo(cx+16,cy);
-    x.moveTo(cx,cy); x.lineTo(cx,cy+7); x.stroke();
-    x.restore();
-    // Heading-Anzeige
-    x.fillStyle="#e8ecf5"; x.font="bold 11px sans-serif"; x.textAlign="center";
-    x.fillText(heading.toFixed(0)+"°", cx, 13);
-    x.fillText((pitch>=0?"+":"")+pitch.toFixed(0)+"°", cx, 134);
+    const b = this.body();
+    return {name: (BODY_ICON[b.name] || "") + " " + b.name, col: "#5fc46a",
+      v: this.vel.clone().sub(bodyVel(b, this.t)).length()};
   },
   /* Nur Buttons zeigen, die zum aktuellen Vehikel passen – ohne Fallschirm
      braucht niemand einen Schirm-Knopf (weniger Overwhelm für Klasse 8) */
@@ -18517,7 +18963,6 @@ const Flight = {
     }
     document.getElementById("hudLeft").innerHTML = `
       <div class="row"><span>Höhe (${o.body.name})</span><span>${fmt(Math.max(0,o.alt))}</span></div>
-      <div class="row"><span>Geschwindigkeit</span><span>${o.speed.toFixed(0)} m/s</span></div>
       <div class="row"><span>Apoapsis</span><span>${fmtAp(o.ap)}</span></div>
       <div class="row"><span>Periapsis</span><span>${
         o.pe < -o.body.R*0.99 ? "–" : fmtPe(o.pe)}</span></div>
@@ -18643,7 +19088,7 @@ const Flight = {
       ${!Game.sandbox && (Game.activeMissions||[]).length ? '<br><b style="color:var(--orange)">🎯 '+
         Game.activeMissions.map(id=>(MISSIONS.find(m=>m.id===id)||{}).name).join("<br>🎯 ")+"</b>" :
         (!Game.sandbox && !Tut.active ? '<br><small style="color:var(--muted)">Keine Mission angenommen</small>' : "")}`;
-    document.getElementById("throttleFill").style.height=(this.throttle*100)+"%";
+    // (Schub steht jetzt am Navball – s. drawNavball)
     document.getElementById("fuelFill").style.height=((s&&s.fuel)?fuelPct:0)+"%";
     /* 🫁 Sauerstoff: nur zeigen, wenn er gerade zählt – draußen oder solange er
        sich an Bord noch auffüllt. Unter einer Minute wird der Balken rot. */
@@ -18664,7 +19109,7 @@ const Flight = {
     const heavy = !!s && s.parts.some(id=>PARTS[id].type==="superheavy");
     fm.style.display =
       (s && s.thrust && (heavy || s.parts.some(id=>PARTS[id].type==="gridfin"))) ? "" : "none";
-    fm.style.bottom = (heavy || this.boosterSiteEff(s ? s.parts : null)==="rtls") ? "30%" : "12%";
+    fm.style.bottom = boosterReserve(heavy ? "rtls" : this.boosterSiteEff(s ? s.parts : null))*100 + "%";
     // Seitenbooster: eigene Tankanzeige (eigener Treibstoff-Pool!)
     // Booster-Gauge = Seitenbooster-Pool + Feststoffbooster der aktiven Stufe
     // (beide nicht drosselbar, beide getrennt vom Flüssigtank)
