@@ -1163,6 +1163,34 @@ Was passiert, wenn ein Triebwerk auf den Boden zielt oder ein Stiefel ihn berüh
     ist zusätzlich auf 0,35 s gedrosselt (`b._mbT`).
   - ⚠️ **Kein Regressionsfehler der Teile-Umstellung** (Ø-Leiter/Trennerhöhen): mit den ALTEN
     Teile-Werten nachgestellt kam derselbe Burn-Start heraus (30 481 statt 30 462 m).
+- ⚠️⚠️ **EIN DRONESHIP KANN NICHT AN LAND LIEGEN – und die Suche darf nur so weit gehen, wie
+  der Booster STEUERN kann.** Zwei Fehler in einem, beide erst sichtbar, seit der Landing Burn
+  nicht mehr viel zu früh zündet (vorher vernichtete er die Downrange-Fahrt schon in 30–44 km
+  und der Booster kam kurz hinter der Küste nieder):
+  - Die Wassersuche lief über **±40 km** – gemessen erreicht der Booster aber nur **+8 km /
+    −4 km**. Testreihe (Deck ab 60 km Höhe künstlich versetzt, sonst identischer Flug):
+    +4/+8 km → **6 m** · +15 km → 1,5 km · +25 km → 11,5 km · −4 km → 1,0 km · −8 km →
+    5,1 km · −25 km → 22 km daneben. Ab dem Einfrieren bei 24 km schließt er sogar nur noch
+    ~4 km (40 km Versatz ⇒ 36 km daneben). Deshalb `DS_REACH_FAR` = 8, `DS_REACH_NEAR` = 4 km.
+  - Fand die Suche nichts, blieb das Deck trotzdem am Aufschlagpunkt **an Land** stehen: Der
+    Booster setzte auf der WIESE auf, bekam aber »🚢 auf dem Droneship« und 90 % gutgeschrieben,
+    und im PiP war keine Barge zu sehen (Bug-Report Simon). Jetzt prüft der Autopilot unter
+    25 km, ob das Deck wirklich auf Wasser liegt – sonst `b.missed`, `tgt = null`, ehrliche
+    Notlandung im Gelände (60 %) mit Klartext-Meldung.
+  - ⚠️ Die Meldung nennt die RICHTUNG (»das nächste Meer liegt X km näher/weiter draußen –
+    trenne früher/später«). Ohne sie wäre der Tipp in der Hälfte der Fälle falsch: Östlich des
+    Äquator-Raumhafens liegt Wasser in ZWEI Bändern. Gemessen auf dem Großkreis:
+    **Land 0–4 · Wasser 4–43 · Land 43–177 · Wasser 177–356 · Land ab 356 km.**
+  - Verifiziert (2×L, Trennung bei): 24 % → 87 km Land, Tipp »46 km näher, früher« · 20 % →
+    125 km Land, Tipp »52 km weiter, später« · **16 % → 179 km, 11 m aufs Deck** · 14 % →
+    207 km, 11 m · **12 % (= orange Tankmarke) → 242 km, 10 m** · 3×L 14 % → 469 km Land,
+    Tipp »130 km näher, früher«. Wer der Tankmarke folgt, landet also im Ozean.
+- ⚠️⚠️ **Das Droneship-Mesh war in der KARTE unsichtbar – und damit fast immer.** `frame()`
+  blendete es bei `this.map` aus (dort gehört keine Barge zwischen die Bahnellipsen), die
+  Booster-PiP rendert aber DIESELBE Szene, und beim Booster-Anflug hat man praktisch immer die
+  Karte offen (man fliegt ja oben weiter). Ergebnis: Der Booster setzte im Fenster auf leerem
+  Wasser auf. Jetzt bleibt es sichtbar, solange der Autopilot läuft; in der Kartenansicht
+  selbst stört es nicht (bei diesen Zoomstufen ist die 50-m-Barge weit unter einem Pixel).
 - ⚠️⚠️ **Realitätscheck im Abstieg (`BOOSTER_GIVEUP` = 7000 m, `b.missed`):** Der
   Boostback-Burn bricht nicht nur ab, wenn das Ziel erreicht ist, sondern auch, wenn schlicht
   der Sprit ausgeht (< 12 %). Danach hielt der Autopilot trotzdem an `b.tgt` fest und

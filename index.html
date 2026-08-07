@@ -13909,7 +13909,47 @@ const Flight = {
            würde die Prüfung gute Landungen wegwerfen. */
         if(b.tgt && !b.missed && alt < 25000 && (b._gvT===undefined || tt - b._gvT > 1)){
           b._gvT = tt;
-          const impG = this.predictImpactRel(b, tt);
+          /* ⚠️⚠️ EIN DRONESHIP KANN NICHT AN LAND LIEGEN. Die Wassersuche unten
+             durchkämmt ±40 km entlang der Bahnspur – so weit reicht die
+             Steuerung aus Gitterflossen und Endanflug-Regelung. Findet sie
+             nichts, blieb das Deck bisher trotzdem am Aufschlagpunkt stehen:
+             Der Booster setzte dann auf der WIESE auf, bekam aber »🚢 auf dem
+             Droneship« und 90 % Bergung gutgeschrieben – und im PiP war weit
+             und breit keine Barge zu sehen (Bug-Report Simon).
+             Aufgefallen ist das erst, seit der Landing Burn nicht mehr viel zu
+             früh zündet: Vorher vernichtete er die Downrange-Fahrt schon in
+             30–44 km Höhe, der Booster kam kurz hinter der Küste nieder. Jetzt
+             fliegt er die volle ballistische Strecke – gemessen 2×L 207 km
+             (Wasser, alles gut), 3×L **469 km** und 4×L **634 km**, und dort
+             liegt der nächste Kontinent (landH +0,14).
+             ⚠️ Geprüft wird erst unter 25 km, aus demselben Grund wie beim
+             Realitätscheck darüber: Am Scheitelpunkt ist `predictImpactRel` bis
+             zu 40 km daneben, das würde gute Anflüge wegwerfen. */
+          const q = b.tgt.clone().normalize();
+          if(b.site==="ship" && landH(q.x, q.y, q.z, TERRAIN_OCT_LOCAL) >= 0){
+            const km = Math.round(b.tgt.clone().sub(this.padLocal).length()/1000);
+            /* ⚠️ Der Tipp muss die RICHTUNG kennen: Östlich des Raumhafens liegt
+               Wasser in ZWEI Bändern (4–44 km und 184–404 km), dazwischen ein
+               Kontinent. »Früher trennen« ist also nur richtig, wenn das nächste
+               Meer näher an der Rampe liegt – sonst hilft nur SPÄTER trennen.
+               Geraten wäre der Hinweis in der Hälfte der Fälle falsch. */
+            let tip = "Tipp: an der orangen Tankmarke trennen – dann bleibt er über dem Meer.";
+            let eT = V3(0,1,0).cross(q);
+            eT = eT.lengthSq() < 1e-9 ? this.padEastV.clone() : eT.normalize();
+            for(let k=2; k<=250; k+=2){
+              const far = q.clone().addScaledVector(eT,  k*1000/LEIBNIZ.R).normalize();
+              const nea = q.clone().addScaledVector(eT, -k*1000/LEIBNIZ.R).normalize();
+              if(landH(far.x,far.y,far.z,TERRAIN_OCT_LOCAL) < -0.002){
+                tip = "Das nächste Meer liegt "+k+" km WEITER draußen – trenne SPÄTER, dann fliegt der Booster weiter."; break; }
+              if(landH(nea.x,nea.y,nea.z,TERRAIN_OCT_LOCAL) < -0.002){
+                tip = "Das nächste Meer liegt "+k+" km NÄHER an der Rampe – trenne FRÜHER, dann fliegt er kürzer."; break; }
+            }
+            b.missed = true; b.tgt = null; this.dsLocal = null;
+            this.showMsg("🚢 Kein Droneship hier: Der Booster kommt "+km+" km downrange über "+
+              "LAND nieder – dort kann keine Barge liegen. Notlandung im Gelände "+
+              "(60 % statt 90 %). "+tip, 9);
+          }
+          const impG = b.tgt ? this.predictImpactRel(b, tt) : null;
           if(impG){
             const eG = b.tgt.clone().sub(impG);
             eG.addScaledVector(up, -eG.dot(up));
@@ -13936,7 +13976,11 @@ const Flight = {
            zu zünden. Ein Schiff DARF sich bewegen – das ist genau sein Vorteil
            gegenüber der ortsfesten Landing Zone. Unter 25 km steht es dann
            fest, sonst würde das Deck dem Booster im Endanflug davonfahren. */
-        if(b.site==="ship" && (!b.tgt || (alt > 25000 && tt - (b._dsT||0) > 2))){
+        /* ⚠️ `!b.missed` ist Pflicht: Sobald oben entschieden ist, dass hier
+           kein Droneship liegen kann, ist `b.tgt` null – und ohne diese Sperre
+           liefe der `!b.tgt`-Zweig in JEDEM Substep wieder los und würde das
+           Deck (samt teurer `predictImpactRel`) sofort neu an Land setzen. */
+        if(b.site==="ship" && !b.missed && (!b.tgt || (alt > 25000 && tt - (b._dsT||0) > 2))){
           b._dsT = tt;
           const imp = this.predictImpactRel(b, tt);
           if(imp && this.padLocal){
@@ -13959,27 +14003,34 @@ const Flight = {
               : imp.clone().normalize();
             /* ⚠️⚠️ Seit die Küste prozedural ist, ist »irgendwo östlich« nicht
                automatisch Wasser. Östlich des Äquator-Raumhafens liegt Meer nur
-               von ~2 bis ~60 km, dann kommt der nächste KONTINENT (gemessen:
-               landH > 0 von 65 bis ~190 km). Die alte Suche schob nur OSTWÄRTS
-               und höchstens 32 km – bei einem Aufschlag 130 km downrange rannte
-               sie also 40-mal ins Leere und das Deck stand am Ende immer exakt
-               32 km neben dem Booster. Jetzt wird von der Vorhersage aus nach
-               BEIDEN Seiten der Bahnspur gesucht und der nächstgelegene
-               Wasserpunkt genommen: Ob der Booster ein Stück kürzer oder weiter
-               fliegt, ist für Gitterflossen und Landing Burn dasselbe Problem.
-               Findet sich in ±40 km kein Wasser, bleibt es beim Aufschlagpunkt –
-               dann wassert er wie ohne Forschung (50 % Bergung). */
+               von 4 bis 44 km, dann kommt ein 140 km breiter KONTINENT, danach
+               wieder Ozean von 184 bis 404 km (gemessen mit landH).
+               ⚠️⚠️ Gesucht wird nur so weit, wie der Booster auch STEUERN kann –
+               das war vorher ±40 km und damit blanke Fiktion. Gemessen (Deck ab
+               60 km Höhe künstlich versetzt, sonst identischer Flug):
+               +4/+8 km → **6 m** Abweichung · +15 km → 1,5 km · +25 km → 11,5 km ·
+               −4 km → 1,0 km · −8 km → 5,1 km · −25 km → 22 km. Also
+               `DS_REACH_FAR` = 8 km nach außen, `DS_REACH_NEAR` = 4 km nach
+               innen (weiter fliegen können die Gitterflossen leichter als
+               kürzer). Ein Deck 40 km entfernt hat der Booster nie erreicht –
+               er setzte daneben auf, und weil dort dann auch kein Wasser war,
+               wurde daraus die Landung auf der Wiese, die trotzdem als
+               »🚢 auf dem Droneship« mit 90 % gutgeschrieben wurde. */
+            const DS_REACH_FAR = 8, DS_REACH_NEAR = 4;   // km
             let eastT = V3(0,1,0).cross(p);
             eastT = eastT.lengthSq() < 1e-9 ? this.padEastV.clone() : eastT.normalize();
             const wet = q => landH(q.x, q.y, q.z, TERRAIN_OCT_LOCAL) < -0.002;
             const p0 = p.clone();
             const shift = s => p0.clone().addScaledVector(eastT, s/LEIBNIZ.R).normalize();
-            if(!wet(p)) for(let k=1; k<=40; k++){
-              const a = shift(k*1000), c2 = shift(-k*1000);
-              // nach Westen nur, solange das Deck östlich der Rampe bleibt
+            if(!wet(p)) for(let k=1; k<=DS_REACH_FAR; k++){
+              const a = shift(k*1000);
               if(wet(a)){ p = a; break; }
-              if(c2.clone().multiplyScalar(LEIBNIZ.R).sub(this.padLocal).dot(this.padEastV) > 6000
-                 && wet(c2)){ p = c2; break; }
+              // nach innen nur begrenzt – und nur, solange das Deck östlich der Rampe bleibt
+              if(k <= DS_REACH_NEAR){
+                const c2 = shift(-k*1000);
+                if(c2.clone().multiplyScalar(LEIBNIZ.R).sub(this.padLocal).dot(this.padEastV) > 6000
+                   && wet(c2)){ p = c2; break; }
+              }
             }
             b.tgt = p.multiplyScalar(LEIBNIZ.R);
             this.dsLocal = b.tgt.clone();
@@ -18113,9 +18164,20 @@ const Flight = {
       for(const a of this.mzArms)
         a.rotation.y = a.userData.side*(0.55 - 0.44*this.mzArmFold);
     }
-    // Droneship: liegt (sobald positioniert) im Ozean und folgt dem Planeten
+    /* Droneship: liegt (sobald positioniert) im Ozean und folgt dem Planeten.
+       ⚠️⚠️ In der KARTE wird es ausgeblendet – dort gehört keine Barge zwischen
+       die Bahnellipsen. Die Booster-PiP rendert aber DIESELBE Szene, und genau
+       dorthin schaut man beim Landeanflug: Solange der Autopilot läuft, muss
+       das Deck deshalb sichtbar bleiben. Sonst setzte der Booster im Fenster
+       auf leerem Wasser auf und es sah aus, als gäbe es gar kein Droneship
+       (Bug-Report Simon) – und weil man beim Booster-Anflug fast immer die
+       Karte offen hat (man fliegt ja oben weiter), war das der Normalfall.
+       In der Kartenansicht selbst stört es nicht: Bei diesen Zoomstufen ist
+       die 50-m-Barge weit unter einem Pixel. */
     if(this.droneMesh){
-      if(this.dsLocal && !this.map){
+      const pipOn = !!(this.booster &&
+        (!this.booster.doneT || performance.now() - this.booster.doneT <= 4000));
+      if(this.dsLocal && (!this.map || pipOn)){
         this.droneMesh.visible = true;
         this.droneMesh.position.copy(lp).add(this.dsLocal);
         this.droneMesh.quaternion.setFromUnitVectors(V3(0,1,0), this.dsLocal.clone().normalize());
