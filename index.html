@@ -111,6 +111,12 @@ button{cursor:pointer;font-family:inherit;}
 #stackList .stack-item{display:flex;justify-content:space-between;align-items:center;
   background:var(--panel2);border:1px solid #2a3a64;border-radius:5px;padding:4px 8px;margin:3px 0;font-size:12px;}
 #stackList .stack-item button{background:none;border:none;color:var(--red);font-size:14px;font-weight:bold;}
+/* 🔍 Reinschauen (Fairing / Servicebucht) – reine Bauhilfe, s. VAB.animCovers */
+#stackList .stack-item .item-btns{display:flex;align-items:center;gap:4px;flex-shrink:0;}
+#stackList .stack-item button.peek{color:var(--muted);font-size:10px;font-weight:600;
+  border:1px solid #2a3a64;border-radius:4px;padding:1px 6px;background:var(--panel);white-space:nowrap;}
+#stackList .stack-item button.peek:hover{color:var(--text);border-color:var(--blue);}
+#stackList .stack-item button.peek.on{color:var(--orange);border-color:var(--orange);}
 #flight{flex-direction:column;}
 #flight3d{position:absolute;inset:0;overflow:hidden;}
 #flight3d canvas{position:absolute;inset:0;width:100%;height:100%;}   /* s. #vab3d canvas */
@@ -4712,6 +4718,34 @@ function buildFairingShell(rBase, H, phiStart, phiLength){
     metalness:.25, side:THREE.DoubleSide});
   return new THREE.Mesh(geo, mat);
 }
+/* ---------- 🔍 Reinschauen in der Montagehalle (NUR dort!) ----------
+   Was unter der Nutzlasthülle steckt, ist beim Bauen unsichtbar – man stapelt
+   blind und kann eine Sonde weder prüfen noch umsortieren, ohne das Fairing
+   abzureißen (Wunsch Simon). Deshalb baut `buildRocketGroup` mit
+   `splitFairing` die Hülle als ZWEI Halbschalen an eigenen Drehpunkten und
+   lässt alles darunter mitentstehen (markiert per `userData.underFairing`).
+   Zusammengeklappt (Anim 0) ergeben die beiden Lathe-Hälften exakt dieselbe
+   Ogive wie die einteilige Hülle – im Flug bleibt es deshalb bei EINEM Mesh.
+   ⚠️⚠️ Die verdeckten Teile werden erst ab `FAIR_REVEAL` sichtbar: Eine
+   Nutzlast darf breiter sein als die Ogive auf ihrer Höhe (die Sondenkapsel
+   misst r 5, die Spitze der Hülle über ihr nur 2,6) und stäche sonst im
+   ersten Moment durch die noch fast geschlossene Schale. Deshalb läuft die
+   Klappbewegung mit einer Ease-OUT-Kurve (schneller Anlauf, weiches Ende):
+   Bei f = 0,04 – das sind zwei Bilder – hat sich die Schale auf Höhe der
+   Kapsel schon 3,9 Einheiten weggedreht, die 2,4 Einheiten Überstand sind
+   also frei. Eine Ease-IN-Kurve (smoothstep) wäre hier genau falsch herum.
+   ⚠️ Geschlossen (Anim exakt 0) ist der Zustand bitgenau der von früher:
+   Hülle zu, Inhalt unsichtbar.
+   ⚠️ Abstand und Hub sind nach AUGENMASS gesetzt und nachgesehen: Die Schalen
+   müssen die Nutzlast wirklich freigeben (sonst hilft das Aufklappen nichts),
+   dürfen aber nicht so weit wegfliegen, dass man sie beim Bauen sucht. Mit
+   OUT 2,6·r und LIFT 0,45·H steht der ganze Stapel frei, während die beiden
+   Hälften erkennbar neben und über der Spitze schweben. */
+const FAIR_REVEAL = 0.04;   // ab hier ist der Inhalt sichtbar
+const FAIR_HINGE  = 0.75;   // rad, Aufklappwinkel der Halbschalen (43°)
+const FAIR_OUT    = 2.6;    // × Hüllenradius, seitliches Abdriften
+const FAIR_LIFT   = 0.45;   // × Hüllenhöhe, Schweben auf Spitzenhöhe
+const FAIR_SPIN   = 0.35;   // rad/s, langsames Kreisen um die Spitze
 /* ---------- Nebel-Kulisse (nebulae.js) ----------
    Radial-Maske stanzt die Bildränder weich in Schwarz aus, additives Blending
    lässt die Fotos nahtlos in den Himmel übergehen – keine sichtbaren Kanten.
@@ -4790,8 +4824,10 @@ function bayCoverage(stack){
   });
   return map;
 }
-/* Komplette Rakete; Ursprung = Unterkante des untersten Teils, +Y = oben */
-function buildRocketGroup(stack, fairingIntact){
+/* Komplette Rakete; Ursprung = Unterkante des untersten Teils, +Y = oben.
+   `splitFairing` ist die Bauhilfe der Halle (s. FAIR_REVEAL oben): Hülle als
+   zwei Halbschalen, Inhalt sichtbar gebaut und markiert. Im Flug NICHT setzen. */
+function buildRocketGroup(stack, fairingIntact, splitFairing){
   const grp = new THREE.Group();
   const fIdx = stack.findIndex(id=>PARTS[id].type==="fairing");
   // Servicebuchten verkleiden 1–2 Bauteile direkt darüber (PARTS[..].covers)
@@ -4803,7 +4839,11 @@ function buildRocketGroup(stack, fairingIntact){
   for(let i=stack.length-1; i>=0; i--){
     const id = stack[i], p = PARTS[id];
     const y = yBot[i];
-    if(fairingIntact && fIdx>=0 && i<fIdx) continue;  // unter der Hülle
+    const underFairing = fairingIntact && fIdx>=0 && i<fIdx;
+    if(underFairing && !splitFairing) continue;       // unter der Hülle
+    // In der Halle entsteht der Inhalt trotzdem – seine SICHTBARKEIT hängt
+    // dann an der Klapp-Animation (VAB.animCovers), nicht am Bau.
+    const addP = o=>{ if(underFairing) o.userData.underFairing = true; grp.add(o); };
     if(inBay.has(i)) continue;                        // sitzt unsichtbar in der Bucht
     if(isRadial(id)){
       const hIdx = radialHostIdx(stack, i);
@@ -4818,7 +4858,7 @@ function buildRocketGroup(stack, fairingIntact){
       // bis ihre Stufe nach der Trennung die unterste ist (analog zu "flame idle")
       if(p.type==="sideboost" && hasStageBelow(stack, i))
         mesh.traverse(o=>{ if(o.name==="bflame") o.userData.upper = true; });
-      grp.add(mesh);
+      addP(mesh);
       continue;
     }
     if(satInStarship(stack, id)) continue;   // reist unsichtbar im Starship-Frachtraum
@@ -4829,7 +4869,7 @@ function buildRocketGroup(stack, fairingIntact){
     if(["engine","srb","superheavy","starship"].includes(p.type) &&
        hasStageBelow(stack, i))
       mesh.traverse(o=>{ if(o.name==="flame") o.userData.idle = true; });
-    grp.add(mesh);
+    addP(mesh);
     if(p.type==="bay" && bayMap.has(i)){
       const covered = bayMap.get(i);   // 1–2 Indizes, oberstes zuletzt
       const topJ = covered[covered.length-1];
@@ -4841,24 +4881,45 @@ function buildRocketGroup(stack, fairingIntact){
         content.position.y = yBot[j];
         content.name = "bayContent"; content.userData.bayIdx = bayIdx-1;
         content.visible = false;
-        grp.add(content);
+        addP(content);
       }
       const shell = new THREE.Mesh(new THREE.CylinderGeometry(p.w/2, p.w/2, hh2+0.6, 8), MAT.white);
       shell.position.y = y + p.h + hh2/2;
       shell.name = "bayShell";
       shell.userData = {baseY: y + p.h + hh2/2, slide: hh2+1.4, bayIdx: bayIdx-1};
-      grp.add(shell);
+      addP(shell);
       const lid = new THREE.Mesh(new THREE.CylinderGeometry(p.w*0.35, p.w/2, 1.2, 8), MAT.gray);
       lid.position.y = y + p.h + hh2 + 0.9;
       lid.name = "bayShell";
       lid.userData = {baseY: y + p.h + hh2 + 0.9, slide: hh2+1.4, bayIdx: bayIdx-1};
-      grp.add(lid);
+      addP(lid);
     }
     if(fairingIntact && fIdx===i && fIdx>0){
-      const coveredH = stackHeight(stack.slice(0,fIdx));
-      const shell = buildFairingShell(p.w/2, coveredH+6);
-      shell.position.y = y + p.h;
-      grp.add(shell);
+      const shellH = stackHeight(stack.slice(0,fIdx)) + 6, rB = p.w/2;
+      if(splitFairing){
+        /* Zwei Halbschalen an eigenen Drehpunkten (Scharnier an der Unterkante,
+           wie bei echten Fairings). Die Gruppe darüber sitzt auf der Achse und
+           dreht die schwebenden Schalen langsam um die Spitze. */
+        // ⚠️ NICHT `float` nennen – das ist in älteren JS-Fassungen ein
+        // reserviertes Wort (dieselbe Falle wie `patch` in GLSL).
+        const fGrp = new THREE.Group();
+        fGrp.name = "fairingFloat";
+        fGrp.position.y = y + p.h;
+        fGrp.userData = {h: shellH, r: rB};
+        for(const s of [1,-1]){
+          const pivot = new THREE.Group();
+          pivot.name = "fairingHalf";
+          pivot.userData = {side: s};
+          pivot.add(buildFairingShell(rB, shellH,
+            s>0 ? -Math.PI/2 : Math.PI/2, Math.PI));
+          fGrp.add(pivot);
+        }
+        grp.add(fGrp);
+      }else{
+        const shell = buildFairingShell(rB, shellH);
+        shell.position.y = y + p.h;
+        grp.add(shell);
+      }
     }
   }
   grp.userData.height = stackHeight(stack);
@@ -9046,6 +9107,15 @@ const VAB = {
   stack: [...Game.design],
   renderer:null, scene:null, camera:null, rocket:null,
   camAz:0.6, camEl:0.25, camDist:90,
+  /* 🔍 Reinschauen (reine Bauhilfe, s. FAIR_REVEAL): Der Zustand lebt NUR in
+     der Halle – `Flight.start` baut die Rakete ohnehin frisch und geschlossen,
+     vor dem Start muss also niemand daran denken, wieder zuzumachen.
+     Bewusst je EIN Schalter für alle Buchten (wie [O] im Flug): Beim Bauen
+     wandern Teile ständig, ein an Stack-Indizes gebundener Zustand würde beim
+     Umsortieren auf die falsche Bucht springen. */
+  fairingOpen:false, bayOpen:false,
+  fairingAnim:0, bayAnim:0, fairingSpin:0, _fairT:0,
+  _fairFloat:null, _fairHalves:[], _fairLoad:[], _bayParts:[],
   init(){
     const host = document.getElementById("vab3d");
     this.renderer = new THREE.WebGLRenderer({antialias:true});
@@ -10187,13 +10257,45 @@ const VAB = {
       }
       this.refresh();
     };
+    /* 🔍-Knopf nur dort, wo wirklich etwas zu sehen ist: an der Hülle, die
+       auch eine Nutzlast trägt (buildRocketGroup nimmt das ERSTE Fairing und
+       nur, wenn etwas darüber steht), und an jeder Bucht, die etwas verkleidet. */
+    const fIdx = this.stack.findIndex(id=>PARTS[id].type==="fairing");
+    const bays = bayCoverage(this.stack);
     this.stack.forEach((id,i)=>{
       const div = document.createElement("div");
       div.className="stack-item"; div.draggable=true;
       div.innerHTML = `<span>⠿ ${PARTS[id].name}</span>`;
+      const btns = document.createElement("span");
+      btns.className = "item-btns";
+      const peekKind = (i===fIdx && fIdx>0) ? "fairing" : bays.has(i) ? "bay" : null;
+      if(peekKind){
+        const b = document.createElement("button");
+        b.className = "peek";
+        b.title = peekKind==="fairing"
+          ? "Nutzlasthülle aufklappen: zeigt, was darunter verbaut ist – zum Prüfen und Umsortieren.\n"+
+            "Nur eine Bauhilfe für die Halle, der Start ist davon unberührt."
+          : "Servicebucht öffnen: zeigt den Inhalt, genau wie [O] im Orbit.\n"+
+            "Nur eine Bauhilfe für die Halle, der Start ist davon unberührt.";
+        const upd = ()=>{
+          const on = peekKind==="fairing" ? this.fairingOpen : this.bayOpen;
+          b.textContent = on ? "🔒 Schließen" : "🔍 Öffnen";
+          b.classList.toggle("on", on);
+        };
+        b.onclick = e=>{
+          e.stopPropagation();
+          if(peekKind==="fairing") this.fairingOpen = !this.fairingOpen;
+          else                     this.bayOpen     = !this.bayOpen;
+          upd();
+        };
+        b.ondragstart = e=>e.preventDefault();
+        upd();
+        btns.appendChild(b);
+      }
       const del = document.createElement("button");
       del.textContent="✕"; del.onclick=()=>this.remove(i);
-      div.appendChild(del);
+      btns.appendChild(del);
+      div.appendChild(btns);
       div.ondragstart = e=>{
         e.dataTransfer.setData("text/plain", JSON.stringify({kind:"move",from:i}));
         e.dataTransfer.effectAllowed="move";
@@ -10216,7 +10318,18 @@ const VAB = {
   },
   rebuild(){
     if(this.rocket) this.scene.remove(this.rocket);
-    this.rocket = buildRocketGroup(this.stack, true);
+    // ⚠️ Die Halle baut IMMER mit geteilter Hülle (3. Argument) – dann kostet
+    // das Auf- und Zuklappen keinen Neubau, und geschlossen sieht es aus wie
+    // eh und je (die beiden Lathe-Hälften schließen fugenlos).
+    this.rocket = buildRocketGroup(this.stack, true, true);
+    // Referenzen für die Klapp-Animation einmal einsammeln statt pro Bild
+    this._fairFloat = null; this._fairHalves = []; this._fairLoad = []; this._bayParts = [];
+    this.rocket.traverse(o=>{
+      if(o.name==="fairingFloat") this._fairFloat = o;
+      else if(o.name==="fairingHalf") this._fairHalves.push(o);
+      else if(o.name==="bayShell" || o.name==="bayContent") this._bayParts.push(o);
+      else if(o.userData && o.userData.underFairing) this._fairLoad.push(o);
+    });
     // Die Rakete ist der Star der Halle: sie wirft Schatten, empfängt welche
     // (Gerüst und Dachbinder legen sich über sie) und spiegelt die Lampen.
     this.rocket.traverse(o=>{ if(o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
@@ -10237,6 +10350,56 @@ const VAB = {
     if(this._fitH === undefined || Math.abs(this._fitH - h) > 0.5){
       this._fitH = h;
       this.camDist = THREE.MathUtils.clamp(h*1.7, 45, 250);
+    }
+    // Klapp-Zustand SOFORT auf das frische Mesh anwenden (dt = 0 rückt nichts
+    // weiter): Wer bei offener Hülle ein Teil anbaut, sähe sie sonst für ein
+    // Bild zugeklappt.
+    this.animCovers(0);
+  },
+  /* ---------- 🔍 Fairing aufklappen & Servicebucht öffnen (nur Halle) ----------
+     Nutzlasthülle: Die beiden Halbschalen schwenken um ihr Scharnier an der
+     Unterkante nach außen, heben ab und kreisen langsam um die Spitze – dasselbe
+     Bild wie beim Absprengen im Orbit, nur ohne Wegfliegen. Die Servicebucht
+     gleitet wie im Flug ([O]) einfach nach unten.
+     ⚠️ Die Hülle wird ZUERST ausgewertet: Sitzt eine Bucht selbst unter der
+     Hülle, darf ihr Inhalt nicht durch die geschlossene Schale leuchten.
+     ⚠️ Ease-OUT (schneller Anlauf) ist Absicht – Begründung bei FAIR_REVEAL. */
+  animCovers(dt){
+    if(!this.rocket) return;
+    const step = (cur, tgt, rate) =>
+      cur + Math.sign(tgt-cur)*Math.min(dt*rate, Math.abs(tgt-cur));
+    // --- Nutzlasthülle ---
+    this.fairingAnim = step(this.fairingAnim, this.fairingOpen?1:0, 1.3);
+    const f = this.fairingAnim, e = 1-(1-f)*(1-f);
+    const showLoad = f > FAIR_REVEAL;
+    for(const o of this._fairLoad) o.visible = showLoad;
+    if(this._fairFloat){
+      const H = this._fairFloat.userData.h, R = this._fairFloat.userData.r;
+      this._fairT += dt;
+      // Kreisen läuft NUR, solange offen – zugeklappt ist die Hülle ein voller
+      // Rotationskörper, der stehen gebliebene Winkel also unsichtbar.
+      this.fairingSpin += dt*FAIR_SPIN*e;
+      this._fairFloat.rotation.y = this.fairingSpin;
+      for(const p of this._fairHalves){
+        const s = p.userData.side;
+        p.rotation.z = -s*FAIR_HINGE*e;                 // Scharnier: Nase nach außen
+        p.position.x =  s*R*FAIR_OUT*e;                 // driftet von der Achse weg
+        p.position.y =  H*FAIR_LIFT*e +                 // schwebt auf Spitzenhöhe
+                        Math.sin(this._fairT*0.8 + (s>0?0:2.1))*R*0.5*e;
+      }
+    }
+    // --- Servicebuchten (gestaffelt, wie im Flug) ---
+    const nB = this.rocket.userData.nBays||0;
+    if(nB){
+      this.bayAnim = step(this.bayAnim, this.bayOpen?1:0, 1.1);
+      for(const o of this._bayParts){
+        const b = THREE.MathUtils.clamp(this.bayAnim*nB - o.userData.bayIdx, 0, 1);
+        const vis = !o.userData.underFairing || showLoad;
+        if(o.name==="bayShell"){
+          o.position.y = o.userData.baseY - o.userData.slide*b;
+          o.visible = vis;
+        }else o.visible = vis && b > 0.45;
+      }
     }
   },
   /* Auflösung der Schattenkarte an die Grafikstufe anpassen (0 = aus) */
@@ -10516,6 +10679,7 @@ const VAB = {
     // Die Halle lebt: Laufen, Schweißen, Kisten schleppen, Hinfallen
     for(const w of this.crew) this.stepWorker(w, 1/60);
     this.stepSparks(1/60);
+    this.animCovers(1/60);       // 🔍 Hülle/Bucht auf- und zuklappen
     this.updateContactShadows();
     const th = this.rocket ? this.rocket.userData.height/2 : 20;
     const cx = Math.cos(this.camEl)*Math.cos(this.camAz)*this.camDist;

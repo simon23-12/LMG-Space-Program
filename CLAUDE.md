@@ -1714,6 +1714,56 @@ Werkzeugleiste `#vabTop` per `clamp()` an `vw` gekoppelt.
   zweizeilig um und macht die Leiste **höher** statt schmaler.
 - Der eigentliche »rechte Seite abgeschnitten«-Bug war aber **nicht** das Layout, sondern die
   Canvas-Größe – s. `gfxPixelRatio()` im Optionen-Abschnitt.
+
+### 🔍 Reinschauen: Fairing aufklappen & Servicebucht öffnen (`VAB.animCovers`)
+Was unter der Nutzlasthülle steckt, war beim Bauen **unsichtbar** – man stapelt blind und
+konnte die Sonde weder prüfen noch umsortieren, ohne das Fairing abzureißen (Wunsch Simon).
+In der Zeile »Aufbau« trägt deshalb die Hülle (und jede Servicebucht) einen Knopf
+**🔍 Öffnen / 🔒 Schließen**: Die Hülle klappt in zwei Halbschalen auf, die um die Spitze
+schweben; die Bucht gleitet nach unten wie im Orbit mit [O].
+- ⚠️⚠️ **Reine BAUHILFE – der Start ist davon unberührt und muss nicht zurückgestellt
+  werden.** `Flight.start` baut die Rakete ohnehin frisch (`buildRocketGroup` mit ZWEI
+  Argumenten ⇒ kein Split) und setzt `fairingIntact`/`bayOpen` selbst. Verifiziert: Halle
+  offen → gestartet → 0 Halbschalen, 0 markierte Teile, Bucht gar nicht erst gebaut, [F]
+  wirft weiterhin seine 2 Trümmer-Halbschalen.
+- **`buildRocketGroup(stack, fairingIntact, splitFairing)`** – das dritte Argument ist neu
+  und **nur** die Halle setzt es. Dann entsteht die Hülle als zwei `LatheGeometry`-Hälften
+  (phiStart ∓π/2, Länge π) an eigenen Drehpunkten in der Gruppe `fairingFloat`, und alles
+  darunter wird trotzdem gebaut, markiert per `userData.underFairing`. Zusammengeklappt
+  ergeben die Hälften exakt dieselbe Ogive – die Halle baut deshalb **immer** mit Split
+  (`rebuild()`), und das Auf-/Zuklappen kostet keinen Neubau.
+- ⚠️⚠️ **Der Inhalt wird erst ab `FAIR_REVEAL` (0,04) sichtbar geschaltet, und das ist kein
+  Schönheitsfehler-Fix:** Eine Nutzlast darf breiter sein als die Ogive auf ihrer Höhe.
+  Nachgemessen an der Standard-Sonde: Die Sondenkapsel misst r 5, die Hülle über ihr
+  (Höhe 46 von 52) nur **2,57** – sie stäche also 2,4 Einheiten durch die noch geschlossene
+  Schale. Deshalb läuft die Klappbewegung mit **Ease-OUT** (`1−(1−f)²`, schneller Anlauf,
+  weiches Ende): bei f = 0,04 – zwei Bilder – hat sich die Schale auf dieser Höhe schon
+  3,9 Einheiten weggedreht. **Ease-IN (smoothstep) wäre hier genau falsch herum.**
+  Geschlossen (Anim exakt 0) ist der Zustand bitgenau der von früher.
+- ⚠️ **Reihenfolge in `animCovers`: erst die Hülle, dann die Buchten.** Eine Bucht kann
+  selbst unter der Hülle sitzen (`underFairing` steht dann auch auf `bayShell`/`bayContent`);
+  ihr Inhalt darf nicht durch die geschlossene Schale leuchten. Verifiziert: nur Bucht offen
+  bei zugeklappter Hülle ⇒ alles unsichtbar.
+- **Werte nach Augenmaß gesetzt und nachgesehen** (`FAIR_HINGE` 0,75 rad · `FAIR_OUT` 2,6·r ·
+  `FAIR_LIFT` 0,45·H · `FAIR_SPIN` 0,35 rad/s ≈ 18 s pro Umlauf): Die Schalen müssen die
+  Nutzlast wirklich freigeben – mit den ersten Werten (1,7·r / 0,30·H) verdeckten sie den
+  halben Stapel – dürfen aber nicht so weit wegfliegen, dass man sie beim Bauen sucht.
+  Bei 1,05 rad Scharnier lagen sie fast waagerecht und lasen sich als Flügel, nicht als
+  Hüllenhälften.
+- ⚠️ Je EIN Schalter für alle Buchten (wie [O] im Flug), nicht pro Bucht: Beim Bauen wandern
+  Teile ständig, ein an Stack-Indizes gebundener Zustand spränge beim Umsortieren auf die
+  falsche Bucht. Der Knopf steht nur an der Hülle, die auch etwas trägt (`fIdx > 0`), und
+  nur an Buchten aus `bayCoverage`.
+- ⚠️ `rebuild()` ruft am Ende `animCovers(0)` – anwenden ohne weiterzurücken. Sonst sähe man
+  die Hülle für ein Bild zugeklappt, wenn man bei offener Hülle ein Teil anbaut.
+- ⚠️ Die Gruppe heißt im Code `fGrp`, **nicht `float`** – reserviertes Wort in älteren
+  JS-Fassungen (dieselbe Falle wie `patch` in GLSL).
+- Regression geprüft: alle 15 Tutorial-Stacks bauen mit und ohne Split auf dieselbe Höhe,
+  alle 51 Teile lassen sich unter einer Hülle bauen, Fairing an Index 0 / zwei Fairings /
+  leerer Stack werfen nicht, Windkanal unverändert (er baut mit zwei Argumenten).
+- Die beiden Knopf-Zeilen brechen im 224 px schmalen `#vabInfo` zweizeilig um (41 statt
+  27 px Zeilenhöhe) – gewollt, der Knopf bleibt rechts stehen und ist nur an zwei Zeilen.
+
 - **Halle:** Betonboden (`makeHallFloorTex`, Kachel 3×3 versetzt gezeichnet; ⚠️ Materialfarbe dunkelt ab – ungetönt brennt der Beton unter Hallen- und Himmelslicht auf ~#b0bdea aus und die Halle sieht aus wie ein Leuchtkasten), Trapezblech-Wände (`makeHallWallTex`), Warnstreifen-Sicherheitszone (`makeHazardTex`), Hallentor + LMG-Schild **mittig über dem Tor**, Fachwerkbinder, Kranbahn, Hochregale, Werkbänke, Servicegerüst neben der Rakete.
 - ⚠️ **RingGeometry-UVs sind PLANAR** (u aus x, v aus y) – für die Warnstreifen müssen sie polar neu gesetzt werden, sonst laufen die Streifen quer durchs Bild statt um den Kreis. u aus dem Scheitel-**Index** (nicht aus `atan2`), dann ist die Naht bei 0°/360° mit ganzzahligem `repeat` unsichtbar.
 - ⚠️ **Draw-Call-Budget:** ALLES Inventar (Regalpfosten, -böden, Kisten, Werkbänke, Gerüst, Geländer, Wandstützen, Tor) sammeln `box()`/`cyl()` in zwei Arrays; `flushProps()` baut daraus **zwei InstancedMeshes** (Einheitswürfel + Zylinder, Größe und Farbe pro Instanz via Matrix + `setColorAt`). Einzelmeshes wären ~200 Draw-Calls für ein paar Regale; so sind es insgesamt 40–120.
