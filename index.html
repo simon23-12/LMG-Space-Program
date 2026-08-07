@@ -713,6 +713,8 @@ const KEYMAP = [
     ["O", "Servicebuchten öffnen/schließen"],
     ["B", "Experiment durchführen"],
     ["L", "Docken – zwischen 30 und 200 m übernimmt der Docking-Autopilot"],
+    ["⇧ L", "💡 <b>Licht an/aus</b>: am Schiff der Scheinwerferring »Nachtschicht« (0,4 ⚡/s), "+
+            "beim Außeneinsatz die <b>Stirnlampe</b> am Helm (kostenlos)"],
     ["I", "Stationsmodul einbauen (angedockt)"],
     ["V", "Außeneinsatz (EVA) – im All oder gelandet; zu Fuß: WASD laufen, ↑ hüpfen. "+
           "<b>Achtung: nur 5 Minuten Sauerstoff im Anzug!</b> (Balken 🫁, füllt sich an Bord wieder auf)"],
@@ -1202,7 +1204,7 @@ function drawPlanetSurface(ctx,b,sx,sy,rp,t){ // 2D – nur für Universum-Ansic
 const CATS = [
   {id:"cmd", short:"Kapseln", icon:"🧑\u200d🚀", name:"Kommando",
    sub:"Kapseln & Sonden – das Gehirn der Rakete, gehört an die SPITZE.",
-   ids:["probePod","pod","probeS","probe","starship","starshipTank"]},
+   ids:["probePod","pod","pod2","probeS","probe","starship","starshipTank"]},
   {id:"tank", short:"Tanks", icon:"🛢️", name:"Tanks",
    sub:"Treibstoff. Mehr Tank = mehr Δv, aber auch mehr Masse.",
    ids:["tankXS","tankS","tankM","tankL","tankXL"]},
@@ -1214,13 +1216,14 @@ const CATS = [
    ids:["srb","srbL","sb2","sb4","superheavy"]},
   {id:"struct", short:"Struktur", icon:"🔗", name:"Struktur",
    sub:"Verbinden, trennen, andocken.",
-   ids:["decoupler","interXS","inter","interL","dock"]},
+   ids:["decouplerXS","decoupler","decouplerM","decouplerL","decouplerXL",
+        "interXS","inter","interM","interL","interXL","dock"]},
   {id:"aero", short:"Aero", icon:"🪂", name:"Aero & Landung",
    sub:"Alles gegen die Luft: Flossen, Hülle, Schirme, Schild, Beine.",
-   ids:["fin","gridfin","fairing","chute","chute3","shield","legs"]},
+   ids:["fin","gridfin","fairing","chute","chute3","shield","shieldM","legs"]},
   {id:"elec", short:"Elektrik", icon:"⚡", name:"Elektrik",
-   sub:"Strom und Steuerdüsen – ohne Saft reagiert eine Sonde nicht mehr.",
-   ids:["battery","solar","rcs","nav"]},
+   sub:"Strom, Steuerdüsen und Licht – ohne Saft reagiert eine Sonde nicht mehr.",
+   ids:["battery","solar","rcs","lamp","nav"]},
   {id:"pay", short:"Nutzlast", icon:"🛰️", name:"Nutzlast",
    sub:"Was die Rakete eigentlich ins All bringen soll.",
    ids:["bay","bayS","antenna","lab","satW","satK","satR","satS","satT","satD"]}
@@ -1230,34 +1233,73 @@ const PARTS = {
             info:"Ferngesteuerte Kapsel – fliegt unbemannt. Braucht Strom (0,25 ⚡/s)! Interne Batterie: 200 ⚡."},
   probeS: {name:"Sondenbus »Teller«",         type:"probe", mass:120,  w:9,h:3,   tech:"payload", charge:120,
             info:"Flache, runde Mini-Steuereinheit für Satellitenstarts: Satellit obendrauf bauen, im Zielorbit mit [N] abstoßen – wie in echt! Braucht Strom (0,25 ⚡/s)."},
-  pod:    {name:"Kommandokapsel »Leibniz I«", type:"pod", mass:800,  w:10,h:14, tech:"crewed", charge:150, info:"Sitz für eine mutige Pilotin / einen mutigen Piloten. Interne Batterie: 150 ⚡."},
+  pod:    {name:"Kommandokapsel »Leibniz I«", type:"pod", mass:800,  w:10,h:14, tech:"crewed", charge:150, info:"Sitz für eine mutige Pilotin / einen mutigen Piloten. Ø 10 – passt auf S-Tanks. Interne Batterie: 150 ⚡."},
+  /* ⚠️ »Leibniz II« ist die M-Klasse: Ø 11, drei Sitze – und mit 2,4 t so schwer,
+     dass der Mk1-Schirm sie NICHT mehr abbremst (der schafft rund 2 t). Das ist
+     kein Zufallswert, sondern der didaktische Kern des Teils: Eine größere
+     Kapsel braucht ein größeres Bergungssystem, genau wie in echt.
+     Gemessen als Rückkehrkonfiguration (Schirm + Kapsel + Hitzeschild, aus
+     6 km Fall): »Leibniz II« mit Mk1 **9,6 m/s ⇒ zerschellt** (Grenze 8), mit
+     Mk2 **4,9 m/s ⇒ Landung**. Gegenprobe »Leibniz I« unverändert: Mk1 6,0 ·
+     Mk2 3,2 m/s, beides heil. */
+  /* ⚠️ Bewusst GEDRUNGEN (Ø 11 auf 13 hoch, der Kegel misst 11,2): Apollo ist
+     mit 3,9 m Breite zu 3,6 m Höhe fast quadratisch, und genau daran erkennt
+     man eine Mehrsitzer-Kapsel. Die schlanke, hohe »Leibniz I« bleibt daneben
+     die Einsitzer-Silhouette (Mercury-Verhältnis). */
+  pod2:   {name:"Kommandokapsel »Leibniz II«", type:"pod", mass:2400, w:11,h:13, tech:"heavy", charge:400, crew:3,
+           info:"Die große Kapsel: Platz für DREI Personen. Ø 11 – sitzt bündig auf M-Tanks und dem Hitzeschild M. ⚠️ Mit 2,4 t viel zu schwer für den Fallschirm Mk1 – sie braucht den <b>Mk2 (Dreifach)</b>, sonst schlägt sie auf. Interne Batterie: 400 ⚡."},
   chute:  {name:"Fallschirm Mk1",            type:"chute", mass:100,  w:10,h:5,  tech:"start", chuteA:500,
            info:"Für die sichere Landung leichter Kapseln – bremst bis ca. 2 t sicher. Mit [P] auslösen."},
   chute3: {name:"Fallschirm Mk2 (Dreifach)", type:"chute", mass:260,  w:10,h:5,  tech:"crewed", chuteA:2000,
            info:"Drei Kappen wie bei der Dragon-Kapsel: bremst auch schwere Schiffe bis ca. 8 t. Mit [P] auslösen."},
   lab:    {name:"Materiallabor »Curie«",     type:"lab", mass:180,  w:10,h:7,  tech:"surv",
            info:"Führt Experimente durch [B] – jeder neue Ort bringt einmalig Wissenschaft!"},
-  shield: {name:"Hitzeschild",               type:"shield", mass:200,  w:11,h:3,  tech:"surv",
-           info:"Ablativer Schutzschild – ohne ihn verglüht die Rakete beim Wiedereintritt aus dem Orbit!"},
+  /* ⚠️ Hitzeschilde sind jetzt BÜNDIG mit ihrer Größenklasse (S war 11 und stand
+     damit 0,5 über der Ø-10-Kapsel über). Ein echter Hitzeschild IST der
+     Kapseldurchmesser – bei Apollo ist er sogar die breiteste Stelle. */
+  shield: {name:"Hitzeschild S",             type:"shield", mass:200,  w:10,h:3,  tech:"surv",
+           info:"Ablativer Schutzschild Ø 10 für die »Leibniz I« – ohne ihn verglüht die Rakete beim Wiedereintritt aus dem Orbit!"},
+  shieldM:{name:"Hitzeschild M",             type:"shield", mass:330,  w:11,h:3.5, tech:"heavy",
+           info:"Der große Bruder Ø 11 – der Schild für die dreisitzige »Leibniz II« und alles andere in M-Größe."},
   tankS:  {name:"Treibstofftank S",          type:"tank", mass:250,  fuel:1400, w:10,h:16, tech:"start", info:"1,4 t Treibstoff – klein und leicht."},
   engS:   {name:"Triebwerk »Funke«",         type:"engine", mass:200,  thrust:45000, isp:300, w:10,h:8, tech:"start", info:"45 kN Schub, drosselbar."},
   engStd: {name:"Triebwerk »Ochse«",         type:"engine", mass:600,  thrust:200000, isp:265, w:10,h:10, tech:"propI",
            info:"Das Arbeitstier für die ERSTE Stufe: 200 kN, drosselbar, robust – und mit kurzer Düse gebaut, damit sie am Boden sauber arbeitet. Dafür schluckt sie viel (Isp 265 s). Vakuum-Triebwerke wie der »Terrier« haben große Düsen: die sind oben sparsamer, am Boden aber nutzlos."},
-  tankM:  {name:"Treibstofftank M",          type:"tank", mass:450,  fuel:2800, w:10,h:28, tech:"advProp", info:"2,8 t Treibstoff."},
+  /* ⚠️⚠️ M ist Ø 11, NICHT mehr Ø 10 wie S. Vorher waren S und M exakt gleich
+     dick und der Sprung kam erst bei L – man sah einer Rakete also nicht an,
+     welche Tankklasse verbaut ist (Wunsch Simon). Die Leiter heißt jetzt
+     durchgehend: XS 8 · S 10 · M 11 · L 12 · XL 14. Wer hier dreht, zieht
+     Stufentrenner, Stufenadapter und Hitzeschilde derselben Klasse mit. */
+  tankM:  {name:"Treibstofftank M",          type:"tank", mass:450,  fuel:2800, w:11,h:28, tech:"advProp", info:"2,8 t Treibstoff – Ø 11, etwas dicker als S."},
   engVac: {name:"Triebwerk »Terrier«",       type:"engine", mass:500,  thrust:60000, isp:345, w:10,h:9, tech:"advProp", info:"Sehr effizient im Vakuum (Isp 345 s)."},
   engNuc: {name:"Atom-Triebwerk »Einstein«", type:"engine", mass:1200, thrust:55000, isp:520, w:10,h:14, tech:"future", info:"Isp 520 s! Schwach, aber extrem sparsam – das Triebwerk für Minzi und darüber hinaus."},
   engIon: {name:"Ionentriebwerk »Planck«",   type:"engine", mass:250, thrust:6000, isp:1300, w:8,h:6, tech:"future", info:"Isp 1300 s!! Winziger Schub, gigantische Reichweite – für Sonden zu Kepler und Newton."},
   tankXL: {name:"Treibstofftank XL",         type:"tank", mass:1600, fuel:11200, w:14,h:60, tech:"heavyPlus", info:"11,2 t Treibstoff – das Rückgrat interplanetarer Expeditionen."},
-  decoupler:{name:"Stufentrenner",           type:"decoupler", mass:50, w:10,h:4, tech:"struct", info:"Trennt Stufen voneinander. [Leertaste]"},
+  /* ⚠️ Stufentrenner: FLACH (2–3,5 statt 4) und in jeder Größenklasse, damit
+     der Stapel bündig durchläuft (Wunsch Simon). Ein Trennring ist in echt eine
+     schmale Sprengschnur-Manschette, kein Bauklotz – und ein Ø-10-Ring unter
+     einem Ø-14-Tank sah aus wie ein Fehler. Alle tragen `type:"decoupler"`,
+     Stufenlogik und Windkanal fassen sie also ohne Sonderfall an. */
+  decouplerXS:{name:"Stufentrenner XS",      type:"decoupler", mass:30, w:8, h:2,   tech:"fine",  info:"Trennring Ø 8 für Satelliten-Oberstufen (»Floh«, Ionenantrieb). [Leertaste]"},
+  decoupler:{name:"Stufentrenner S",         type:"decoupler", mass:50, w:10,h:2.5, tech:"struct",info:"Trennt Stufen voneinander – Ø 10 für S-Tanks. [Leertaste]"},
+  decouplerM:{name:"Stufentrenner M",        type:"decoupler", mass:60, w:11,h:2.5, tech:"advProp",info:"Trennring Ø 11 – bündig unter M-Tanks und der »Leibniz II«. [Leertaste]"},
+  decouplerL:{name:"Stufentrenner L",        type:"decoupler", mass:90, w:12,h:3,   tech:"heavy", info:"Trennring Ø 12 für L-Tanks, »Hauptstufe« und Raptoren. [Leertaste]"},
+  decouplerXL:{name:"Stufentrenner XL",      type:"decoupler", mass:140,w:14,h:3.5, tech:"heavyPlus",info:"Trennring Ø 14 für den XL-Tank und alles in Superheavy-Größe. [Leertaste]"},
   interXS:{name:"Stufenadapter XS",          type:"inter", mass:35,  w:8,  h:2.5, shroudH:10, tech:"fine",
            info:"Offene Triebwerks-Verkleidung Ø 8 (»Floh«, Ionenantrieb): direkt UNTER den Stufentrenner bauen – sie umhüllt das Oberstufen-Triebwerk von unten und bleibt nach der Trennung auf der unteren Stufe (wie der Interstage der Falcon 9)."},
   inter:  {name:"Stufenadapter S",           type:"inter", mass:60,  w:10, h:3,   shroudH:16, tech:"struct",
            info:"Offene Triebwerks-Verkleidung Ø 10 (»Funke«, »Terrier«, Atomantrieb): direkt UNTER den Stufentrenner bauen – verkleidet das Oberstufen-Triebwerk und bleibt nach der Trennung als Interstage auf der unteren Stufe. Sieht stabil aus UND ist es!"},
+  interM: {name:"Stufenadapter M",           type:"inter", mass:80,  w:11, h:3,   shroudH:17, tech:"advProp",
+           info:"Offene Triebwerks-Verkleidung Ø 11 für M-Stufen: direkt UNTER den Stufentrenner bauen – sie umhüllt das Oberstufen-Triebwerk und bleibt als Interstage unten."},
   interL: {name:"Stufenadapter L",           type:"inter", mass:110, w:12, h:3,   shroudH:18, tech:"heavy",
            info:"Offene Triebwerks-Verkleidung Ø 12 (»Hauptstufe«, Raptoren): direkt UNTER den Stufentrenner bauen – der Falcon-9-Look für schwere Raketen."},
+  interXL:{name:"Stufenadapter XL",          type:"inter", mass:170, w:14, h:3.5, shroudH:22, tech:"heavyPlus",
+           info:"Offene Triebwerks-Verkleidung Ø 14 für den XL-Tank und die ganz schweren Stufen – dieselbe Bauweise, nur eine Nummer größer."},
   legs:   {name:"Landebeine",                type:"legs", mass:120,  w:14,h:6, tech:"explore", info:"Werden SEITLICH an einen Tank gebaut (wie Flossen) und belegen keine Höhe. An den untersten Tank – direkt über dem Triebwerk – setzen: dann reichen sie am Triebwerk vorbei bis auf den Boden. Erlauben Landungen bis 12 m/s (sonst 8 m/s). Mit [Y] aus- und einfahrbar; eingefahren liegen sie am Tank an und passen unter eine Nutzlastverkleidung. Nur AUSGEFAHREN zählt der Bonus!"},
   rcs:    {name:"RCS-Steuerdüsen",           type:"rcs", mass:70,   w:11,h:2.5, tech:"advProp",
            info:"Düsenring fürs schnelle Wenden im All – ohne RCS dreht das Schiff SEHR träge!"},
+  lamp:   {name:"Scheinwerferring »Nachtschicht«", type:"lamp", mass:55, w:11,h:2, tech:"surv",
+           info:"Ein Ring mit acht Strahlern: vier leuchten am Rumpf nach OBEN, vier nach UNTEN. Mit <b>[⇧L]</b> an- und ausschalten. Kostet 0,4 ⚡/s – auf der Nachtseite eines Planeten, im Schatten oder bei einer Landung im Dunkeln ist er jeden Tropfen wert."},
   srb:    {name:"Feststoffbooster »Böller«", type:"srb", mass:450,  fuel:1700, thrust:230000, isp:220, w:10,h:24, tech:"basic", info:"Viel Schub, nicht drosselbar!"},
   fin:    {name:"Stabilisierungsflosse",     type:"fin", mass:40,   w:14,h:6, tech:"basic", info:"Verringert den Luftwiderstand UND hält die Rakete ruhig – ohne Flossen taumelt sie im Fahrtwind!"},
   gridfin:{name:"Gitterflossen »Falke«",     type:"gridfin", mass:150,  w:12,h:3, tech:"reuse",
@@ -1382,12 +1424,13 @@ function satInStarship(stack, id){
 function stackHeight(stack){
   return stack.reduce((a,id)=>a+(isRadial(id)||satInStarship(stack,id)?0:PARTS[id].h),0);
 }
-/* Bemannt? Kapsel ODER (Nicht-Tanker-)Starship. Kapazität: Pod 1(+Labor 1), Starship 6 */
+/* Bemannt? Kapsel ODER (Nicht-Tanker-)Starship.
+   Kapazität: Kapsel `crew` (Leibniz I = 1, Leibniz II = 3) + 1 mit Labor, Starship 6. */
 function crewCapacity(stack){
   let cap = 0;
   for(const id of stack){
     const p = PARTS[id];
-    if(p.type==="pod") cap += stack.includes("lab") ? 2 : 1;
+    if(p.type==="pod") cap += (p.crew || 1) + (stack.includes("lab") ? 1 : 0);
     if(p.type==="starship" && !p.tanker) cap += 6;
   }
   return Math.min(cap, 6);
@@ -1417,9 +1460,11 @@ function solarPanels(stack){
    Nebenverdienste (SIDE_JOBS) einmalig 2×1000 + 2×1500.
    Gelandete Raketen werden voll erstattet – nur Verbrauchtes/Verlorenes kostet. */
 const PART_COSTS = {
-  probePod:350, probeS:250, pod:700, chute:60, chute3:220, lab:380, shield:140,
+  probePod:350, probeS:250, pod:700, pod2:1800, chute:60, chute3:220, lab:380, shield:140, shieldM:230,
   tankS:100, engS:220, engStd:300, tankM:180, engVac:420, engNuc:1400, engIon:900, tankXL:700,
-  decoupler:40, interXS:30, inter:50, interL:90, legs:90, rcs:130, srb:150, fin:25, gridfin:240, tankL:350, engMain:650, srbL:300,
+  decouplerXS:25, decoupler:40, decouplerM:50, decouplerL:70, decouplerXL:110,
+  interXS:30, inter:50, interM:70, interL:90, interXL:140,
+  legs:90, rcs:130, lamp:110, srb:150, fin:25, gridfin:240, tankL:350, engMain:650, srbL:300,
   sb2:260, sb4:500, probe:180, solar:70, battery:50, nav:260, bay:80, bayS:50, antenna:60,
   satW:320, satR:420, satS:550, satK:380, satT:780, satD:700, fairing:80, tankXS:70, engT:120, dock:100,
   engRapSL:900, engRapVac:1100, superheavy:2600, starship:4200, starshipTank:3200
@@ -4259,6 +4304,48 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
     eye.position.set(0, h*0.45, r*0.85); g.add(eye);
     return skinPart(g);
   }
+  if(id==="pod2"){
+    /* »Leibniz II« – Apollo-Kommandokapsel als Vorbild (Bildvorlage Simon):
+       weißer Kegelstumpf mit Blechstößen, schwarzer Sockelring über der
+       Hitzeschild-Kante, oben ein dunkles Deck mit Andocktunnel, dazu runde
+       Bullaugen, dunkle RCS-Felder und Handläufe.
+       ⚠️ Radius auf HÖHE rechnen (`rAt`), nicht am Boden: Der Kegel zieht sich
+       um 60 % ein – ein Fenster mit festem Radius säße sonst oben zwei
+       Einheiten in der Luft und unten im Rumpf. */
+    const shell = new THREE.MeshStandardMaterial({color:0xf2f4f8, roughness:.42, metalness:.18});
+    const dark  = new THREE.MeshStandardMaterial({color:0x2b303c, roughness:.55, metalness:.35});
+    const CONE = h*0.86;
+    const rAt = y => r*(1 - 0.6*y/CONE);
+    add(cylinder(r*0.40, r, CONE, shell, 24), CONE/2);
+    add(cylinder(r*1.006, r*1.006, h*0.09, dark, 24), h*0.045);          // schwarzer Sockel
+    add(cylinder(r*0.99, r*0.90, h*0.05,                                  // Hitzeschild-Kante
+      new THREE.MeshStandardMaterial({color:0x8a5a30, roughness:.75}), 24), h*0.012);
+    add(cylinder(r*0.43, r*0.43, h*0.05, dark, 20), CONE + h*0.02);       // Oberdeck
+    add(cylinder(r*0.30, r*0.37, h*0.08, MAT.gray, 20), CONE + h*0.07);   // Andocktunnel
+    const tun = new THREE.Mesh(new THREE.TorusGeometry(r*0.27, r*0.045, 8, 22), dark);
+    tun.rotation.x = Math.PI/2; tun.position.y = CONE + h*0.12; g.add(tun);
+    const olive = new THREE.MeshBasicMaterial({color:0x9aa653});
+    for(let k=0;k<4;k++){
+      const a = k*Math.PI/2 + Math.PI/4;
+      const c = Math.cos(a), s = Math.sin(a);
+      // Bullauge (nur an zwei Seiten – gegenüber sitzen die Luken)
+      if(k%2===0){
+        const yW = CONE*0.52, rw = rAt(yW);
+        const win = new THREE.Mesh(new THREE.CylinderGeometry(r*0.13, r*0.13, 0.3, 14), olive);
+        win.rotation.x = Math.PI/2; win.rotation.z = -a;
+        win.position.set(c*rw, yW, s*rw); g.add(win);
+      }
+      // dunkles RCS-Feld oben am Kegel
+      const yP = CONE*0.80, rp = rAt(yP);
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(r*0.34, CONE*0.16, 0.3), dark);
+      pad.position.set(c*rp, yP, s*rp); pad.rotation.y = -a + Math.PI/2; g.add(pad);
+      // Handlauf am Rumpf
+      const yH = CONE*0.30, rh = rAt(yH);
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.35, CONE*0.22, 0.35), MAT.gray);
+      rail.position.set(c*(rh+0.25), yH, s*(rh+0.25)); g.add(rail);
+    }
+    return skinPart(g);
+  }
   if(p.type==="sat"){
     // Komplett-Satelliten: eigenes Gesicht pro Typ, kleine Flügel (Start: eingeklappt)
     const wing = (side, w, col)=>{
@@ -4672,12 +4759,42 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       }
       break;}
     case "rcs":{
-      add(cylinder(r*1.02, r*1.02, h, MAT.gray), h/2);
+      // ⚠️ Manschette im RUMPF-Weiß, nicht mehr grau: Der graue Gürtel zerschnitt
+      // die Rakete optisch in zwei Teile (Bug-Report Simon). Den Kontrast tragen
+      // die vier dunklen Düsenblöcke – die soll man ja sehen.
+      add(cylinder(r*1.02, r*1.02, h, MAT.white), h/2);
       for(let k=0;k<4;k++){
         const a = k*Math.PI/2 + Math.PI/4;
         const noz = new THREE.Mesh(new THREE.BoxGeometry(1.1, h*0.9, 1.1), MAT.dark);
         noz.position.set(Math.cos(a)*r*1.05, h/2, Math.sin(a)*r*1.05);
         g.add(noz);
+      }
+      break;}
+    case "lamp":{
+      /* Scheinwerferring: acht Strahler, vier nach oben und vier nach unten
+         geneigt. Das LICHT machen im Flug echte SpotLights (s. Flight.buildLamps),
+         hier stehen nur Gehäuse und Linsen – die Linsen leuchten mit
+         (`name:"lampLens"`, eigenes MeshBasicMaterial, das `setLamps` umfärbt).
+         ⚠️ Ausgerichtet wird per `lookAt`: Das Gehäuse liegt entlang +Z, damit
+         reicht ein Blickpunkt statt dreier Euler-Winkel in der richtigen
+         Reihenfolge. */
+      add(cylinder(r*1.02, r*1.02, h, MAT.white), h/2);
+      add(cylinder(r*1.03, r*1.03, h*0.3, MAT.dark), h*0.5);
+      const lensMat = new THREE.MeshBasicMaterial({color:0x5a6274});
+      for(let k=0;k<4;k++){
+        for(const dir of [1,-1]){
+          const a = k*Math.PI/2 + (dir>0 ? Math.PI/4 : 0);
+          const arm = new THREE.Group();
+          arm.position.set(Math.cos(a)*r, h/2, Math.sin(a)*r);
+          arm.lookAt(arm.position.clone().add(
+            V3(Math.cos(a)*0.55, dir*0.83, Math.sin(a)*0.55)));
+          const hous = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.62,1.5,10), MAT.dark);
+          hous.geometry.rotateX(Math.PI/2); hous.position.z = 0.75; arm.add(hous);
+          const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,0.18,12), lensMat);
+          lens.geometry.rotateX(Math.PI/2); lens.position.z = 1.52;
+          lens.name = "lampLens"; arm.add(lens);
+          g.add(arm);
+        }
       }
       break;}
     case "dock":{
@@ -6774,6 +6891,18 @@ function buildAstronaut(){
   const pack = new THREE.Mesh(new THREE.BoxGeometry(0.6,0.9,0.32),
     new THREE.MeshStandardMaterial({color:0x3a4254}));
   pack.position.set(0,0.75,-0.42); g.add(pack);
+  /* 🔦 Stirnlampe am Helm. Das Gehäuse gehört zur Figur (auch die Belegschaft
+     in der Halle trägt es – ein Helm ohne Lampe sieht unfertig aus); das
+     eigentliche LICHT hängt erst der Außeneinsatz daran (s. toggleEVA).
+     ⚠️ Das Linsen-Material wird PRO FIGUR erzeugt: Ein Singleton würde beim
+     Einschalten alle zehn Hallenarbeiter*innen mit aufleuchten lassen. */
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.34,0.2,0.16),
+    new THREE.MeshStandardMaterial({color:0x2b303c, roughness:.5}));
+  box.position.set(0,1.82,0.24); g.add(box);
+  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.11,0.11,0.06,10),
+    new THREE.MeshBasicMaterial({color:0x6b7385}));
+  lens.rotation.x = Math.PI/2; lens.position.set(0,1.82,0.33);
+  lens.name = "headLens"; g.add(lens);
   return g;
 }
 /* =================================================================
@@ -11440,7 +11569,10 @@ const Flight = {
       if(e.key==="v"||e.key==="V") this.toggleEVA();
       if(e.key==="c"||e.key==="C") this.toggleBellyflop();
       if(e.key==="y"||e.key==="Y") this.toggleLegs();
-      if(e.key==="l"||e.key==="L") this.toggleDock();
+      /* [L] docken · [⇧L] Licht: am Schiff der Scheinwerferring, beim
+         Außeneinsatz die Stirnlampe (toggleLamps entscheidet das selbst) –
+         dieselbe Doppelbelegung wie bei [F] (Fairing ↔ Flagge). */
+      if(e.key==="l"||e.key==="L"){ if(e.shiftKey) this.toggleLamps(); else this.toggleDock(); }
       if(e.key==="i"||e.key==="I") this.installModule();
       /* ⚠️⚠️ SCHUB liegt komplett auf [X]: X = aus, ⇧X = Vollgas. [Z] ist
          ÜBERALL die Zielwahl – auf der Rampe die Startfenster-Peilung, im Flug
@@ -12205,6 +12337,8 @@ const Flight = {
     this.legsOut = false; this.legsAnim = LEG_IN; this._legMsg = false;
     this._patchKey = null;   // Nahfeld-Kachel neu bestimmen (s. updateSurfPatch)
     this.bayOpen = false; this.bayAnim = 0;
+    // 💡 Scheinwerfer starten AUS (sie kosten Strom), die Stirnlampe der EVA an
+    this.lampsOn = false; this._lampLights = []; this.headlampOn = true;
     this._escWarned = false; this.nodeBurned = 0; this.gLoad = 0;
     // Statistik für den Flugbericht
     this.statMaxAlt = 0; this.statMaxSpeed = 0;
@@ -12603,6 +12737,111 @@ const Flight = {
     this.scene.add(this.rocketGroup);
     this.applySceneEnv();   // frische Meshes brauchen die Umgebung neu
     this.attachChute();   // offener Fallschirm überlebt Stufentrennung
+    this.setLamps(this.lampsOn);   // Scheinwerfer überleben die Stufentrennung
+  },
+  /* =================================================================
+     💡 SCHEINWERFER  (Teil `lamp` · Taste [⇧L] · `setLamps`)
+     -----------------------------------------------------------------
+     Vier Kegel nach oben, vier nach unten – auf den eigenen Rumpf. Genau das
+     macht ein Scheinwerfer an einem Raumschiff sichtbar: Man sieht nicht den
+     Strahl, sondern die beleuchtete Fläche.
+     ⚠️⚠️ ECHTE SpotLights, KEINE additiven Kegel-Meshes. Ein Kegel ohne
+     Streuungs-Shader behält seine harte Silhouette, liest sich als weißer Keil
+     und füllt den Bildschirm, sobald die Kamera hineinfährt – dieselbe Lehre
+     wie beim Flutlicht der Rampe (s. »Nacht« in buildPad) und beim
+     »Plastiktrichter«-Plasmaschweif.
+     ⚠️⚠️ Die ZAHL der Lichter ist der einzige echte Kostenfaktor: three.js
+     übersetzt die Shader mit `NUM_SPOT_LIGHTS`, und der Planet ist ein
+     MeshStandardMaterial, das im Orbit den halben Bildschirm füllt. Deshalb
+     VORHER gemessen (1817×1491, Planet formatfüllend, Median aus 5 A/B-Läufen):
+     4 Strahler +0,06 ms · **8 Strahler +0,03 ms** – beides im Rauschen der
+     1,0 ms Grundlast. Also acht, je einer pro Linse. Wer hier aufstockt, misst
+     neu; ab ein paar Dutzend Lichtern wird die Neuübersetzung spürbar.
+     ⚠️ Die Lichter hängen an `rocketGroup` (nicht an `world`): Das Schiff IST
+     der Szenen-Ursprung, damit stimmen Position und Lage von selbst. Ihr
+     `target` muss ebenfalls im Szenengraph hängen, sonst zeigt three ins Leere.
+     ⚠️ Aufgebaut wird NUR, wenn wirklich ein Ring an Bord ist UND das Licht an
+     ist: Jede Änderung der Lichterzahl kostet eine Shader-Neuübersetzung, und
+     die soll ein Spielstand ohne Lampen nie bezahlen. */
+  hasLamps(){ return !!(this.v && this.v.stack.some(id=>PARTS[id] && PARTS[id].type==="lamp")); },
+  setLamps(on){
+    this.lampsOn = !!on && this.hasLamps();
+    // alte Lichter immer abräumen – rebuildRocket() wirft die Gruppe ohnehin weg
+    for(const L of (this._lampLights||[])){
+      if(L.parent) L.parent.remove(L);
+      if(L.target && L.target.parent) L.target.parent.remove(L.target);
+      if(L.dispose) L.dispose();
+    }
+    this._lampLights = [];
+    if(!this.rocketGroup) return;
+    // Linsen umfärben (dunkelgrau ↔ warmes Weiß) – auch ohne Lichter sichtbar
+    const col = this.lampsOn ? 0xfff4d6 : 0x5a6274;
+    this.rocketGroup.traverse(o=>{
+      if(o.name==="lampLens" && o.material && o.material.color) o.material.color.setHex(col);
+    });
+    if(!this.lampsOn) return;
+    const H = this.height(), yBot = -H/2;
+    // Höhe des OBERSTEN Lampenrings im Stack (Ursprung = Schiffsmitte)
+    const yb = stackYBot(this.v.stack);
+    let yRing = 0;
+    this.v.stack.forEach((id,i)=>{
+      if(PARTS[id] && PARTS[id].type==="lamp") yRing = yb[i] + PARTS[id].h/2 + yBot;
+    });
+    const reach = Math.max(40, H*0.9), R = this.lampRadius();
+    /* ⚠️⚠️ Die Strahler stehen auf einem gedachten AUSLEGER (`LAMP_BOOM`) und
+       zielen schräg ZURÜCK auf den Rumpf – sie sitzen NICHT auf der Hülle.
+       Eine Lampe direkt auf der Oberfläche leuchtet streifend an ihr entlang,
+       und bei streifendem Einfall ist `dot(N,L)` fast null: Gemessen brachte
+       die rumpfnahe Variante 6,4 gegen 5,8 von 255 (also +10 % – man sah
+       schlicht nichts). Mit Ausleger 2,0·r und Blickpunkt nahe der Achse sind
+       es **17,1 gegen 5,8 = Faktor 3,0** bei nur 0,02 % ausgebrannten Pixeln.
+       Sichtbar ist ohnehin nur die beleuchtete FLÄCHE (keine Volumenstreuung,
+       s. o.) – wo die Lichtquelle dabei genau schwebt, sieht niemand.
+       ⚠️ Intensität nicht über ~5 drehen: bei 5,5 waren es schon 0,33 %
+       ausgebrannte Pixel, und ohne Tonemapping ist bei 255 Schluss. */
+    const LAMP_BOOM = 2.0, LAMP_AIM = 0.2;
+    for(const dir of [1,-1]){
+      // Azimute exakt wie die Linsen im Mesh (s. case "lamp"): oben um 45° versetzt
+      for(let k=0;k<4;k++){
+        const a = k*Math.PI/2 + (dir>0 ? Math.PI/4 : 0);
+        const c = Math.cos(a), s = Math.sin(a);
+        const L = new THREE.SpotLight(0xfff1cf, 4.5, reach, 0.5, 0.8, 1);
+        L.position.set(c*R*LAMP_BOOM, yRing, s*R*LAMP_BOOM);
+        L.target.position.set(c*R*LAMP_AIM, yRing + dir*reach*0.6, s*R*LAMP_AIM);
+        this.rocketGroup.add(L); this.rocketGroup.add(L.target);
+        this._lampLights.push(L);
+      }
+    }
+  },
+  /* Radius des Lampenrings – die Strahler sitzen außen am Rumpf, nicht auf der Achse */
+  lampRadius(){
+    const w = Math.max(8, ...this.v.stack.filter(id=>PARTS[id] && PARTS[id].type==="lamp")
+                                         .map(id=>PARTS[id].w));
+    return w*0.55;
+  },
+  toggleLamps(){
+    if(this.eva){ this.toggleHeadlamp(); return; }   // draußen zählt die Stirnlampe
+    if(!this.v || this.crashed || this.ended) return;
+    if(!this.hasLamps()){
+      this.showMsg("Kein Scheinwerferring an Bord! 💡 (Bauteil »Nachtschicht«, Rubrik ⚡ Elektrik)",3);
+      return;
+    }
+    if(!this.lampsOn && this.charge <= 0){
+      this.showMsg("🪫 Kein Strom für die Scheinwerfer!",2); return;
+    }
+    this.setLamps(!this.lampsOn);
+    this.showMsg(this.lampsOn ? "💡 Scheinwerfer AN (0,4 ⚡/s)" : "🌑 Scheinwerfer aus",2);
+  },
+  /* 🔦 Stirnlampe am Helm: kostet bewusst KEINEN Strom – der Anzug hat seine
+     eigene Zelle, und ein zweiter Verbrauchsbalken neben dem Sauerstoff würde
+     den Außeneinsatz nur unübersichtlich machen (Wunsch Simon). */
+  toggleHeadlamp(){
+    if(!this.eva) return;
+    this.headlampOn = !this.headlampOn;
+    if(this.eva.lamp) this.eva.lamp.visible = this.headlampOn;
+    if(this.eva.lampLens && this.eva.lampLens.material)
+      this.eva.lampLens.material.color.setHex(this.headlampOn ? 0xfff4d6 : 0x6b7385);
+    this.showMsg(this.headlampOn ? "🔦 Stirnlampe an" : "🌑 Stirnlampe aus", 1.5);
   },
   stage(){
     if(this.crashed||this.ended) return;
@@ -12924,7 +13163,23 @@ const Flight = {
     this.warpI = Math.min(this.warpI, 1);
     const mesh = buildAstronaut();
     const legs = [], arms = [];
-    mesh.traverse(o=>{ if(o.name==="leg") legs.push(o); else if(o.name==="arm") arms.push(o); });
+    let lampLens = null;
+    mesh.traverse(o=>{ if(o.name==="leg") legs.push(o); else if(o.name==="arm") arms.push(o);
+                       else if(o.name==="headLens") lampLens = o; });
+    /* 🔦 Stirnlampe: leuchtet nach VORN (+Z ist die Blickrichtung der Figur,
+       s. buildAstronaut) und hängt als Kind am Mesh – Position und Richtung
+       stimmen damit beim Laufen und Schweben von selbst. Kostet keinen Strom.
+       ⚠️ Der Blickpunkt liegt bewusst TIEF und NAH (12 Einheiten voraus, 1,5
+       unter Fußhöhe): Ein waagerechter Strahl trifft den Boden nur streifend
+       und erzeugt keinen Lichtfleck – dieselbe Falle wie bei den Scheinwerfern
+       am Rumpf. So liegt die Pfütze ein paar Meter vor den Stiefeln, genau wie
+       auf den Apollo-Aufnahmen. Auf Montis Nachtseite verifiziert. */
+    const lamp = new THREE.SpotLight(0xfff3d8, 4, 60, 0.55, 0.65, 1);
+    lamp.position.set(0, 1.82, 0.34);
+    lamp.target.position.set(0, -1.5, 12);
+    lamp.visible = this.headlampOn;
+    mesh.add(lamp); mesh.add(lamp.target);
+    if(lampLens) lampLens.material.color.setHex(this.headlampOn ? 0xfff4d6 : 0x6b7385);
     this.world.add(mesh);
     const name = this.crew[0].replace(/^[^ ]+ /,"");
     if(grounded){
@@ -12938,17 +13193,18 @@ const Flight = {
       const wMax = Math.max(...this.v.stack.map(id=>PARTS[id].w));
       const start = c.clone().addScaledVector(up, b.R + EVA_FOOT)
                      .addScaledVector(side, wMax/2 + 9);
-      this.eva = {pos:start, vel:bodyVel(b,this.t).clone(), mesh, legs, arms,
+      this.eva = {pos:start, vel:bodyVel(b,this.t).clone(), mesh, legs, arms, lamp, lampLens,
                   body:b, onGround:true, phase:0, face:side.clone(), sp:0};
       this.camDist = 22;
       this.showMsg("🧑‍🚀 "+name+" steht auf "+b.name+"! Laufen: W/A/S/D · ↑ hüpfen · "+
-        "🚩 [F] Flagge aufstellen · [V] = wieder einsteigen", 7);
+        "🚩 [F] Flagge aufstellen · 🔦 [⇧L] Stirnlampe · [V] = wieder einsteigen", 7);
     } else {
       const fr = this.frameAt(this.pos);
       this.eva = {pos:this.pos.clone().addScaledVector(fr.up, 12), vel:this.vel.clone(), mesh,
-                  legs, arms, body:null, onGround:false, phase:0, face:fr.up.clone(), sp:0};
+                  legs, arms, lamp, lampLens, body:null, onGround:false, phase:0,
+                  face:fr.up.clone(), sp:0};
       this.camDist = 14;
-      this.showMsg("🧑‍🚀 "+name+" schwebt im All! Jetpack: W/A/S/D + ↑/↓ · [V] = einsteigen",5);
+      this.showMsg("🧑‍🚀 "+name+" schwebt im All! Jetpack: W/A/S/D + ↑/↓ · 🔦 [⇧L] Stirnlampe · [V] = einsteigen",5);
     }
   },
   /* ---------- Der Sauerstoff ist alle ----------
@@ -13541,6 +13797,46 @@ const Flight = {
     }
     return null;
   },
+  /* ---------- Muss der Landing Burn JETZT losgehen? ----------
+     ⚠️⚠️ Die naheliegende Formel `Bremsstrecke = v²/(2·(Schub/m − g))` reicht
+     NICHT: Sie tut so, als müsse das Triebwerk die ganze Energie abbauen – in
+     Wahrheit nimmt der LUFTWIDERSTAND auf dem Weg nach unten den Löwenanteil
+     gratis mit (cdA 13 m² bei ausgefahrenen Gitterflossen). Bei einer kleinen
+     Erststufe fiel das nie auf, weil der Booster bei 25 km ohnehin schon
+     langsam ist; bei einer großen zündete der Burn dagegen bei **30–44 km** mit
+     1800–1900 m/s, verheizte den Tank in der dünnen Luft und schlug mit 0 %
+     Sprit auf (Bug-Report Simon, Droneship-Anflug – RTLS blieb heil, weil der
+     Boostback-Burn die Fahrt vorher herausnimmt).
+     Deshalb wird die Restbahn BALLISTISCH vorausgerechnet (Schwerkraft +
+     Luftwiderstand, KEIN Schub): Gibt es später noch einen Punkt, an dem die
+     Bremsstrecke bequem in die Resthöhe passt, wird jetzt nicht gezündet.
+     Erst wenn es den nicht mehr gibt, ist der letztmögliche Moment erreicht.
+     ⚠️ Der erste Schleifendurchlauf prüft den JETZT-Zustand – für alle bisher
+     getesteten Profile ändert sich damit nichts (der Burn startet weiterhin bei
+     ~200 m). Teuer wird es nur, solange der Instantanwert Alarm schlägt, und
+     der Aufrufer drosselt zusätzlich auf 0,35 s. */
+  boosterMustBurn(b, tt){
+    const lp = bodyPos(LEIBNIZ, tt), lv = bodyVel(LEIBNIZ, tt);
+    const p = b.pos.clone().sub(lp), v = b.vel.clone().sub(lv);
+    const m = b.dry + b.fuel, cdA = 5 + 8*b.finDeploy;
+    for(let i=0;i<900;i++){
+      const r = p.length(), alt = r - LEIBNIZ.R;
+      if(alt <= b.catchAlt) return true;          // unten angekommen, ohne je zu passen
+      const g = LEIBNIZ.mu/(r*r);
+      const aNet = Math.max(0.5, b.thrust/m - g);
+      const sp = v.length();
+      // Passt die Bremsstrecke hier noch bequem in die Resthöhe? Dann warten.
+      if(alt - b.catchAlt > sp*sp/(2*aNet)*1.6 + 150) return false;
+      const dtp = alt > 25000 ? 2 : 0.5;
+      const a = p.clone().multiplyScalar(-LEIBNIZ.mu/(r*r*r));
+      if(alt < LEIBNIZ.atmoH && sp > 0.1){
+        const rho = LEIBNIZ.rho0*Math.exp(-Math.max(0,alt)/LEIBNIZ.scaleH);
+        a.addScaledVector(v, -Math.min(0.5*rho*sp*cdA/m, 0.4/dtp));
+      }
+      v.addScaledVector(a, dtp); p.addScaledVector(v, dtp);
+    }
+    return true;
+  },
   /* ---------- Booster-Autopilot: landet die 1. Stufe im Falcon-9-Stil ----------
      Zustände: flip (retrograde drehen) → [boostback (RTLS: zurück zur Rampe)]
      → coast (Gitterflossen raus, Aerobraking + Ziel-Steuerung) → burn (Suicide
@@ -13722,7 +14018,16 @@ const Flight = {
         // Auslegung auf die GESAMT-Geschwindigkeit (Retro-Burn bremst ja auch
         // die Horizontalfahrt mit) + großzügige Marge statt Falcon-Hoverslam
         const burnDist = vDown>0 ? v*v/(2*aNet) : 0;
-        if(vDown>0 && alt - b.catchAlt <= burnDist*1.6 + 150){ b.state = "burn"; b.stateT = 0; }
+        // Instantan-Kriterium ist nur die BILLIGE Vorprüfung – ob wirklich
+        // gezündet werden muss, entscheidet die ballistische Vorausrechnung
+        // (s. boosterMustBurn): sonst verheizt eine große Erststufe ihren Tank
+        // in 30–44 km Höhe, wo der Luftwiderstand die Arbeit noch gratis macht.
+        if(vDown>0 && alt - b.catchAlt <= burnDist*1.6 + 150){
+          if(b._mbT===undefined || tt - b._mbT > 0.35){
+            b._mbT = tt; b._mustBurn = this.boosterMustBurn(b, tt);
+          }
+          if(b._mustBurn){ b.state = "burn"; b.stateT = 0; }
+        }
       } else if(b.state==="burn"){
         if(b.fuel<=0){ b.throttle = 0; }
         else if(vDown > 3){
@@ -16368,9 +16673,11 @@ const Flight = {
       let use = 0;
       if(!hasPod && !this.landed) use += 0.25;       // Sondensteuerung
       if(this.sas!=="off") use += 0.3;               // SAS
+      if(this.lampsOn) use += 0.4;                   // 💡 Scheinwerfer
       this.charge = Math.min(this.maxCharge, this.charge + (gen-use)*dt);
       if(this.charge <= 0){
         this.charge = 0;
+        if(this.lampsOn){ this.setLamps(false); this.showMsg("🪫 Strom leer – Scheinwerfer aus!",3); }
         if(this.sas!=="off"){ this.sas = "off"; this.showMsg("🪫 Strom leer – SAS abgeschaltet!",3); }
         if(!hasPod && !this.powerDead){
           this.powerDead = true;

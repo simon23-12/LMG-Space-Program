@@ -1140,6 +1140,29 @@ Was passiert, wenn ein Triebwerk auf den Boden zielt oder ein Stiefel ihn berüh
   2. **Kein Tangentialebenen-Umweg.** Ziel ist der vorhergesagte Aufschlagpunkt SELBST (`imp.normalize()·R`). Vorher wurde er in Ost/Nord-Koordinaten der RAMPE zerlegt und aus `padLocal` wieder zusammengesetzt: Der Ost-Anteil einer 290-km-Sehne ergibt über `atan(e/R)` nur 268 km Bogen = **22 km zu kurz**. Bei kurzen Strecken identisch, deshalb fiel es nie auf.
   3. **Wassersuche in BEIDE Richtungen.** Östlich des Äquator-Raumhafens liegt Meer nur von ~2 bis ~60 km, dann kommt der nächste Kontinent (gemessen `landH > 0` von 65 bis ~190 km). Die alte Suche schob nur ostwärts und höchstens 40×800 m – bei Aufschlag 130 km downrange lief sie 40-mal ins Leere und das Deck stand am Ende **exakt 32 km** daneben (konstanter Offset = verräterisch). Jetzt ±40 km entlang der Bahnspur, nächstgelegenes Wasser gewinnt, Verschiebung als WINKEL (`s/R`) am Zielpunkt; nach Westen nur, solange das Deck > 6 km östlich der Rampe bleibt.
 - **Mechazilla (eq-Pad, Tech starshipT):** Turm+Arme (`name:"mzArm"`, `userData.side`) + Flame Diverter in `buildPad("eq")`; `Flight.catchLocal` = padLocal + Nord·(−20). Superheavy-Stufe (braucht Decoupler drüber!) → `site:"catch"`, `catchAlt = 72 − H + 6` (Arme greifen oben, Unterkante schwebt). Catch-Check VOR dem Boden-Check: alt ≤ catchAlt+2, horizontal < 45 m, < 9 m/s → `state:"caught"` (sackt 2,5 m nach, `b.sink`), 100 % Erstattung, `statCaught`. Arme schließen via `Flight.mzArmFold` in frame(). **Superheavy startet NUR von eq** (Guard in `UI.launch`). Diverter-Extra-Rauch: 4 Partikel/Frame seitlich (Ost/West) bei alt < 100 + superheavy im Stack; Partikel-Pool dafür 170.
+- ⚠️⚠️ **Wann der Landing Burn zündet, entscheidet `boosterMustBurn` – NICHT die
+  Bremsstrecken-Formel allein.** `burnDist = v²/(2·(Schub/m − g))` tut so, als müsse das
+  Triebwerk die ganze Energie abbauen; in Wahrheit nimmt der LUFTWIDERSTAND auf dem Weg nach
+  unten den Löwenanteil gratis mit (cdA 13 m² mit ausgefahrenen Gitterflossen). Bei einer
+  kleinen Erststufe fiel das nie auf – dort ist der Booster bei 25 km ohnehin schon langsam.
+  Bei einer großen zündete der Burn **bei 30–44 km mit 1800–1900 m/s**, verheizte den Tank in
+  der dünnen Luft und schlug mit **0 % Sprit** auf (Bug-Report Simon, Droneship-Anflug; RTLS
+  blieb heil, weil der Boostback-Burn die Fahrt vorher herausnimmt – deshalb sah es nach
+  einem Droneship-Problem aus).
+  - `boosterMustBurn(b,tt)` rechnet die Restbahn **ballistisch** voraus (Schwerkraft +
+    Luftwiderstand, KEIN Schub) und sucht einen späteren Punkt, an dem die Bremsstrecke
+    bequem in die Resthöhe passt. Gibt es den, wird jetzt nicht gezündet.
+  - ⚠️ Der erste Schleifendurchlauf prüft den JETZT-Zustand ⇒ für alle vorher funktionierenden
+    Profile ändert sich **nichts**: 2×L-Droneship bei 24/20/16/12 % Trennung weiterhin
+    Burn-Start 219/207/198/188 m und 12/12/11/10 m Abstand, RTLS 32 % weiterhin 189 m / 0 m,
+    Starship-auf-Superheavy weiterhin `caught` mit 10 m.
+  - Vorher kaputte Profile jetzt heil: 3×L 30 462 m → **232 m** (25 m Abstand, 12 % Rest) ·
+    4×L 44 342 m → **298 m** (40 m) · 2×XL 44 314 m → **296 m** (40 m).
+  - Kosten gemessen: **27 Aufrufe im ganzen Abstieg, 0,011 ms je Aufruf, 0,3 ms gesamt** – die
+    teure Vorausrechnung läuft nur, solange das billige Instantan-Kriterium Alarm schlägt, und
+    ist zusätzlich auf 0,35 s gedrosselt (`b._mbT`).
+  - ⚠️ **Kein Regressionsfehler der Teile-Umstellung** (Ø-Leiter/Trennerhöhen): mit den ALTEN
+    Teile-Werten nachgestellt kam derselbe Burn-Start heraus (30 481 statt 30 462 m).
 - ⚠️⚠️ **Realitätscheck im Abstieg (`BOOSTER_GIVEUP` = 7000 m, `b.missed`):** Der
   Boostback-Burn bricht nicht nur ab, wenn das Ziel erreicht ist, sondern auch, wenn schlicht
   der Sprit ausgeht (< 12 %). Danach hielt der Autopilot trotzdem an `b.tgt` fest und
@@ -1370,6 +1393,85 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
   darauf fliegt. Genau so wollte Simon es, und es hält den ???-Nebel der Karriere dicht
   (vorher unterlief die Kartenbeschriftung ihn). Verifiziert: frische Karriere = 4 Ringe
   sichtbar, 0 Namen.
+
+## ⚠️⚠️ Größenleiter der Bauteile: XS 8 · S 10 · M 11 · L 12 · XL 14
+Bis August 2026 waren **S und M exakt gleich dick** (beide Ø 10), der erste Sprung kam erst
+bei L – man sah einer Rakete also nicht an, welche Tankklasse verbaut ist (Wunsch Simon).
+`tankM` ist jetzt **Ø 11**, und jede Klasse hat ihre eigenen Anbauteile, damit ein Stapel
+bündig durchläuft:
+| Klasse | Ø | Tank | Trenner | Adapter | Kapsel | Schild |
+|---|---|---|---|---|---|---|
+| XS | 8 | tankXS | decouplerXS | interXS | – | – |
+| S | 10 | tankS | decoupler | inter | pod | shield |
+| M | 11 | tankM | decouplerM | interM | **pod2** | **shieldM** |
+| L | 12 | tankL | decouplerL | interL | – | – |
+| XL | 14 | tankXL | decouplerXL | interXL | – | – |
+- ⚠️ **`shield` ist von 11 auf 10 gewandert** (es stand 0,5 über der Ø-10-Kapsel über). Ein
+  echter Hitzeschild IST der Kapseldurchmesser – bei Apollo sogar die breiteste Stelle.
+- ⚠️ **Stufentrenner sind FLACHER** (2–3,5 statt 4): In echt ist das eine schmale
+  Sprengschnur-Manschette, kein Bauklotz.
+- ⚠️ `rcs` und `lamp` sind bewusst Ø 11 – sie sitzen bündig auf M und stehen auf S leicht
+  über (die Manschette war schon immer 11).
+- Gegenprobe nach jeder Teile-Änderung: Summe der `CATS[].ids` muss `Object.keys(PARTS)` sein
+  (getestet: **60/60**, keine Dubletten, alle mit `PART_COSTS` und gültigem `TECH`-Knoten).
+
+### Kommandokapsel »Leibniz II« (`pod2`, 3 Sitze)
+Apollo-Kommandokapsel als Vorbild (Bildvorlage Simon): weißer Kegelstumpf, schwarzer Sockel
+über der Hitzeschild-Kante, oben dunkles Deck mit Andocktunnel, dazu Bullaugen, dunkle
+RCS-Felder und Handläufe. Tech `heavy` (dort gibt es auch `shieldM`, und `advProp` davor
+liefert die M-Tanks).
+- ⚠️⚠️ **2,4 t sind kein Zufallswert, sondern der didaktische Kern:** Der Mk1-Schirm schafft
+  rund 2 t – eine größere Kapsel braucht ein größeres Bergungssystem, genau wie in echt.
+  Gemessen als Rückkehrkonfiguration (Schirm + Kapsel + Schild, aus 6 km Fall):
+  **Mk1 → 9,6 m/s ⇒ zerschellt** (Grenze 8) · **Mk2 → 4,9 m/s ⇒ Landung**. Gegenprobe
+  »Leibniz I« unverändert: Mk1 6,0 · Mk2 3,2 m/s, beides heil.
+- ⚠️ **Bewusst GEDRUNGEN** (Ø 11 auf 13 hoch): Apollo ist mit 3,9 zu 3,6 m fast quadratisch,
+  daran erkennt man eine Mehrsitzer-Kapsel. Die schlanke hohe »Leibniz I« bleibt daneben die
+  Einsitzer-Silhouette (Mercury-Verhältnis).
+- `crewCapacity` liest jetzt das Feld **`crew`** am Teil (Standard 1) plus 1 mit Labor –
+  vorher stand die 1 fest im Code. Verifiziert: Leibniz I 1 (+Labor 2) · Leibniz II 3
+  (+Labor 4) · Starship 6.
+
+### 💡 Scheinwerferring »Nachtschicht« (`lamp` / `Flight.setLamps` / [⇧L])
+Ein Ring mit acht Strahlern: vier leuchten am Rumpf nach OBEN, vier nach UNTEN. Tech `surv`,
+0,4 ⚡/s, Reset in `start()` auf AUS (er kostet ja Strom).
+- ⚠️⚠️ **ECHTE SpotLights, KEINE additiven Kegel-Meshes.** Ein Kegel ohne Streuungs-Shader
+  behält seine harte Silhouette, liest sich als weißer Keil und füllt den Bildschirm, sobald
+  die Kamera hineinfährt – dieselbe Lehre wie beim Flutlicht der Rampe (»Nacht« in
+  `buildPad`) und beim »Plastiktrichter«-Plasmaschweif. Man sieht nie den Strahl, sondern
+  die beleuchtete FLÄCHE.
+- ⚠️⚠️ **Die Strahler stehen auf einem gedachten AUSLEGER (`LAMP_BOOM` = 2,0·r) und zielen
+  schräg ZURÜCK auf den Rumpf.** Eine Lampe direkt auf der Oberfläche leuchtet streifend an
+  ihr entlang, und bei streifendem Einfall ist `dot(N,L)` fast null: Gemessen brachte die
+  rumpfnahe Variante **6,4 gegen 5,8 von 255** (also +10 % – man sah schlicht nichts). Mit
+  Ausleger sind es **17,1 gegen 5,8 = Faktor 3,0** bei nur 0,02 % ausgebrannten Pixeln.
+  Wo die Lichtquelle dabei genau schwebt, sieht ohne Volumenstreuung niemand.
+- ⚠️ **Intensität nicht über ~5**: bei 5,5 waren es schon 0,33 % ausgebrannte Pixel, und ohne
+  Tonemapping ist bei 255 Schluss (dieselbe Rechnung wie bei Flamme und Plasma).
+- ⚠️⚠️ **Die ZAHL der Lichter ist der einzige echte Kostenfaktor** (three übersetzt die Shader
+  mit `NUM_SPOT_LIGHTS`, und der Planet ist ein MeshStandardMaterial, das im Orbit den halben
+  Bildschirm füllt). Deshalb vorher gemessen, 1817×1491, Planet formatfüllend, Median aus
+  5 A/B-Läufen: **4 Strahler +0,06 ms · 8 Strahler +0,03 ms** – beides im Rauschen der 1,0 ms
+  Grundlast. Also acht, je einer pro Linse. Wer aufstockt, misst neu.
+- ⚠️ Die Lichter hängen an `rocketGroup` (das Schiff IST der Szenen-Ursprung), ihr `target`
+  ebenfalls – sonst zeigt three ins Leere. `rebuildRocket()` ruft `setLamps` neu auf, sonst
+  wären sie nach jeder Stufentrennung weg. Bei leerer Batterie schaltet `step()` sie ab.
+- Die acht Linsen (`name:"lampLens"`, eigenes MeshBasicMaterial) färbt `setLamps` um
+  (dunkelgrau ↔ warmes Weiß) – sichtbar auch dort, wo gerade nichts angeleuchtet wird.
+
+### 🔦 Stirnlampe der Astronaut*innen ([⇧L] bei EVA)
+Gehäuse und Linse gehören zu `buildAstronaut` (auch die Hallen-Belegschaft trägt sie – ein
+Helm ohne Lampe sieht unfertig aus), das LICHT hängt erst `toggleEVA` als SpotLight an den
+Helm. **Kostet bewusst KEINEN Strom** (Wunsch Simon: »so genau müssen wir nicht sein«) und
+startet deshalb AN, während die Schiffsscheinwerfer aus starten.
+- ⚠️ Das Linsen-Material wird PRO FIGUR erzeugt – ein Singleton würde beim Einschalten alle
+  zehn Hallenarbeiter*innen mit aufleuchten lassen (dieselbe Falle wie bei `MAT.*`).
+- ⚠️ Der Blickpunkt liegt **tief und nah** (12 Einheiten voraus, 1,5 unter Fußhöhe): Ein
+  waagerechter Strahl trifft den Boden nur streifend und erzeugt keinen Lichtfleck – dieselbe
+  Falle wie bei den Scheinwerfern. So liegt die Pfütze ein paar Meter vor den Stiefeln, wie
+  auf den Apollo-Aufnahmen. Auf Montis Nachtseite verifiziert.
+- ⚠️ **[⇧L] ist doppelt belegt** (wie [F] mit Fairing ↔ Flagge): `toggleLamps` leitet bei
+  laufender EVA selbst an `toggleHeadlamp` weiter.
 
 ## Bauteile & Stack
 `PARTS` (Reihenfolge im Stack: Index 0 = SPITZE; die Zuordnung zu den Rubriken der Teileliste steht in `CATS[].ids`, NICHT mehr als `cat`-Feld am Teil – s. »Teileauswahl im KSP-Stil«). **Radialteile** (`isRadial`: fin, sb2/sb4, gridfin, **legs**) belegen KEINE Stack-Höhe (`stackHeight()` statt Summe!) und werden in `buildRocketGroup` an den benachbarten Tank montiert (`radialHost`: erst darunter, dann darüber; `buildPartMesh(id, {r,h})`). **Sidebooster = Pool PRO STUFE** (`seg.boost` in buildVessel, kein globales v.boost mehr!): zünden mit IHRER Stufe (Zündung/Stufentrennung setzt `n.boost.ignited`) oder [R] (aktive Stufe), [J] wirft NUR die Booster der aktiven Stufe ab (nächstes [J] nach der Trennung = nächste Stufe); abgeworfene Stufen nehmen ihren Pool automatisch mit (hängt am Segment). Physik/HUD/Gauge/Flammen lesen `activeSeg().boost`; Flammen von Oberstufen-Boostern via `bflame.userData.upper` aus (gesetzt in buildRocketGroup, wenn Decoupler darunter). Trümmer-Mesh = `buildStrapOnMesh(strapOnHeight(stack,i))` – NICHT das srb-Mesh (Formwechsel-Bug). Servicebuchten (`bayCoverage()`): `bay` = »M« verkleidet 2 Teile darüber, `bayS` 1 (`PARTS[..].covers`) – aber NUR Typen aus `BAY_FITS` (battery/solar/probe/antenna/lab), sonst "verschluckt" die Bucht z. B. Oberstufen-Triebwerke; geschlossene Bucht schützt Solarpanele vor Fahrtwind, [G] öffnet sie automatisch mit. Oberstufen-Triebwerke (Decoupler darunter) kriegen `flame.userData.idle` – `setFlames` lässt sie aus, bis sie unterste Stufe sind. VAB-Info: Seitenbooster zählen zu Gesamtmasse, TWR **und Δv** IHRER Stufe (`segBoost[]` trägt dafür `dry`/`fuel`/`isp` mit, s. »Δv einer Stufe MIT Seitenboostern«); jede Stufe zeigt Leergewicht, **Kosten (🪙 + Anteil an der Rakete, plus Notiz »mit Gitterflossen bergbar«)** und Δv/TWR, Rakete gesamt »Leergewicht (Tanks leer)«. Die Stufenkosten sind die entscheidende Zahl für Reusability-Builds: Erstattet wird immer nur der gelandete Reststack (`settleCrewAndAssets`) bzw. der geborgene Booster (`b.value = stackCost(debrisStack)`). Solarflügel (`name:"wing"`) starten eingefahren (scale.x 0.1) – für Orbit-Sats `deployWings()`. Fairing verkleidet alles darüber.
@@ -2346,7 +2448,7 @@ Wer hier etwas ändert, ändert es dort UND in tutorials.js mit.)
 trägt nur noch Neustart/⚙️/Flug beenden (s. »Knopfleiste im Flug«). Damit ist `KEYMAP` die
 einzige Nachschlagestelle für eine vergessene Taste; sie ist über ⚙️ auch mitten im Flug
 erreichbar. Eine Taste ohne Eintrag dort ist für die AG unauffindbar.
-Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge, ⇧F 📸 Fotomodus** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · **M Karte, ⇧M Kartenfilter »nur Ziel«** · U ∞Tank (Sandbox) · **H HUD (4-stufig: alles → Knopfleiste weg → Instrumente weg (Navball/Balken/Crew) → alles weg)** · **⇧F Fotomodus (Bild einfrieren, freie Kamera, [⏎] speichert PNG)** · Esc Pause · ,/. Warp, **⇧. = Zeitsprung zum Knoten/Startfenster** · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
+Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge, ⇧F 📸 Fotomodus** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m), ⇧L 💡 Licht (Scheinwerferring am Schiff · bei EVA die Stirnlampe)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · **M Karte, ⇧M Kartenfilter »nur Ziel«** · U ∞Tank (Sandbox) · **H HUD (4-stufig: alles → Knopfleiste weg → Instrumente weg (Navball/Balken/Crew) → alles weg)** · **⇧F Fotomodus (Bild einfrieren, freie Kamera, [⏎] speichert PNG)** · Esc Pause · ,/. Warp, **⇧. = Zeitsprung zum Knoten/Startfenster** · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
 - ⚠️⚠️ **[Z] war bis August 2026 im Flug VOLLGAS und die Zielwahl brauchte ⇧Z** – »zu
   umständlich und verwirrend« (Simon), weil dieselbe Taste je nach Flugzustand etwas völlig
   anderes tat. Jetzt liegt der Schub komplett auf **[X]** (aus / ⇧ voll) und [Z] ist überall
