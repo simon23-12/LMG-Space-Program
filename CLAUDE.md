@@ -1311,7 +1311,25 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
 - **Portgenaues Docking:** `dockNow()` snappt das Schiff EXAKT Port-an-Port: Stations-Port auf +X (Andockring x≈16.2, Station rotiert nie), `dockPortTop()` = Oberkante des »Klette«-Teils im Stack → `dockOffset = X*(16.2 + dockTop − H/2)`, Nase per `setFromUnitVectors` auf −X. `updateAutoDock` fliegt den ANFLUGPUNKT 8 m vor dem Port an (nicht das Stationszentrum) und dockt bei < 10 m/< 3 m/s – so bleibt der finale Snap unsichtbar klein.
 
 ## Satelliten-Aufträge, PEZ-Dispenser & Crew-Auswahl
-- **Satelliten-Aufträge (endlos, Geld-Farm):** `Game.satContracts` (immer 2 offen, `topUpSatContracts()`/`genSatContract()`: LEO/MEO/Polar/GEO mit 700–1600 🪙, lustige Firmen aus `SAT_FIRMS`), freigeschaltet mit Tech `payload` (`satContractsUnlocked()`). Erfüllen: **Kommerz-Satellit `satK` »Werbefunk«** (type "sat", 380 🪙, passt in Buchten) im geforderten Band aussetzen [N] → `satContractMet(c,o,inc)` prüft Pe UND Ap im Band (+incMin/GEO), Prämie in `deploySpecialSat`, Auftrag respawnt sofort. Asset kriegt `com:true` → **passives Einkommen** +40 🪙 pro com-Sat bei JEDEM Flugende (`settleCrewAndAssets` → `statComIncome`, Zeile im Flugbericht). Sektion »📡 Satelliten-Aufträge« oben in `renderMissionControl`; Karten-Zielringe der Aufträge erscheinen NUR mit satK an Bord (`buildGoalRings`).
+- **Satelliten-Aufträge (endlos, Geld-Farm):** `Game.satContracts` (immer 2 offen, `topUpSatContracts()`/`genSatContract()`: LEO/MEO/Polar/GEO mit 700–1600 🪙, lustige Firmen aus `SAT_FIRMS`), freigeschaltet mit Tech `payload` (`satContractsUnlocked()`). Erfüllen: **Kommerz-Satellit `satK` »Werbefunk«** (type "sat", 380 🪙, passt in Buchten) im geforderten Band aussetzen [N] → `satContractMet(c,o,inc)` prüft Pe UND Ap im Band (+incMin/GEO), Prämie in `deploySpecialSat`, Auftrag respawnt sofort. Asset kriegt `com:true` → **passives Einkommen** `COM_INCOME` = **200 🪙** pro com-Sat (`settleCrewAndAssets` → `statComIncome`, Zeile im Flugbericht). ⚠️⚠️ **Aber NUR nach einem Flug, der über `COM_ALT_MIN` (70 km = Atmosphärenrand) hinauskam.** Vorher zahlte JEDER beendete Flug – Rakete zünden, 2 km hüpfen, landen, kassieren, zehn Sekunden pro Runde (Bug-Report Simon). Der alte Deckel gegen »übernehmen → sofort beenden« (`fromAsset`) stand schon da und war zu eng gefasst; die Höhe ist der ehrliche Test, denn dorthin kommt nur eine Rakete, die auch gebaut und bezahlt werden musste. Weil ein Flug jetzt Arbeit ist, ist er auch mehr wert: 40 → 200 🪙. Gemessen (2 Werbe-Sats): 3 km → 0 · 69 km → 0 · **120 km → 400** · übernommenes Objekt → 0. ⚠️ `COM_INCOME`/`COM_ALT_MIN` sind die EINE Quelle für Auszahlung, Missionszentrale, Bauteil-Text und Flugbericht; der Bericht nennt bei 0 🪙 auch den GRUND (`statComN`/`comReached`). Sektion »📡 Satelliten-Aufträge« oben in `renderMissionControl`; Karten-Zielringe der Aufträge erscheinen NUR mit satK an Bord (`buildGoalRings`).
+- ⚠️⚠️ **Der Standard-Satellit »Lorenz« (`satStd`) ist die Antwort auf »welchen
+  Satelliten denn?«** (August 2026, Wunsch Simon): ein Allzweck-Sat ohne jede
+  Orbit-Bedingung (Tech `payload`, 190 kg, 300 🪙, Ø 8), gedacht für alle Missionen,
+  in denen einfach nur »ein Satellit« steht (sat1, satLeo, satIncl, satEllip,
+  satSonne, polar1, gps1/gps3, satMonti). Vorher standen im Regal fünf Spezialisten
+  mit je EIGENER Orbit-Bedingung plus der Bausatz (Sondenkern + Solar + Antenne, den
+  `deploySat` abstößt) – und aus den Missionstexten ging nicht hervor, welcher davon
+  zählt. Die Texte nennen »Lorenz« jetzt ausdrücklich; es tut es weiterhin JEDER
+  Satellit, »Lorenz« ist Empfehlung, keine Vorschrift.
+- ⚠️⚠️ **`deploySpecialSat` setzt jetzt DIESELBEN Körper-Flags wie `deploySat`** –
+  konkret `satM` (Orbit um Monti). Das fehlte dort komplett: Wer für »Monti-Satellit«
+  einen fertigen Satelliten mitnahm (also das Naheliegende – gemeldet wurde der
+  »Forschungssatellit Strahlenspäher«), setzte ihn brav in den Monti-Orbit und die
+  Mission blieb offen; ausgelöst hätte sie NUR der Bausatz (Bug-Report Simon).
+  Welches MODELL da oben hängt, darf für »ein Satellit umkreist Monti« keine Rolle
+  spielen – die Spezialbedingungen der Instrumente kommen erst DANACH obendrauf.
+  Verifiziert: Lorenz/Strahlenspäher/Werbefunk in 60-km-Monti-Bahn ⇒ `satM` true und
+  `satMonti` erfüllt; dieselben Sats in 200-km-Leibniz-Bahn ⇒ `satM` false, `sat1` erfüllt.
 - ⚠️⚠️ **[N] setzt den OBERSTEN Satelliten im Stack aus** (`Flight.nextSatToDeploy()`), also genau den, der in der Montagehalle ganz oben steht. Vorher lief die Suche über `this.v.segs`, und `VAB.segments()` baut die Segmente von UNTEN nach oben – `sg.parts.find(...)` lieferte damit den UNTERSTEN. Wer »Wolkengucker« über »Werbefunk« baute, bekam auf [N] den Werbefunk; die Wetter-Mission blieb offen und sah aus, als würde sie nicht auslösen (Bug-Report Simon). Die Methode bildet die Stack-Position auf die Segment-Nummer ab (Zählweise von `segments()` nachgebaut), damit bei Satelliten in VERSCHIEDENEN Stufen die Leermasse vom richtigen Segment abgezogen wird.
 - ⚠️ **Der »noch N an Bord«-Hinweis steht ganz am ENDE von `deploySpecialSat`**, nach allen Zweigen: Teleskop, Durchmusterung und erfüllter Kommerz-Auftrag ERSETZEN `msg` komplett und hätten ihn sonst verschluckt. Genau so verschwand er im Bug-Report – der Werbefunk meldete seine Prämie, dass der Wettersatellit noch an Bord war, stand nirgends.
 - **PEZ-Dispenser (Starship):** `satInStarship(stack,id)` – liegt ein Starship **mit Frachtraum** im Stack, belegen `type:"sat"`-Teile KEINE Stack-Höhe (`stackHeight`) und werden nicht gemalt (reisen im Frachtraum); `deploySpecialSat` wirft sie dann SEITLICH aus (+Z körperfest, 1,4 m/s, »noch N im Frachtraum«-Meldung) statt nach oben – mehrere [N] = Starlink-Stil.
@@ -1378,6 +1396,31 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
   Principia-Bahnfarben, Bildvorlage Simon). Kostet nichts: Jeder Ring hat sein EIGENES
   `LineBasicMaterial`, und Farbe/Opacity lösen keine Shader-Neuübersetzung aus. Verifiziert:
   genau ein magenta Ring, folgt [Z] sofort, wird bei Ziel »Station« wieder grau.
+- **🏷️ Objektnamen aus (`Flight.mapNames` / `toggleMapNames` / `applyMapNames`,
+  [⇧O]):** Der Kartenfilter [⇧M] wirft alles außer dem Ziel HINAUS – das ist die harte
+  Variante. Oft will man alles SEHEN und nur die Schrift loswerden: Zwischen Sonne,
+  sechs Planeten, sieben Monden, vier Kleinkörpern, der Station und jedem geparkten
+  Objekt liegen zwei Dutzend Namensfahnen übereinander, sobald man herauszoomt
+  (Wunsch Simon).
+  - ⚠️⚠️ **Der farbige PUNKT bleibt IMMER stehen** – er markiert die Position, und
+    genau die ist die Information der Karte. `markerCanvas("")` lässt exakt ihn übrig
+    (Canvas 52×48 statt z. B. 386×48 bei »Große Pause«).
+  - ⚠️ **Ap/Pe/Δv/Begegnung hängen NICHT am Schalter** (`userData.named` false): Sie
+    gehören zur eigenen Bahn, sind kurz, und ohne sie liest man seinen Orbit nicht mehr.
+  - ⚠️⚠️ Der Name wird nur WEGGELASSEN, nicht vergessen: `mkMarker(txt,color,named)`
+    legt Text und Farbe in `userData` ab, `setMarkerLabel` schreibt sie fort, gezeichnet
+    wird in `drawMarker`. Würde der Schalter den Text überschreiben, wäre er nach einmal
+    [⇧O] für immer weg. ⚠️ Die Closure `const mkMarker` in `init()` muss das dritte
+    Argument DURCHREICHEN, sonst wird jeder Objektmarker still zum Nicht-Objektmarker.
+  - ⚠️ Alte Textur in `drawMarker` `dispose()`n – sonst leckt jeder Druck auf [⇧O] ein
+    Dutzend Canvas-Texturen. Verifiziert: 40 Umschaltungen mit Render dazwischen →
+    Texturzahl konstant 29.
+  - ⚠️ **KEIN Reset in `start()`** (`mapNames` steht im Flight-Objektliteral): reine
+    Ansichts-Einstellung wie die HUD-Stufe [H] – wem die Karte zu voll ist, dem ist sie
+    das im nächsten Flug genauso. Die pro Flug NEU gebauten Asset-Marker (`spawnAssets`)
+    erben den Stand über `mkMarker` von selbst (verifiziert: 52 px aus, 480 px an).
+  - ⚠️ **[O] bleibt die Servicebucht** – der keydown-Zweig unterscheidet nur über
+    `e.shiftKey`. Verifiziert: [⇧O] rührt die Bucht nicht an, [O] nicht die Namen.
 - **🔭 Kartenfilter »Nur Ziel« (`Flight.mapFocus` / `focusKeeps`, [⇧M]):** blendet in
   der Karte alles aus außer der eigenen Bahn, der Bahn des Ziels und der des Körpers, in
   dessen Sphäre man steckt (Wunsch Simon). Weg sind: fremde Planetenringe und -marker,
@@ -1443,6 +1486,20 @@ bündig durchläuft:
 | M | 11 | tankM | decouplerM | interM | **pod2** | **shieldM** |
 | L | 12 | tankL | decouplerL | interL | – | – |
 | XL | 14 | tankXL | decouplerXL | interXL | – | – |
+- ⚠️⚠️ **Die Hitzeschilde sind SCHALEN, keine Zylinderstapel** (August 2026, Wunsch
+  Simon mit KSP-Bild): `case "shield"` in `buildPartMesh` baut EINEN Rotationskörper
+  (`LatheGeometry`) – gewölbte ablative Unterseite (Viertelellipse, `dome` = 0,42·h),
+  breitester Punkt als dünner Rand bei 0,62·h, darüber die flache Montageplatte
+  (0,88·r) mit schmalem Goldkragen. Vorher waren es zwei gestapelte Zylinder: bei
+  Ø 10 auf 3 Einheiten Höhe ein Bierdeckel mit zwei harten Kanten – und ausgerechnet
+  dieses Teil steht beim Wiedereintritt formatfüllend in der Kamera.
+  ⚠️ Das Profil MUSS auf der Achse (x = 0) beginnen UND enden, sonst ist die Schale
+  oben und unten offen und man sieht bei flachem Blickwinkel hindurch.
+  ⚠️ Nur Optik: `type:"shield"`, Masse, `w`/`h` und damit Stapelhöhe, Hitzeschutz
+  (`step()`) und `bluntOf` im Windkanal sind unberührt. Gemessen am GERENDERTEN Bild
+  (orthografische Seitenansicht, Halbbreite über der Höhe): 0,00 → 0,73 · 0,26 → 3,03 ·
+  0,60 → 4,14 · 0,94 → 4,69 · 1,62 → **4,95 (breiteste Stelle)** · 2,30 → 4,86 ·
+  2,99 → 4,31; kein dunkles Fragment (`darkFrac` 0 ⇒ keine umgedrehten Normalen).
 - ⚠️ **`shield` ist von 11 auf 10 gewandert** (es stand 0,5 über der Ø-10-Kapsel über). Ein
   echter Hitzeschild IST der Kapseldurchmesser – bei Apollo sogar die breiteste Stelle.
 - ⚠️ **Stufentrenner sind FLACHER** (2–3,5 statt 4): In echt ist das eine schmale
@@ -2527,7 +2584,7 @@ Wer hier etwas ändert, ändert es dort UND in tutorials.js mit.)
 trägt nur noch Neustart/⚙️/Flug beenden (s. »Knopfleiste im Flug«). Damit ist `KEYMAP` die
 einzige Nachschlagestelle für eine vergessene Taste; sie ist über ⚙️ auch mitten im Flug
 erreichbar. Eine Taste ohne Eintrag dort ist für die AG unauffindbar.
-Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge, ⇧F 📸 Fotomodus** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m), ⇧L 💡 Licht (Scheinwerferring am Schiff · bei EVA die Stirnlampe)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · **M Karte, ⇧M Kartenfilter »nur Ziel«** · U ∞Tank (Sandbox) · **H HUD (4-stufig: alles → Knopfleiste weg → Instrumente weg (Navball/Balken/Crew) → alles weg)** · **⇧F Fotomodus (Bild einfrieren, freie Kamera, [⏎] speichert PNG)** · Esc Pause · ,/. Warp, **⇧. = Zeitsprung zum Knoten/Startfenster** · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
+Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge, ⇧F 📸 Fotomodus** · N Satellit · G Panele · **Y Landebeine ein/aus** · **O Buchten, ⇧O Objektnamen in der Karte** · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m), ⇧L 💡 Licht (Scheinwerferring am Schiff · bei EVA die Stirnlampe)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · **M Karte, ⇧M Kartenfilter »nur Ziel«** · U ∞Tank (Sandbox) · **H HUD (4-stufig: alles → Knopfleiste weg → Instrumente weg (Navball/Balken/Crew) → alles weg)** · **⇧F Fotomodus (Bild einfrieren, freie Kamera, [⏎] speichert PNG)** · Esc Pause · ,/. Warp, **⇧. = Zeitsprung zum Knoten/Startfenster** · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
 - ⚠️⚠️ **[Z] war bis August 2026 im Flug VOLLGAS und die Zielwahl brauchte ⇧Z** – »zu
   umständlich und verwirrend« (Simon), weil dieselbe Taste je nach Flugzustand etwas völlig
   anderes tat. Jetzt liegt der Schub komplett auf **[X]** (aus / ⇧ voll) und [Z] ist überall

@@ -723,6 +723,7 @@ const KEYMAP = [
   {group:"Navigation & Zeit", keys:[
     ["M",   "Karte ein/aus"],
     ["⇧ M", "Kartenfilter: <b>nur die eigene Bahn und die des Ziels</b>"],
+    ["⇧ O", "Karte: <b>Objektnamen ein/ausblenden</b> – die farbigen Punkte bleiben stehen"],
     ["Z",   "Reiseziel wählen – auf der Rampe die Startfenster-Peilung"],
     ["K",   "Manöverknoten setzen"],
     ["⇧ K", "<b>Auto-Knoten</b>: der Bordcomputer trägt den Transfer selbst ein – "+
@@ -1226,7 +1227,7 @@ const CATS = [
    ids:["battery","solar","rcs","lamp","nav"]},
   {id:"pay", short:"Nutzlast", icon:"🛰️", name:"Nutzlast",
    sub:"Was die Rakete eigentlich ins All bringen soll.",
-   ids:["bay","bayS","antenna","lab","satW","satK","satR","satS","satT","satD"]}
+   ids:["bay","bayS","antenna","lab","satStd","satW","satK","satR","satS","satT","satD"]}
 ];
 const PARTS = {
   probePod:{name:"Sondenkapsel »Fernblick«",  type:"probe", mass:400,  w:10,h:10, tech:"start", charge:200,
@@ -1321,6 +1322,18 @@ const PARTS = {
   bayS:   {name:"Servicebucht S",            type:"bay", mass:45,  w:9,h:2.5, covers:1, tech:"surv",
            info:"Kompakte Bucht – verkleidet EIN Bauteil darüber, perfekt für Batterie oder Solarpanele. Öffnen: [O]"},
   antenna:{name:"Antenne »Quassel«",         type:"antenna", mass:40,  w:4,h:5, tech:"payload", info:"Funkt Daten nach Leibniz."},
+  /* ⚠️⚠️ »Lorenz« ist der STANDARD-Satellit – das Teil, das gemeint ist,
+     wann immer eine Mission einfach nur »einen Satelliten« verlangt (erster
+     Satellit, tiefer Orbit, Schräglage, Molnija, Polarorbit, Synchronbahn,
+     Monti …). Vorher gab es dafür nur den BAUSATZ (Sondenkern + Solar +
+     Antenne, den [N] abstößt) und daneben fünf Spezialisten mit je eigener
+     Orbit-Bedingung: Wer für »Monti-Satellit« den »Strahlenspäher«
+     mitnahm, erfüllte gar nichts, weil dessen Bedingung ein hoher
+     LEIBNIZ-Orbit ist – und aus dem Missionstext ging nicht hervor, welcher
+     Satellit überhaupt gemeint war (Bug-Report Simon). Ein Teil ganz OHNE
+     Sonderwunsch beantwortet die Frage »welchen denn?« von selbst. */
+  satStd: {name:"Satellit »Lorenz«",         type:"sat", mass:190, w:8,h:6, tech:"payload",
+           info:"Der Allzweck-Satellit: Funkschüssel, Batterie, Solarflügel – mehr braucht es nicht. Er stellt KEINE Bedingung an die Bahn und ist damit immer dann der richtige, wenn eine Mission einfach nur »einen Satelliten« verlangt. Mit [N] dort aussetzen, wo die Mission ihn haben will."},
   satW:   {name:"Wettersatellit »Wolkengucker«", type:"sat", mass:200, w:8,h:6, tech:"payload",
            info:"Kameras für Wolken & Stürme über Leibniz. In STABILEM Orbit aussetzen [N] – Karriere-Mission!"},
   satR:   {name:"Forschungssatellit »Strahlenspäher«", type:"sat", mass:280, w:8,h:7, tech:"fine",
@@ -1328,7 +1341,7 @@ const PARTS = {
   satS:   {name:"Spähsatellit »Adlerauge«",  type:"sat", mass:350, w:9,h:6, tech:"fine",
            info:"Streng geheim! Scharfe Fotos gelingen nur im TIEFEN Orbit (Pe > 70 km, Ap < 130 km). Aussetzen: [N]"},
   satK:   {name:"Kommerz-Satellit »Werbefunk«", type:"sat", mass:220, w:8,h:6, tech:"payload", com:true,
-           info:"Für die 📡 Satelliten-Aufträge in der Missionszentrale: im GEFORDERTEN Orbit aussetzen [N] = Prämie kassieren. Funkt danach dauerhaft Werbung → 🪙 nach jedem Flug!"},
+           info:"Für die 📡 Satelliten-Aufträge in der Missionszentrale: im GEFORDERTEN Orbit aussetzen [N] = Prämie kassieren. Funkt danach dauerhaft Werbung: +200 🪙 nach JEDEM Flug, der über 70 km hinauskommt (Mini-Hüpfer zahlen nicht)."},
   satT:   {name:"Weltraumteleskop »Weitblick«", type:"sat", mass:520, w:10,h:11, tech:"fine",
            info:"Der große Spiegel – unser »Hubble«. Vom Boden aus verwackelt die Luft jedes Bild; erst ÜBER der Atmosphäre wird es scharf. In einem hohen Orbit aussetzen (Pe > 250 km) [N] – danach sind die fernen PLANETEN und ihre MONDE im Universum-Bildschirm keine ??? mehr! (Für die winzigen Kleinkörper reicht selbst dieser Spiegel nicht – dafür gibt es den »Rundumblick«.)"},
   satD:   {name:"Durchmusterungs-Teleskop »Rundumblick«", type:"sat", mass:460, w:10,h:10, tech:"fine",
@@ -1466,7 +1479,7 @@ const PART_COSTS = {
   interXS:30, inter:50, interM:70, interL:90, interXL:140,
   legs:90, rcs:130, lamp:110, srb:150, fin:25, gridfin:240, tankL:350, engMain:650, srbL:300,
   sb2:260, sb4:500, probe:180, solar:70, battery:50, nav:260, bay:80, bayS:50, antenna:60,
-  satW:320, satR:420, satS:550, satK:380, satT:780, satD:700, fairing:80, tankXS:70, engT:120, dock:100,
+  satStd:300, satW:320, satR:420, satS:550, satK:380, satT:780, satD:700, fairing:80, tankXS:70, engT:120, dock:100,
   engRapSL:900, engRapVac:1100, superheavy:2600, starship:4200, starshipTank:3200
 };
 for(const [id,c] of Object.entries(PART_COSTS)) if(PARTS[id]) PARTS[id].cost = c;
@@ -2022,6 +2035,21 @@ const SAT_FIRMS = [
   "Radiosender »Radio Schulhof«", "Kaugummi-Imperium »OrbitGum«",
   "Wetterfrosch-Kanal »Frosch TV«", "Turnschuh-Label »Schwerelos«"
 ];
+/* ⚠️⚠️ DAUERWERBUNG: pro Kommerz-Satellit `COM_INCOME` nach jedem Flug – aber
+   NUR, wenn dieser Flug wirklich ins All ging (höchste Höhe über
+   `COM_ALT_MIN` = Rand der Atmosphäre).
+   Vorher zahlte JEDER beendete Flug, und damit war die Werbung eine
+   Gelddruckmaschine: Rakete auf der Rampe zünden, 2 km hüpfen, landen,
+   kassieren – zehn Sekunden pro Runde (Bug-Report Simon). Der Deckel gegen
+   »übernehmen → sofort beenden« (`fromAsset`) stand schon da und war zu eng
+   gefasst; die 70 km sind der ehrliche Test, denn dorthin kommt nur eine
+   Rakete, die auch gebaut und bezahlt werden musste.
+   Weil ein Flug jetzt Arbeit ist, ist er auch mehr wert: 40 → 200 🪙 je Sat.
+   ⚠️ EINE Quelle für Auszahlung, Missionszentrale, Bauteil-Text und
+   Flugbericht – laufen die auseinander, verspricht die Missionszentrale
+   etwas anderes als die Kasse auszahlt. */
+const COM_INCOME  = 200;
+const COM_ALT_MIN = LEIBNIZ.atmoH;
 function satContractsUnlocked(){ return Game.unlocked.includes("payload"); }
 function genSatContract(){
   const rnd = Math.random();
@@ -2079,7 +2107,15 @@ const MISSIONS = [
    req:["orbit"], check:s=>s.landed && s.body===LEIBNIZ && s.flew},
   {id:"highOrbit",name:"Hoher Orbit",        desc:"Orbit mit Periapsis über 250 km.", sci:20,
    req:["orbit"], check:s=>s.body===LEIBNIZ && s.pe>250000},
-  {id:"sat1",    name:"Erster Satellit",     desc:"Setze einen Satelliten in einem stabilen Orbit um Leibniz aus. [N]", sci:30,
+  /* ⚠️ »Welchen Satelliten denn?« – überall dort, wo eine Mission einfach nur
+     »einen Satelliten« verlangt, ist der Standard-Satellit »Lorenz« gemeint
+     (Teil `satStd`, Kategorie Nutzlast). Das steht in diesen Texten seit
+     August 2026 ausdrücklich drin: Vorher standen im Bauteile-Regal fünf
+     Spezialisten mit je eigener Orbit-Bedingung und ein Bausatz, und welcher
+     davon zählt, war nicht zu erraten (Bug-Report Simon). Es tut es weiterhin
+     JEDER Satellit und auch der Bausatz – »Lorenz« ist die Empfehlung, keine
+     Vorschrift. */
+  {id:"sat1",    name:"Erster Satellit",     desc:"Setze einen Satelliten in einem stabilen Orbit um Leibniz aus. [N] Nimm den Standard-Satelliten »Lorenz« mit – er passt immer, wenn eine Mission einfach nur »einen Satelliten« verlangt.", sci:30,
    req:["orbit"], check:s=>s.satL},
   {id:"reuse1",  name:"Sie landet doch!", desc:"Wiederverwendung wie bei der Falcon 9: Rüste die erste Stufe mit Gitterflossen aus (Forschung »Wiederverwendbarkeit«), trenne sie MIT Restsprit ab (orange Marke an der Tank-Anzeige) und lass den Autopiloten sie heil landen!", sci:45,
    req:["orbit"], check:s=>s.boosterLanded},
@@ -2103,29 +2139,29 @@ const MISSIONS = [
   {id:"satSpion", name:"Geheimauftrag »Adlerauge«", desc:"Die Schulleitung will wissen, was auf dem Pausenhof der Nachbarschule vor sich geht… Setze den Spähsatelliten in einem TIEFEN Orbit aus (Pe > 70 km, Ap < 130 km) [N]. Pssst!", sci:55,
    req:["satWetter"], check:s=>s.satSpy,
    orbitGoal:{body:"LEIBNIZ", alt:100000, apMax:130000, label:"Späh-Orbit (70–130 km)"}},
-  {id:"satLeo", name:"Liefer-Orbit »Pendeldienst«", desc:"Setze einen Satelliten in einem TIEFEN Kreis-Orbit aus (Pe > 70 km, Ap < 200 km) [N] – die Standard-Route für Kleinsatelliten. In der Karte [M] zeigt ein blauer Ring den Zielorbit; er wird GRÜN, sobald deine Bahn passt!", sci:25,
+  {id:"satLeo", name:"Liefer-Orbit »Pendeldienst«", desc:"Setze einen Satelliten in einem TIEFEN Kreis-Orbit aus (Pe > 70 km, Ap < 200 km) [N] – die Standard-Route für Kleinsatelliten (»Lorenz« genügt). In der Karte [M] zeigt ein blauer Ring den Zielorbit; er wird GRÜN, sobald deine Bahn passt!", sci:25,
    req:["sat1"], check:s=>s.satDeploys.some(d=>d.body==="Leibniz"&&d.pe>70000&&d.ap>0&&d.ap<200000),
    orbitGoal:{body:"LEIBNIZ", alt:130000, apMax:200000, label:"Tiefer Orbit (70–200 km)"}},
-  {id:"satIncl", name:"Schräglage 55°", desc:"Starte vom LMG-Startplatz (55° Nord) nach Osten und setze einen Satelliten in einem Orbit mit 45–65° Inklination aus [N]. Der Breitengrad der Rampe wird automatisch zur Bahnneigung – echte Physik!", sci:40,
+  {id:"satIncl", name:"Schräglage 55°", desc:"Starte vom LMG-Startplatz (55° Nord) nach Osten und setze einen Satelliten in einem Orbit mit 45–65° Inklination aus [N] (»Lorenz« genügt). Der Breitengrad der Rampe wird automatisch zur Bahnneigung – echte Physik!", sci:40,
    req:["satLeo"], check:s=>s.satDeploys.some(d=>d.body==="Leibniz"&&d.pe>70000&&d.ap>0&&d.inc>=45&&d.inc<=65),
    orbitGoal:{body:"LEIBNIZ", alt:120000, incMin:45, incMax:65, label:"55°-Orbit"}},
-  {id:"satEllip", name:"Steilpass (hochelliptisch)", desc:"Bring einen Satelliten in eine ELLIPSE: Periapsis 70–250 km, Apoapsis über 1500 km – wie die russischen Molnija-Funksatelliten. Aussetzen [N].", sci:50,
+  {id:"satEllip", name:"Steilpass (hochelliptisch)", desc:"Bring einen Satelliten in eine ELLIPSE: Periapsis 70–250 km, Apoapsis über 1500 km – wie die russischen Molnija-Funksatelliten. Aussetzen [N] (»Lorenz« genügt).", sci:50,
    req:["satLeo","highOrbit"], check:s=>s.satDeploys.some(d=>d.body==="Leibniz"&&d.pe>70000&&d.pe<250000&&d.ap>1.5e6),
    orbitGoal:{body:"LEIBNIZ", alt:1.5e6, apMin:1.5e6, peMax:250000, label:"Molnija-Bahn (Ap > 1500 km)"}},
   {id:"geo1", name:"Synchroner Orbit", desc:"Ein Leibniz-Tag dauert 14.000 s – und in ≈2000 km Höhe braucht ein Umlauf GENAU so lange: Der Satellit steht scheinbar still am Himmel! Erreiche einen Kreis-Orbit zwischen 1850 und 2150 km (blauer Ring in der Karte).", sci:40,
    req:["highOrbit"], check:s=>s.body===LEIBNIZ && isGeoOrbit(s.pe, s.ap),
    orbitGoal:{body:"LEIBNIZ", alt:GEO_ALT, peMin:GEO_MIN, apMax:GEO_MAX, label:"Synchronbahn ≈2000 km"}},
-  {id:"gps1", name:"Navigation I: »Schulweg«", desc:"Das Navi-Projekt beginnt! Setze einen Satelliten im SYNCHRONEN Orbit aus (kreisrund, 1850–2150 km) [N]. Von dort sieht er immer dieselbe Seite von Leibniz.", sci:50,
+  {id:"gps1", name:"Navigation I: »Schulweg«", desc:"Das Navi-Projekt beginnt! Setze einen Satelliten im SYNCHRONEN Orbit aus (kreisrund, 1850–2150 km) [N] – »Lorenz« genügt. Von dort sieht er immer dieselbe Seite von Leibniz.", sci:50,
    req:["geo1","sat1"], check:s=>s.geoSats>=1,
    orbitGoal:{body:"LEIBNIZ", alt:GEO_ALT, peMin:GEO_MIN, apMax:GEO_MAX, label:"Synchronbahn ≈2000 km"}},
-  {id:"gps3", name:"Navigation II: GPS-Konstellation", desc:"DREI Navigationssatelliten im synchronen Orbit = flächendeckendes GPS für Leibniz! Baue die Konstellation auf 3 Satelliten aus – mehrere Flüge oder gleich mehrere Sonden (je Sondenkern+Solar+Antenne) auf einer Rakete.", sci:90,
+  {id:"gps3", name:"Navigation II: GPS-Konstellation", desc:"DREI Navigationssatelliten im synchronen Orbit = flächendeckendes GPS für Leibniz! Baue die Konstellation auf 3 Satelliten aus – mehrere Flüge oder gleich mehrere »Lorenz« auf einer Rakete (jeder wird einzeln mit [N] abgestoßen).", sci:90,
    req:["gps1"], check:s=>s.geoSats>=3,
    orbitGoal:{body:"LEIBNIZ", alt:GEO_ALT, peMin:GEO_MIN, apMax:GEO_MAX, label:"Synchronbahn ≈2000 km"}},
-  {id:"satSonne", name:"Sonnenspäher", desc:"Verlasse Leibniz' Gravitationssphäre und setze einen Satelliten in einem Orbit um die SONNE aus [N]. Antenne + Solar nicht vergessen – so weit draußen braucht die Sonde Funkkontakt (1 Relais)!", sci:65,
+  {id:"satSonne", name:"Sonnenspäher", desc:"Verlasse Leibniz' Gravitationssphäre und setze einen Satelliten in einem Orbit um die SONNE aus [N] (»Lorenz« genügt). Antenne + Solar nicht vergessen – so weit draußen braucht die Sonde Funkkontakt (1 Relais)!", sci:65,
    req:["satLeo","montiOrb"], check:s=>s.satDeploys.some(d=>d.body==="Sonne")},
   {id:"padEq1",  name:"Einweihung »Schulhof Süd«", desc:"Starte vom neuen Äquator-Raumhafen (Rampe in der Montagehalle wählen!) und erreiche einen stabilen Orbit. Von hier stimmt die Bahnebene mit der Station überein – Startfenster mit [Z] peilen!", sci:25,
    req:["orbit"], check:s=>s.pad==="eq" && s.body===LEIBNIZ && s.pe>LEIBNIZ.atmoH && s.ap>0},
-  {id:"polar1",  name:"Polarorbit »Weltkarte«", desc:"Bring einen Satelliten in einen POLAREN Orbit (Inklination > 75°, stabil) und setze ihn aus [N] – nur so überfliegt er nach und nach die GANZE Oberfläche von Leibniz. Tipp: von der Polarstation »Skihütte« nach Osten starten!", sci:60,
+  {id:"polar1",  name:"Polarorbit »Weltkarte«", desc:"Bring einen Satelliten in einen POLAREN Orbit (Inklination > 75°, stabil) und setze ihn aus [N] (»Lorenz« genügt) – nur so überfliegt er nach und nach die GANZE Oberfläche von Leibniz. Tipp: von der Polarstation »Skihütte« nach Osten starten!", sci:60,
    req:["sat1"], check:s=>s.satPolar,
    orbitGoal:{body:"LEIBNIZ", alt:120000, incMin:75, label:"Polarorbit (> 75°)"}},
   {id:"dock1",   name:"Rendezvous: »Große Pause«", desc:"Docke mit einem Docking-Port [L] an der Raumstation »Große Pause« an (100-km-Orbit). Tipp: vom Äquator-Raumhafen starten (gleiche Bahnebene!) – und erst das Tutorial »Rendezvous & Docking«!", sci:55,
@@ -2153,7 +2189,7 @@ const MISSIONS = [
    req:["orbit"], check:s=>s.body===MONTI},
   {id:"montiOrb",name:"Monti-Orbit",         desc:"Erreiche einen Orbit um Monti.", sci:40,
    req:["montiSoi"], check:s=>s.body===MONTI && s.pe>0 && s.ap>0 && s.ap<MONTI.soi},
-  {id:"satMonti",name:"Monti-Satellit",      desc:"Setze einen Satelliten in einem Orbit um Monti aus.", sci:45,
+  {id:"satMonti",name:"Monti-Satellit",      desc:"Setze einen Satelliten in einem Orbit um Monti aus – Standard-Satellit »Lorenz«, aussetzen mit [N]. Es zählt jeder Satellit; er muss nur wirklich um MONTI kreisen (Ap innerhalb seiner Einflusssphäre).", sci:45,
    req:["montiOrb","sat1"], check:s=>s.satM},
   {id:"montiLand",name:"Monti-Landung",      desc:"Lande sicher auf Monti!", sci:60,
    req:["montiOrb"], check:s=>s.landed && s.body===MONTI},
@@ -2993,14 +3029,15 @@ function renderMissionControl(list){
   if(!satContractsUnlocked()){
     card(`<p style="color:var(--muted)">🔒 Forschung »Satellitentechnik« schaltet kommerzielle
       Satelliten-Aufträge frei: Firmen zahlen für den <b>Kommerz-Satelliten »Werbefunk«</b> im
-      Wunschorbit – und jeder ausgesetzte Sat funkt danach dauerhaft Werbung (🪙 nach jedem Flug).</p>`);
+      Wunschorbit – und jeder ausgesetzte Sat funkt danach dauerhaft Werbung (🪙 nach jedem Flug, der über 70 km hinauskommt).</p>`);
   } else {
     topUpSatContracts();
     const nCom = (Game.assets||[]).filter(a=>a.kind==="sat" && a.com).length;
     card(`<p style="margin-bottom:8px;color:var(--muted)">Baue den <b>Kommerz-Satelliten
       »Werbefunk«</b> ein (Kategorie Satellit) und setze ihn im geforderten Orbit aus [N] –
       erledigte Aufträge spawnen sofort neu. In der Karte zeigen blaue Ringe den Zielorbit
-      (grün = erreicht). Aktive Werbe-Sats: <b>${nCom}</b> → <b>+${nCom*40} 🪙 nach jedem Flug</b>.</p>`+
+      (grün = erreicht). Aktive Werbe-Sats: <b>${nCom}</b> → <b>+${nCom*COM_INCOME} 🪙 nach jedem Flug,
+      der über ${COM_ALT_MIN/1000} km hinauskommt</b> (ein Hüpfer auf dem Schulhof zahlt nichts).</p>`+
       (Game.satContracts||[]).map(c=>`<div style="display:flex;gap:10px;align-items:baseline;margin:6px 0;">
         <span style="font-size:18px;">📡</span>
         <div style="flex:1;"><b>${c.firm}</b><br>
@@ -4375,7 +4412,20 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       pan.scale.x = 0.1;
       g.add(pan);
     };
-    if(id==="satW"){
+    if(id==="satStd"){
+      /* »Lorenz«, der Allzweck-Satellit: silberweißer Kasten mit Goldfolien-
+         band, Funkschüssel und Stabantenne – bewusst OHNE Spezialinstrument.
+         Man soll ihm ansehen, dass er nichts Besonderes kann und deshalb
+         überall passt. */
+      add(new THREE.Mesh(new THREE.BoxGeometry(p.w*0.58,h*0.6,p.w*0.58), MAT.white), h*0.38);
+      add(new THREE.Mesh(new THREE.BoxGeometry(p.w*0.60,h*0.14,p.w*0.60), MAT.gold), h*0.18);
+      const dish = new THREE.Mesh(new THREE.SphereGeometry(r*0.55,14,7,0,Math.PI*2,0,Math.PI/2.6),
+        new THREE.MeshStandardMaterial({color:0xe4e9f2, roughness:.35, side:THREE.DoubleSide}));
+      dish.position.y = h*0.9; dish.rotation.x = Math.PI; g.add(dish);
+      const rod = cylinder(0.13,0.13,h*0.45,MAT.gray,6);
+      rod.position.set(r*0.55, h*0.75, 0); rod.rotation.z = -0.4; g.add(rod);
+      wing(-1, p.w*0.85); wing(1, p.w*0.85);
+    } else if(id==="satW"){
       // Wettersatellit: weißer Kasten, blaue Sensorleiste, Wetterschüssel oben
       add(new THREE.Mesh(new THREE.BoxGeometry(p.w*0.62,h*0.72,p.w*0.62), MAT.white), h*0.4);
       add(new THREE.Mesh(new THREE.BoxGeometry(p.w*0.64,h*0.16,p.w*0.64), MAT.blue), h*0.4);
@@ -4480,9 +4530,34 @@ function buildPartMesh(id, attach){   // attach = {r,h} des Wirtsteils bei Radia
       glass.position.y = h*0.3 + r*0.36*1.4; g.add(glass);
       break;}
     case "shield":{
-      // ablativer Schild: flacher brauner Kegelstumpf mit Goldrand
-      add(cylinder(r*0.92, r, h, new THREE.MeshStandardMaterial({color:0x6b4a26, roughness:.55})), h/2);
-      add(cylinder(r*1.02, r*1.02, h*0.3, MAT.gold), h*0.85);
+      /* ⚠️ SCHALE statt Klotz (August 2026, Wunsch Simon mit KSP-Bild als
+         Vorlage): Vorher waren das zwei gestapelte Zylinder – bei Ø 10 auf
+         3 Einheiten Höhe ein Bierdeckel mit zwei harten Kanten, und
+         ausgerechnet dieses Teil steht beim Wiedereintritt formatfüllend in
+         der Kamera.
+         Ein echter Hitzeschild ist eine SCHALE: unten die gewölbte ablative
+         Fläche, außen die breiteste Stelle als dünner Rand, oben die flache
+         Montageplatte, auf der die Kapsel sitzt. Die Wölbung ist dabei nicht
+         Deko – eine STUMPFE Form schiebt die Stoßfront vom Rumpf weg und
+         hält ihn kühl (genau das rechnet `bluntOf` im Windkanal nach).
+         ⚠️ EIN Rotationskörper (LatheGeometry), kein Stapel: Nur so ist die
+         Silhouette durchgehend gekrümmt statt gestuft. Das Profil MUSS auf
+         der Achse (x = 0) beginnen und enden, sonst bleibt die Schale unten
+         und oben offen und man sieht bei flachem Blickwinkel hindurch. */
+      const P = [], NA = 14, rim = r*0.97, dome = h*0.42;
+      // Unterseite: Viertelellipse – in der Mitte flach, zum Rand hin steiler
+      for(let i=0;i<=NA;i++){
+        const a = i/NA*Math.PI/2;
+        P.push(new THREE.Vector2(rim*Math.sin(a), dome*(1-Math.cos(a))));
+      }
+      P.push(new THREE.Vector2(r,      h*0.62));   // breiteste Stelle = der Rand
+      P.push(new THREE.Vector2(r*0.96, h*0.86));   // Oberseite läuft flach nach innen
+      P.push(new THREE.Vector2(r*0.88, h));
+      P.push(new THREE.Vector2(0,      h));        // Montageplatte schließen
+      add(new THREE.Mesh(new THREE.LatheGeometry(P, 28),
+        new THREE.MeshStandardMaterial({color:0x6b4a26, roughness:.62})), 0);
+      // schmaler Montagekragen – der Goldring, auf dem die Kapsel steht
+      add(cylinder(r*0.86, r*0.90, h*0.14, MAT.gold, 24), h*0.94);
       break;}
     case "lab":{
       add(cylinder(r, r, h, MAT.white), h/2);
@@ -11107,6 +11182,7 @@ const Flight = {
   starField:null,
   v:null, pos:V3(), vel:V3(), q:new THREE.Quaternion(),
   t:0, throttle:1, warpI:0, map:false,
+  mapNames:true,            // Objektnamen in der Karte, [⇧O] – s. toggleMapNames
   landed:true, crashed:false, ended:false, flew:false,
   flagObjs:[], legsOut:false, legsAnim:LEG_IN,   // s. plantFlag / toggleLegs
   chuteOpen:false, infinite:false, msgTimer:0,
@@ -11450,7 +11526,8 @@ const Flight = {
     // Ap/Pe-Marker für die Kartenansicht. WICHTIG: Der farbige PUNKT sitzt exakt
     // in der Sprite-MITTE (= Position des Objekts), das Label steht rechts daneben –
     // sonst zeigt optisch der Text statt des Punkts den Standort an.
-    const mkMarker = (txt,color)=>this.mkMarker(txt,color);
+    // ⚠️ Das dritte Argument (`named`, s. mkMarker/[⇧O]) MUSS durchgereicht werden
+    const mkMarker = (txt,color,named)=>this.mkMarker(txt,color,named);
     this.apMarker = mkMarker("Ap","#2d7ad0");
     this.peMarker = mkMarker("Pe","#f7941d");
     // Schiffsmarker für die Kartenansicht (Rakete selbst ist dort zu klein)
@@ -11468,7 +11545,7 @@ const Flight = {
       return m;
     })();
     this.nodeMarker = mkMarker("Δv","#5fc46a");
-    this.stationMarker = mkMarker("Große Pause","#39c2ff");
+    this.stationMarker = mkMarker("Große Pause","#39c2ff", true);
     // Kleinkörper: unregelmäßige Fels-Meshes + Kartenmarker + Bahnlinien um die Sonne
     this.astObjs = ASTEROIDS.map(a=>{
       const mesh = makeSmallBodyMesh(a);
@@ -11477,7 +11554,7 @@ const Flight = {
          standen Gauß, Emmy, Halley und Whipple als unbeschriftete Pünktchen
          zwischen den beschrifteten Planeten – man sah, dass da etwas ist,
          konnte es aber nicht zuordnen (Bug-Report Simon). */
-      const marker = mkMarker(a.icon+" "+a.name, "#d8c39a");
+      const marker = mkMarker(a.icon+" "+a.name, "#d8c39a", true);
       // ⚠️ 512 statt 256 Stützstellen bei Ellipsen: Am Perihel rast der Komet,
       // dort liegen die gleichmäßig in der ZEIT verteilten Punkte weit
       // auseinander und die Bahn bekäme eine sichtbare Ecke.
@@ -11501,7 +11578,7 @@ const Flight = {
        der Karriere gilt hier genauso wie im Universum-Bildschirm. */
     this.bodyMarkers = [SUN, ...ORBIT_BODIES].map(b=>({
       b, marker: mkMarker((BODY_ICON[b.name]||"•")+" "+b.name,
-        b===SUN ? "#ffd479" : (b.shade2D ? b.shade2D[0] : "#cfe0ff"))
+        b===SUN ? "#ffd479" : (b.shade2D ? b.shade2D[0] : "#cfe0ff"), true)
     }));
     // Dichteste Annäherung an das gewählte Ziel (s. traceOrbit/predict)
     this.encMarker = mkMarker("Begegnung", "#39ffd0");
@@ -11624,7 +11701,8 @@ const Flight = {
       if(e.key==="n"||e.key==="N") this.deploySat();
       if(e.key==="u"||e.key==="U") this.toggleInfinite();
       if(e.key==="g"||e.key==="G") this.togglePanels();
-      if(e.key==="o"||e.key==="O") this.toggleBays();
+      // [O] Servicebuchten · [⇧O] Objektnamen in der Karte (s. toggleMapNames)
+      if(e.key==="o"||e.key==="O"){ if(e.shiftKey) this.toggleMapNames(); else this.toggleBays(); }
       if(e.key==="j"||e.key==="J") this.jettisonBoosters();
       if(e.key==="r"||e.key==="R") this.igniteBoosters();
       if(e.key==="t"||e.key==="T") this.toggleSAS();
@@ -12273,24 +12351,37 @@ const Flight = {
     x.strokeText(txt, c.width/2+14, 25); x.fillText(txt, c.width/2+14, 25);
     return c;
   },
-  mkMarker(txt, color){
-    const c = this.markerCanvas(txt, color);
-    const m = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c), transparent:true, depthTest:false}));
-    m.userData.aspect = c.width/c.height;
-    m.visible = false; this.world.add(m); return m;
+  /* `named` = dieser Marker beschriftet ein OBJEKT und hängt damit am
+     Namens-Schalter [⇧O] (s. toggleMapNames). Ap/Pe/Δv/Begegnung gehören der
+     eigenen Bahn und bleiben davon unberührt. */
+  mkMarker(txt, color, named){
+    const m = new THREE.Sprite(new THREE.SpriteMaterial({transparent:true, depthTest:false}));
+    m.userData.named = !!named;
+    m.visible = false; this.world.add(m);
+    this.setMarkerLabel(m, txt, color);
+    return m;
   },
   /* Beschriftung eines BESTEHENDEN Markers austauschen (der Begegnungs-Marker
-     trägt den Namen des gewählten Ziels).
-     ⚠️ Die alte Textur muss disposed werden – sonst leckt jeder Zielwechsel
-     eine Canvas-Textur, und mit [Z] klickt man sich schnell durch zehn Ziele.
-     ⚠️ `userData.aspect` mitziehen: Ein längerer Name macht das Canvas breiter,
-     und `scaleMarker` rechnet die Sprite-Breite genau daraus. */
+     trägt den Namen des gewählten Ziels). */
   setMarkerLabel(m, txt, color){
-    const c = this.markerCanvas(txt, color);
+    m.userData.txt = txt; m.userData.color = color;   // Originaltext merken
+    this.drawMarker(m);
+  },
+  /* Marker-Textur (neu) zeichnen. Der NAME steht in userData und wird nur
+     WEGGELASSEN, nicht vergessen – sonst wäre er nach einmal [⇧O] für immer weg.
+     ⚠️ Die alte Textur muss disposed werden – sonst leckt jeder Zielwechsel und
+     jeder Druck auf [⇧O] eine Canvas-Textur.
+     ⚠️ `userData.aspect` mitziehen: Ein längerer Name macht das Canvas breiter,
+     und `scaleMarker` rechnet die Sprite-Breite genau daraus. Ohne Beschriftung
+     bleibt exakt der farbige Punkt übrig – die POSITION geht also nie verloren,
+     nur die Schrift. */
+  drawMarker(m){
+    const u = m.userData;
+    const c = this.markerCanvas((u.named && !this.mapNames) ? "" : u.txt, u.color);
     if(m.material.map) m.material.map.dispose();
     m.material.map = new THREE.CanvasTexture(c);
     m.material.needsUpdate = true;
-    m.userData.aspect = c.width/c.height;
+    u.aspect = c.width/c.height;
   },
   /* Kartenmarker skalieren: Höhe = ms/2, Breite folgt dem Canvas-Seitenverhältnis
      (der Punkt bleibt so immer exakt auf der Objektposition) */
@@ -12364,6 +12455,7 @@ const Flight = {
     this.booster = null; this.belly = null;
     this.statBoosterLanded = false; this.statBoosterRefund = 0;
     this.statLZLanded = false; this.statShipLanded = false; this.statCaught = false;
+    this.statComIncome = 0; this.statComN = 0; this.comReached = false;
     // Tutorial-Tanker aufräumen (setzt Tut.start bei Bedarf neu)
     if(this.tutTankerMesh){ this.world.remove(this.tutTankerMesh); this.tutTankerMesh = null; }
     this.tutTanker = null; this.refueled = false;
@@ -15130,7 +15222,7 @@ const Flight = {
       // sonst ein unsichtbarer Punkt im Nichts – mit mehreren geparkten Tankern
       // sieht man ohne Namensschild nicht, welchen man gerade anfliegt.
       const marker = this.mkMarker((ASSET_ICON[d.kind]||"🛰")+" "+(d.name||"Objekt"),
-        d.kind==="tanker" ? "#5fc46a" : d.kind==="wreck" ? "#e04b4b" : "#d8c39a");
+        d.kind==="tanker" ? "#5fc46a" : d.kind==="wreck" ? "#e04b4b" : "#d8c39a", true);
       this.assetObjs.push({d, mesh, marker});
     }
   },
@@ -16267,12 +16359,28 @@ const Flight = {
     const o = this.orbit();
     const stable = o.body===LEIBNIZ && o.pe>LEIBNIZ.atmoH && o.ap>0;
     if(stable) this.satL = true;
+    /* ⚠️⚠️ DIESELBEN Körper-Flags wie im Bausatz-Zweig (deploySat) – sie
+       fehlten hier komplett. Folge: Wer für »Monti-Satellit« einen fertigen
+       Satelliten mitnahm (also das Naheliegende), setzte ihn brav in den
+       Monti-Orbit und die Mission blieb offen; ausgelöst hätte sie nur der
+       Bausatz aus Sondenkern + Solar + Antenne (Bug-Report Simon). Welches
+       MODELL im Orbit hängt, darf für »ein Satellit umkreist Monti« keine
+       Rolle spielen – die Spezial-Bedingungen der Instrumente kommen weiter
+       unten obendrauf. */
+    if(o.body===MONTI && o.pe>0 && o.ap>0 && o.ap<MONTI.soi) this.satM = true;
     (this.satDeploys = this.satDeploys||[]).push(
       {body:o.body.name, pe:o.pe, ap:o.ap, inc:this.orbitInc(), pad:this.pad?this.pad.id:"lmg"});
     const left = this.v.stack.filter(id=>PARTS[id].type==="sat").length;
     let msg = (pez ? "📤 PEZ-Dispenser: " : "📡 ") + PARTS[satId].name + " ausgesetzt!";
     if(stable && this.orbitInc()>75){ this.satPolar = true; msg += " 🧭 Polarorbit!"; }
     if(o.body===LEIBNIZ && isGeoOrbit(o.pe, o.ap)) msg += " 🕗 Synchronbahn!";
+    if(satId==="satStd"){
+      /* Der Allzweck-Satellit stellt bewusst KEINE eigene Bedingung – er
+         meldet nur, ob die Bahn, in der er jetzt hängt, überhaupt hält. */
+      msg += (o.ap > 0 && o.pe > (o.body.atmoH||0))
+        ? " ✅ Stabile Bahn um "+o.body.name+" – Funkkontakt steht."
+        : " ⚠️ Das ist keine stabile Bahn um "+o.body.name+" – so kommt er wieder herunter!";
+    }
     if(satId==="satW"){
       if(stable){ this.satWeather = true; msg += " ☁️ Wetterdaten laufen ein!"; }
       else msg += " ⚠️ Kein stabiler Leibniz-Orbit – keine Wetterdaten!";
@@ -16339,7 +16447,7 @@ const Flight = {
           Game.satContracts.splice(Game.satContracts.indexOf(c), 1);
           topUpSatContracts();
           msg = "📡💰 AUFTRAG ERFÜLLT für "+c.firm+"! +🪙 "+c.cash+
-            " – der »Werbefunk« sendet ab jetzt Dauerwerbung (🪙 nach jedem Flug).";
+            " – der »Werbefunk« sendet ab jetzt Dauerwerbung: +"+COM_INCOME+" 🪙 nach jedem Flug über "+(COM_ALT_MIN/1000)+" km.";
         } else msg += " ⚠️ Passt zu KEINEM offenen Auftrag – in der Missionszentrale stehen die geforderten Orbits (Pe UND Ap müssen im Band liegen).";
       }
     }
@@ -16482,6 +16590,34 @@ const Flight = {
     this.showMsg(this.mapFocus
       ? "🔭 Kartenfilter AN – nur die eigene Bahn und die des Ziels. [⇧M] zurück."
       : "🔭 Kartenfilter aus – wieder alle Bahnen.", 3);
+  },
+  /* ---------- Objektnamen in der Karte ([⇧O]) ----------
+     Der Kartenfilter [⇧M] wirft alles außer dem Ziel HINAUS – das ist die
+     harte Variante. Oft will man aber alles sehen und nur die Schrift
+     loswerden: Zwischen Sonne, sechs Planeten, sieben Monden, vier
+     Kleinkörpern, der Station und jedem geparkten Objekt liegen zwei Dutzend
+     Namensfahnen übereinander, sobald man herauszoomt (Wunsch Simon).
+     ⚠️ Der farbige PUNKT bleibt IMMER stehen – er markiert die Position, und
+     genau die ist die Information, um die es in der Karte geht. Weg ist nur
+     die Beschriftung. Ap/Pe/Δv/Begegnung gehören zur eigenen Bahn und bleiben
+     ebenfalls (sie sind kurz, und ohne sie liest man seinen Orbit nicht mehr).
+     ⚠️ KEIN Reset in start(): Das ist eine reine Ansichts-Einstellung wie die
+     HUD-Stufe [H] – wem die Karte zu voll ist, dem ist sie das im nächsten
+     Flug genauso. */
+  toggleMapNames(){
+    this.mapNames = !this.mapNames;
+    this.applyMapNames();
+    this.showMsg(this.mapNames
+      ? "🏷️ Objektnamen in der Karte AN. [⇧O] blendet sie wieder aus."
+      : "🏷️ Objektnamen AUS – die farbigen Punkte bleiben. [⇧O] zurück.", 3);
+  },
+  /* Beschriftungen aller Objektmarker neu zeichnen (nach [⇧O]) */
+  applyMapNames(){
+    const upd = m => { if(m && m.userData.named) this.drawMarker(m); };
+    for(const bm of (this.bodyMarkers||[])) upd(bm.marker);
+    for(const ao of (this.astObjs||[]))     upd(ao.marker);
+    for(const o  of (this.assetObjs||[]))   upd(o.marker);
+    upd(this.stationMarker);
   },
   /* Bleibt dieser Körper im Kartenfilter sichtbar? (s. toggleMapFocus) */
   focusKeeps(b){
@@ -17440,12 +17576,15 @@ const Flight = {
       this.statRefund = stackCost(this.v.stack);
       Game.funds += this.statRefund;
     }
-    // 📡 Dauerwerbung: jeder Kommerz-Satellit im Orbit zahlt nach jedem Flug.
-    // ⚠️ NUR nach einem echten Start von der Rampe. Sonst wäre »Objekt im All
-    // übernehmen → sofort Flug beenden → wieder übernehmen« eine Gelddruck-
-    // maschine: der Flug kostet nichts, dauert zwei Klicks und zahlt jedes Mal.
+    /* 📡 Dauerwerbung: jeder Kommerz-Satellit im Orbit zahlt nach jedem Flug –
+       ABER nur nach einem Flug, der wirklich ins All ging (s. COM_INCOME).
+       ⚠️ Zwei Sperren, beide nötig: `fromAsset` fängt »Objekt im All
+       übernehmen → sofort beenden → wieder übernehmen« ab (kostet nichts,
+       zwei Klicks), die Höhe fängt den Mini-Hüpfer von der Rampe ab. */
     const nCom = (Game.assets||[]).filter(a=>a.kind==="sat" && a.com).length;
-    this.statComIncome = this.fromAsset ? 0 : nCom*40;
+    this.statComN = nCom;
+    this.comReached = this.statMaxAlt > COM_ALT_MIN;
+    this.statComIncome = (this.fromAsset || !this.comReached) ? 0 : nCom*COM_INCOME;
     if(this.statComIncome) Game.funds += this.statComIncome;
     const missionsDone = Game.done.length - this.statMissions;
     // Crew-Erfahrung: fliegen, Orbit, Docking, fremde Welten, heil zurück
@@ -17596,7 +17735,13 @@ const Flight = {
         <span>Startkosten</span><b style="color:var(--red)">−${this.launchCost||0} 🪙</b>
         <span>Bergung (Landung auf Leibniz)</span><b style="color:var(--green)">+${this.statRefund||0} 🪙</b>
         ${this.statBoosterRefund?`<span>Booster gelandet 🛬</span><b style="color:var(--green)">+${this.statBoosterRefund} 🪙</b>`:""}
-        ${this.statComIncome?`<span>Werbeeinnahmen (Kommerz-Sats) 📡</span><b style="color:var(--green)">+${this.statComIncome} 🪙</b>`:""}
+        ${this.statComIncome
+          ? `<span>Werbeeinnahmen (${this.statComN}× Kommerz-Sat) 📡</span><b style="color:var(--green)">+${this.statComIncome} 🪙</b>`
+          : this.statComN
+            ? `<span>Werbeeinnahmen (${this.statComN}× Kommerz-Sat) 📡</span><b style="color:var(--muted)">0 🪙 – ${
+                this.fromAsset ? "nur nach einem echten Start" :
+                "die Werbung zahlt erst ab "+(COM_ALT_MIN/1000)+" km Flughöhe"}</b>`
+            : ""}
         <span>Kontostand</span><b>🪙 ${Game.funds}</b>`}
       </div>`;
     const lbl = document.getElementById("modalNoShowLabel");
