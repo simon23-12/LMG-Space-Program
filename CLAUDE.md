@@ -682,8 +682,9 @@ die Antwort auf »wie macht KSP das?«:
 Bis August 2026 rechnete der Computer Zündzeitpunkt und Δv nur AUS – eintragen musste man
 beides über die ±-Knöpfe, und 1000 m/s sind 10 Klicks in der richtigen Zeile. Genau dort
 scheiterten schwächere Schüler*innen, obwohl sie alles verstanden hatten (Wunsch Simon).
-Knopf »🧭 Auto-Knoten [⇧K]« (nur mit Bordcomputer, im Flug, mit Planeten-/Mondziel –
-`updateButtons`). Nachjustieren von Hand bleibt möglich, ist nur nicht mehr Pflicht.
+Taste **[⇧K]** (braucht Bordcomputer, freien Flug und ein Planeten-/Mondziel; der frühere
+Knopf »🧭 Auto-Knoten« ist mit der Knopfleiste weggefallen – s. »Knopfleiste im Flug«).
+Nachjustieren von Hand bleibt möglich, ist nur nicht mehr Pflicht.
 - Zwei Fälle, genau die beiden, zu denen auch `travelPanel` rät: **noch im Parkorbit** →
   Hohmann-/Ejection-Burn am Zündpunkt (`tw.wait + ejectionWait`, prograde) · **schon
   unterwegs** → Bahnkorrektur auf halbem Weg zur Begegnung.
@@ -739,7 +740,7 @@ Knopf »🧭 Auto-Knoten [⇧K]« (nur mit Bordcomputer, im Flug, mit Planeten-/
 Der Computer rechnete bisher nur den HINWEG (Ejection + Korrektur). Am Ziel angekommen
 stand man mit einer Fluchtbahn da und musste den Bremsburn von Hand bauen – und [⇧K]
 antwortete dort sogar »Von hier aus gibt es kein Transferfenster, erst zurück nach
-Leibniz« (Wunsch Simon). Jetzt ist [⇧K] durchgehend derselbe Knopf: **erst Kurs, dann
+Leibniz« (Wunsch Simon). Jetzt ist [⇧K] durchgehend dieselbe Taste: **erst Kurs, dann
 Bremsen.** `planTransferNode` fragt deshalb ZUERST `captureSituation()`.
 - **Die Reihenfolge ist die eigentliche Logik**, nicht ein Detail: Einen Bremsburn kann man
   nicht ausrechnen, solange man noch bei Leibniz hängt. Drei Zustände:
@@ -785,11 +786,10 @@ Bremsen.** `planTransferNode` fragt deshalb ZUERST `captureSituation()`.
   Genauso, wenn der Kurs unterwegs schon sitzt: dann korrigiert [⇧K] NICHT weiter (der
   Abstieg würde die Periapsis nur immer tiefer legen – für Treibstoff), sondern nennt den
   nächsten Schritt.
-- ⚠️ `updateButtons` und `travelPanel` rufen `captureSituation(**true**)` – ohne eigene
-  Begegnungssuche (14 ms), es zählt nur die schon berechnete `this.encounter`. Beide laufen
-  pro Frame; gemessen 0,001 ms bzw. 0,041 ms. Der 🧭-Knopf erscheint dadurch auch OHNE
-  gewähltes Ziel: In der Sphäre fällt der Körper aus `targetList()`, dort ist der Knopf aber
-  am wichtigsten.
+- ⚠️ `travelPanel` ruft `captureSituation(**true**)` – ohne eigene Begegnungssuche (14 ms),
+  es zählt nur die schon berechnete `this.encounter`; es läuft pro Frame (gemessen 0,041 ms).
+  ⚠️ **[⇧K] wirkt auch OHNE gewähltes Ziel:** In der Sphäre fällt der Körper aus
+  `targetList()`, dort ist der Einfang-Burn aber am wichtigsten.
 - **Ganze Reise gemessen** (Starship, Sandbox, ∞-Tank): Monti 780 → Einfang 415 → Runden 101
   = **1296 m/s**, Endbahn 45 × 47 km · Minzi 1002 → Korrektur 432 → Einfang 846 → Runden 3
   = **2275 m/s**, Endbahn 1042 × 1054 km. Beide Male reine [⇧.]/[⇧K]-Abfolge ohne Handarbeit.
@@ -803,8 +803,8 @@ Spielzeit pro Bild heraus – **effektiv 24 000×**. Das Minzi-Fenster (34,7 Tag
 weit mehr (»selbst mit max vorspulen dauert das ewig«, Bug-Report Simon). Die
 Schrittweite hochzudrehen ist KEINE Option: Bei 790-s-Schritten auf einem 2 392-s-Umlauf
 zerfällt der Parkorbit (gemessen 1,4e10 m daneben).
-Also wie in KSP: über die Wartezeit **springen**. Knopf »⏭ Zum Startfenster / Zum
-Knoten / [⇧.]«. Ziel ist der Manöverknoten, sonst die Begegnung (wenn schon unterwegs),
+Also wie in KSP: über die Wartezeit **springen**, Taste **[⇧.]**.
+Ziel ist der Manöverknoten, sonst die Begegnung (wenn schon unterwegs),
 sonst das Startfenster – der Sprung hält immer mit etwas Vorlauf davor an.
 - ⚠️⚠️ **Zwei Verfahren, und die Wahl ist keine Geschmackssache.** Bevorzugt wird die
   n-Körper-**Integration** (`propagateTo`, `stepsFine`) – das ist exakt die Rechnung,
@@ -1164,7 +1164,7 @@ Was passiert, wenn ein Triebwerk auf den Boden zielt oder ein Stiefel ihn berüh
 Ein geparkter Tanker heißt **»Tanker ⛽ #1«, »#2« …** (`nextTankerName()` vergibt die
 KLEINSTE freie Nummer, ein verbrauchter gibt seine Nummer wieder her) und ist wie die
 Station über `targetList()` anwählbar: **[Z]** (überall – Vollgas liegt seit August 2026 auf
-⇧X, s. Tastenkürzel); dazu der Knopf »🎯 Ziel«. `targetInfo(tg)` liefert Ap/Pe (⚠️ alles läuft on rails auf KREISBAHNEN,
+⇧X, s. Tastenkürzel). `targetInfo(tg)` liefert Ap/Pe (⚠️ alles läuft on rails auf KREISBAHNEN,
 Ap = Pe – die Zeile sagt das auch so) und beim Tanker den **Restsprit, live aus
 `Game.assets`** statt aus dem targetList-Schnappschuss.
 - ⚠️⚠️ **Umgepumpt wird, was wirklich da ist.** Vorher machte JEDER Tanker die Tanks
@@ -1297,7 +1297,7 @@ Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher
   Principia-Bahnfarben, Bildvorlage Simon). Kostet nichts: Jeder Ring hat sein EIGENES
   `LineBasicMaterial`, und Farbe/Opacity lösen keine Shader-Neuübersetzung aus. Verifiziert:
   genau ein magenta Ring, folgt [Z] sofort, wird bei Ziel »Station« wieder grau.
-- **🔭 Kartenfilter »Nur Ziel« (`Flight.mapFocus` / `focusKeeps`, [⇧M] + Knopf):** blendet in
+- **🔭 Kartenfilter »Nur Ziel« (`Flight.mapFocus` / `focusKeeps`, [⇧M]):** blendet in
   der Karte alles aus außer der eigenen Bahn, der Bahn des Ziels und der des Körpers, in
   dessen Sphäre man steckt (Wunsch Simon). Weg sind: fremde Planetenringe und -marker,
   Kleinkörper samt Bahnen UND Kometenschweif (⚠️ `updateCometFx` setzt `visible` selbst –
@@ -1847,7 +1847,27 @@ Alles danach läuft über **Uniforms** – kein Puffer wird je neu hochgeladen (
 - ⚠️ Der Flug-Renderer hat `logarithmicDepthBuffer` → die `logdepthbuf`-Chunks sind in beiden
   Shadern PFLICHT. GLSL ES 1.00 (kein `inverse()`, keine dynamischen Loop-Grenzen).
 - Dazu weiterhin Funken-Partikel nach hinten (nur warp ≤ 2), ~28 % davon magenta.
-- **Kontext-Buttons:** `Flight.updateButtons()` (in drawHUD, pro Frame): blendet Booster[R/J]/Schirm/Fairing/Satellit/Panele/EVA/Bellyflop/Docken/Modul/Bucht/Experiment aus, wenn das Vehikel die Ausrüstung nicht hat (IDs btnBoostR/btnBoostJ/btnChute/btnFairing/btnSat/btnPanels/btnEva/btnBelly/btnDock/btnModul/btnBay/btnExp). Modul zusätzlich nur Karriere.
+- ⚠️⚠️ **Die Knopfleiste im Flug trägt nur noch DREI Knöpfe (August 2026, Wunsch Simon):**
+  `↩ Neustart`, `⚙️` und `Flug beenden` – also genau das, wofür es KEINE Taste gibt –, und sie
+  sitzt **oben rechts** statt unten in der Mitte. Vorher standen dort ~25 Knöpfe, die alle nur
+  eine Taste doppelten ([T], [M], [K], [N] …), auf drei bis vier Reihen quer über den unteren
+  Bildrand. »Die Schüler müssen die Tasten lernen«, und nachschlagen können sie sie seit dem
+  ⚙️-Knopf auch mitten im Flug (Optionen → ⌨️ Tastenbelegung – das ist jetzt die EINZIGE
+  Nachschlagestelle, s. `KEYMAP`).
+  - `Flight.updateButtons()` (in drawHUD, pro Frame) ist damit auf eine einzige Bedingung
+    geschrumpft (`btnRevert` nur in Sandbox/Tutorial) – die alte Ausrüstungs-Logik (Schirm nur
+    mit Fallschirm, Docken nur mit Andockring, bei EVA fast alles aus) ist ersatzlos weg. Sie
+    fehlt nirgends: Die Prüfungen stecken ohnehin in den Aktionen selbst ([P] ohne Schirm sagt,
+    dass keiner an Bord ist). Verifiziert: SAS/Panele/Schirm/Buchten/Beine/Ziel/Knoten/∞-Tank/
+    Warp/Foto/EVA/Karte/HUD-Stufen laufen fehlerfrei ohne jeden Knopf.
+  - ⚠️ **`Flight.layoutHud()`** schiebt `#hudRight` unter die Leiste (alle 400 ms gemessen, weil
+    `getBoundingClientRect` ein Layout erzwingt): Beide sitzen oben rechts, und die Leiste bricht
+    auf sehr schmalen Fenstern um. Ist sie ausgeblendet (HUD-Stufe [H], Fotomodus), rückt das
+    Panel wieder auf `top:12`.
+  - ⚠️ Mit raus ist der ⌨-Knopf für die HUD-Stufen (er trug selbst eine Taste im Namen);
+    `toggleControlsBar` meldet die erreichte Stufe jetzt als kurze Bildschirmmeldung.
+  - ⚠️ Wer hier Knöpfe ergänzt, prüft `layoutHud`, `NAV_BOTTOM` (der Navball sitzt jetzt unten
+    frei) und `_crewS` in `drawCrew` – die drei hingen alle an der alten Leiste.
 - **SRB-Anzeige getrennt:** Tank-Gauge/`fuelPct`/HUD-Zeile »Treibstoff« = NUR Flüssigtreibstoff; Feststoffbooster (inline `srb`, nicht drosselbar – brennen auch bei Schub 0 weiter, Tank bleibt voll!) haben eigene HUD-Zeile + teilen sich die orange Booster-Gauge mit dem Seitenbooster-Pool der aktiven Stufe.
 - **Hangar-Dateien:** `VAB.exportRockets()` (Download `lmg-raketen.json`) / `VAB.importRockets(file)` (Merge per Name über `VAB.mergeRockets`, filtert unbekannte Teile-IDs) – Buttons im Hangar-Modal + verstecktes `#rocketFile`-Input. Für Schüler*innen, die den PC wechseln.
 - **Der Spielstand-Download (`UI.saveGame`) nimmt den Hangar mit** (Feld `rockets`), `UI.loadGame` mischt ihn per `VAB.mergeRockets` zurück in den localStorage. Bewusst NUR in der Datei, nicht in `Game` – sonst schleppt jeder `autoSave()` eine zweite, veraltende Kopie aller Raketen mit; `loadGame` löscht das Feld deshalb vor `Object.assign`. Alte Saves ohne `rockets` lassen den Hangar in Ruhe (kein Leeren!).
@@ -1974,9 +1994,9 @@ Reaktionsräder und darf nicht pusten (verifiziert: 0 Partikel, Zischen 0).
     Wer eine der drei Stellen anfasst (Bilanz in `step()`, Guard in `warpToEvent`,
     `togglePanels`), fasst sie über diese Funktion an – vorher stand dreimal ein eigenes
     `filter(type==="solar")` da, und genau eine davon kannte den Sonderfall nicht.
-  - ⚠️ `btnPanels` hängt weiter an `has("solar")` – der Knopf ist zum AUSFAHREN da, und beim
-    Starship gibt es nichts auszufahren. [G] sagt das dort auch (»fest eingebaut«) statt
-    »keine an Bord«; ganz ohne Panele bleibt die alte Meldung.
+  - ⚠️ [G] ist zum AUSFAHREN da, und beim Starship gibt es nichts auszufahren – die Taste sagt
+    das dort auch (»fest eingebaut«) statt »keine an Bord«; ganz ohne Panele bleibt die alte
+    Meldung. (Den früheren `btnPanels`-Knopf gibt es nicht mehr, s. »Knopfleiste«.)
   - ⚠️ Die HUD-Anzeige (☀️ / 🌑 Schatten) hängt jetzt an `Flight.solarOn` (aktive Einheiten,
     gesetzt in `step()`, Reset in `start()`), NICHT mehr an `panelsOut` – sonst zeigt ein
     Starship seinen Ladezustand nie an.
@@ -2049,20 +2069,16 @@ zweiten Schiff, kurz genug, dass der Anzug spürbar eine Flasche ist und kein Zu
   Rettungsmission: hier gibt es kein Wrack zum Anfliegen). Ehrliche Physik wie überall im
   Spiel; davor stehen drei Warnungen, der Balken und der Warp-Deckel. Verifiziert: 6 → 5
   Crew, EVA beendet, Nachfüllen an Bord 0 → voll in 90 s.
-- ⚠️ **Die Knopfleiste wird bei EVA gefiltert** (Block am Ende von `updateButtons`): Als
-  Astronaut*in steuert man kein Schiff – Stufen, SAS, Bellyflop, ∞-Tank, Knoten, Ziel,
-  Zeitraffer & Co. sind dort Quatsch (Bug-Report Simon, Screenshot mit »Bellyflop« neben dem
-  laufenden Männchen). Übrig bleiben [V] einsteigen, 🚩 Flagge (am Boden), Karte, ⚙️ und
-  »Flug beenden«. ⚠️ Der Block steht am ENDE und überschreibt die Zeilen darüber; da
-  `updateButtons` pro Frame läuft, stellt sich nach dem Einsteigen alles von selbst wieder
-  her – nur `infBtn` braucht die explizite Sandbox-Zeile, weil es sonst niemand zurücksetzt.
+- ⚠️ Die frühere EVA-Filterung der Knopfleiste (»Bellyflop« und »∞ Tank« neben dem laufenden
+  Männchen, Bug-Report Simon) hat sich mit der Leiste selbst erledigt – sie trägt seit August
+  2026 nur noch Neustart/⚙️/Flug beenden, und die sind auch draußen im Anzug richtig.
 - **Flagge** `buildFlagMesh()` + `flagTexture()`: ⚠️ Das Logo wird auf ein Canvas GEMALT und
   nicht aus `LMGTECHlogo.png` geladen – per file:// darf WebGL keine Datei-Bilder als Textur
   benutzen (derselbe Grund wie bei `nebulae.js`). ⚠️ Die Fahne hängt an einer **Querstrebe**,
   genau wie bei Apollo 11: ohne Luft fällt ein Tuch am Mast schlaff herunter. Beliebte
   AG-Nachfrage – deshalb bewusst so gebaut.
 - [F] ist doppelt belegt: bei EVA am Boden Flagge, sonst Fairing (beides gleichzeitig gibt es
-  nie). `updateButtons` blendet `btnFlag`/`btnFairing` gegenseitig aus.
+  nie – der Zweig hängt an `eva.onGround`).
 
 ## 📸 Fotomodus [⇧F] (`Flight.photo` / `photoPan` / `savePhoto` / `fxT`)
 Drei Dinge zusammen, sonst ist es kein Fotomodus:
@@ -2107,8 +2123,8 @@ Drei Dinge zusammen, sonst ist es kein Fotomodus:
 - Dateiname `lmg-foto-JJJJMMTT-hhmmss.png`, Auflösung = Puffergröße des Renderers (mit
   Pixel-Ratio, gemessen 1167×999 auf einem 800×684-Fenster). Rückmeldung steht in der
   Foto-Leiste, nicht in `showMsg` – das HUD ist ja aus.
-- Erreichbar per **⇧F**, über den Knopf »📸 Foto [⇧F]« in der Knopfleiste (bleibt auch bei
-  EVA stehen) und in der Tastentabelle unter »Ansicht«.
+- Erreichbar per **⇧F** (der frühere Knopf »📸 Foto« ist mit der Knopfleiste weggefallen) und
+  nachschlagbar in der Tastentabelle unter »Ansicht«.
 
 ## 🧭 Navball (echte 3D-Kugel, `NAV_*` / `navballTexture` / `renderNavball` / `drawNavball`)
 Der Navball war ein gemalter Kreis mit waagerechtem Horizontstrich – flach, und Kurs/Neigung
@@ -2144,6 +2160,20 @@ der G-Kraft-Bogen, oben die Geschwindigkeit MIT Bezugssystem, unten Kurs/Neigung
   dem dunklen HUD praktisch unsichtbar. Schrift wird mit `cos(Neigung)` vorgestaucht (die
   Kugel streckt sie zu den Polen hin um 1/cos) und an der Naht (Kurs 270° = x 0) doppelt
   gezeichnet.
+- ⚠️⚠️ **…und GENAU deshalb sind die GRADZAHLEN dunkel** (`INK`, August 2026): Weiße Zahlen
+  verschmolzen im hellen Fleck der Kugel mit dem Untergrund (Bug-Report Simon). Das ist keine
+  Geschmacksfrage, sondern eine Richtungsfrage – Beleuchtung macht eine Fläche HELLER, und der
+  Himmel liegt am Horizont ohnehin bei (168|214|242). Weiße Schrift verliert also dort, wo man
+  am meisten hinsieht; dunkle GEWINNT dort. Am fertigen Bild nachgemessen (Pixel aus dem
+  Renderer, hellste Himmelsstelle (249|255|255)): weiß hätte **1,01:1** Kontrast – also gar
+  keinen –, die dunkle Tinte kommt auf **10,8:1**.
+  - ⚠️ **Am Licht allein liegt es nicht.** Die Beleuchtung ist zwar mit entschärft (Ambient
+    0,86 → 0,82, Richtungslicht 0,50 → 0,34, Summe jetzt 1,16 statt 1,36), die hellste Stelle
+    bleibt aber bei ~250. Wer die Zahlen wieder aufhellt, muss den Himmel mit abdunkeln – und
+    landet beim vorigen Absatz.
+  - Die vier Buchstaben N/O/S/W bleiben WEISS (doppelt so groß, sie sollen die Hauptmarken
+    sein) und bekommen stattdessen einen dunklen Rand (`strokeText`) – der trägt sie über
+    helle wie über dunkle Flächen.
 - ⚠️⚠️ **Der schräge Horizont beim Ost-Aufstieg ist KORREKT, kein Bug.** [A]/[D] drehen um die
   Rücken-Achse (`apply(V3(0,0,1))`), der Rücken bleibt beim Gravity Turn also nach Süden
   zeigen – die Bahnebene steht damit quer zum »Bildschirm-oben« des Balls, und der Horizont
@@ -2151,11 +2181,23 @@ der G-Kraft-Bogen, oben die Geschwindigkeit MIT Bezugssystem, unten Kurs/Neigung
   nur, wenn der Ost-Schwenk ein NICKEN wäre – dann müsste [D] etwas anderes tun, und das steht
   in Tutorials, Hilfetexten und `padQ`. Wer den Ball roll-stabilisieren will (Bildschirm-oben
   = Zenit statt Schiffsrücken), verliert dafür die Rollanzeige (Bauchlage, Andocken).
-- **Schubregler links** (`this.throttle`): aus der Gauge-Leiste hierher gewandert; dort stehen
-  nur noch die VORRÄTE (Tank, Booster, ⚡, 🫁). **G-Kraft rechts** (`this.gLoad`, Bogen bis 5 g,
-  grün/gelb/rot): ⚠️ Am BODEN ist das die Stützkraft des Untergrunds, nicht null – auf der
-  Rampe 1,0 g, auf Monti 0,17 g (`this.gLoad = g/G0` im `landed`-Zweig von `step()`). Genau
-  das würde eine Waage anzeigen.
+- **Zwei BÖGEN an der Kugel: SCHUB links, G-KRAFT rechts** – gleiche Dicke, gleicher Radius,
+  gleiche Öffnung (EINE Quelle: `arcSpan`/`arcR`), spiegelgleich zur Senkrechten. Der Schub war
+  bis August 2026 ein rechteckiger Balken daneben: das einzige eckige Element an einem runden
+  Instrument (Wunsch Simon). ⚠️ Spiegeln heißt beim Winkel **θ → π−θ**, der linke Bogen läuft
+  also von π−span nach π+span.
+  - ⚠️ Die FÜLLRICHTUNG ist bewusst NICHT gespiegelt: Der Schub ist ein Pegel und steigt von
+    UNTEN nach oben (wie der Balken vorher und wie jede Tankanzeige), die G-Kraft läuft wie
+    gehabt von oben nach unten.
+  - ⚠️ Die vier Beschriftungen liegen ohne Kasten direkt auf der Szene (das ist der Reiz –
+    sie kleben an der Kugel) und bekommen deshalb einen weichen dunklen Schatten; sonst
+    verschwindet »62 %« über heller Wiese. `glow(true/false)` immer paarweise, ein stehen
+    gebliebener Schatten legt sich sonst unter die Kästen darunter.
+  - **G-Kraft** (`this.gLoad`, Bogen bis 5 g, grün/gelb/rot): ⚠️ Am BODEN ist das die
+    Stützkraft des Untergrunds, nicht null – auf der Rampe 1,0 g, auf Monti 0,17 g
+    (`this.gLoad = g/G0` im `landed`-Zweig von `step()`). Genau das würde eine Waage anzeigen.
+  - Die Gauge-Leiste unten links trägt seit dem Umzug nur noch die VORRÄTE (Tank, Booster,
+    ⚡, 🫁).
 - **Geschwindigkeit oben MIT Bezugssystem** (`navRef`): Eine Geschwindigkeit ohne Bezug ist im
   Weltraum eine sinnlose Zahl – deshalb steht der Bezugskörper darüber, und die Zeile
   »Geschwindigkeit« ist aus der Info-Tafel oben links VERSCHWUNDEN. Ist ein Ziel gewählt und
@@ -2163,11 +2205,15 @@ der G-Kraft-Bogen, oben die Geschwindigkeit MIT Bezugssystem, unten Kurs/Neigung
   geschwindigkeit zu ihm – die Zahl, auf die es beim Andocken ankommt. ⚠️ Lange Namen werden
   gekürzt (»Raumstation »Große Pause«« → »Große Pause«, danach notfalls mit »…«), sonst läuft
   der Text aus dem Kasten.
-- ⚠️ **Position: der Navball weicht der KNOPFLEISTE aus** (`this.navBottom`, alle 400 ms aus
-  `getBoundingClientRect()`). Die Leiste bricht je nach Fensterbreite auf zwei bis vier Reihen
-  um; mit festem Abstand lag der Ball auf einem schmalen Laptop mitten unter den Knöpfen.
-  `#hudMsg` wird im selben Schritt darüber gesetzt – sonst deckt die Meldung die
-  Geschwindigkeitsanzeige zu.
+- **Kurs & Neigung unten** (`hb` = 146 px): ⚠️ Die ZAHLEN sind **rechtsbündig**, die Wörter
+  linksbündig. Mit linksbündigen Werten lief »NEIG −17°« rechts aus dem Kasten heraus
+  (Bug-Report Simon). Gerechnet ist der breiteste Fall – »359°« und »−90°« sind bei bold 13px
+  rund 30 px, in jeder Hälfte bleibt zwischen Wort und Zahl noch Luft.
+- **Position: `NAV_BOTTOM` = 14 px, eine KONSTANTE.** Bis August 2026 waren es 100 px, alle
+  400 ms nachgemessen, weil die Knopfleiste unten in der Mitte stand und je nach Fensterbreite
+  zwei bis vier Reihen hoch war. Die Leiste sitzt jetzt oben rechts (s. »Knopfleiste«), unten
+  ist frei – der Ball darf ganz nach unten, `#hudMsg` liegt fest auf `bottom:262px`
+  (= 14 + NAV_H + 16).
 - ⚠️ Gezeichnet wird NICHT im Fotomodus und nicht ab HUD-Stufe 2 (`renderNavball` steigt
   vorher aus): Die Kugel steckt im Bild des Renderers und stünde sonst mitten im
   gespeicherten Foto bzw. bliebe trotz ausgeblendetem Overlay sichtbar.
@@ -2183,7 +2229,8 @@ der G-Kraft-Bogen, oben die Geschwindigkeit MIT Bezugssystem, unten Kurs/Neigung
   sich über die Info-Tafel oben links (Bug-Report Simon, Screenshot Minzi-Anflug). Die 380 px
   sind die Breite der linken Tafel plus Rand, der zweite Wert deckelt die Zeilenlänge auf
   breiten Schirmen. Gemessene Lücke zwischen beiden Tafeln: 1000 px → 142 · 1280 px → 402 ·
-  1440 px → 562.
+  1440 px → 562. ⚠️ Sein `top` setzt seit August 2026 `Flight.layoutHud()` – darüber sitzt
+  jetzt die Knopfleiste (s. dort).
 - **Crew-Porträts (`#crewCam` / `drawCrew`) sitzen UNTEN RECHTS und klein** (`CREW_ICON_SCALE`
   0,62; darunter wird aus »Dr. Luca« ein grauer Strich). Oben rechts lagen sie über dem
   Reiseplaner – auf einem 13"-Laptop war von Transferfenster, Δv und Begegnung nichts mehr
@@ -2191,9 +2238,11 @@ der G-Kraft-Bogen, oben die Geschwindigkeit MIT Bezugssystem, unten Kurs/Neigung
   wird per `setTransform` – so bleibt jede Koordinate im Zeichencode unangetastet.
   ⚠️ `#nodeUI` sitzt zwar auch unten rechts, ist aber NUR in der Karte sichtbar, und dort
   blendet `drawCrew` die Porträts ohnehin aus. ⚠️ Die Leiste wird zusätzlich in den freien
-  Platz neben der (mittig stehenden, umbrechenden) Knopfleiste gequetscht: bei 1280 px ragte
-  sie sonst 19 px hinein. `_crewS` cacht das Ergebnis 500 ms – `getBoundingClientRect`
-  erzwingt ein Layout und `drawCrew` läuft in JEDEM Frame.
+  Platz neben dem NAVBALL gequetscht (`_crewS`, 500 ms gecacht, weil drawCrew in JEDEM Frame
+  läuft): Auf Porträt-Höhe steht dort sein Kurs/Neigung-Kasten, halbe Breite 73 px. Gerechnet
+  statt gemessen (`innerWidth/2 − 78 − 14`) – der Ball ist mittig verankert, seine Kante steht
+  also fest, und `getBoundingClientRect` erzwingt ein Layout. Bis August 2026 hing der Wert an
+  der Knopfleiste, die damals unten in der Mitte stand.
 - **`fmtDur` kennt Jahre** (ab 2 Jahren, bewusst 365 ERD-Tage – die Spieluhr zählt
   24-Stunden-Tage, ein Leibniz-Jahr wären 107 Tage und niemand rechnet das im Kopf um).
   Das Knoten-Panel zeigt »Zeit bis Knoten« damit als min/h/Tage/Jahre statt in **Sekunden** –
@@ -2204,13 +2253,17 @@ der G-Kraft-Bogen, oben die Geschwindigkeit MIT Bezugssystem, unten Kurs/Neigung
 ## Tastenkürzel
 (Im Spiel nachschlagbar: ⚙️ Optionen → **⌨️ Tastenbelegung**, `KEYMAP` in index.html.
 Wer hier etwas ändert, ändert es dort UND in tutorials.js mit.)
+⚠️⚠️ **Seit August 2026 ist die Tastatur die EINZIGE Bedienung im Flug** – die Knopfleiste
+trägt nur noch Neustart/⚙️/Flug beenden (s. »Knopfleiste im Flug«). Damit ist `KEYMAP` die
+einzige Nachschlagestelle für eine vergessene Taste; sie ist über ⚙️ auch mitten im Flug
+erreichbar. Eine Taste ohne Eintrag dort ist für die AG unauffindbar.
 Space Stufe · T SAS (off/pro/retro/[node]/[tgt]) · P Schirm · **F Fairing – bei EVA am Boden: 🚩 Flagge, ⇧F 📸 Fotomodus** · N Satellit · G Panele · **Y Landebeine ein/aus** · O Buchten · **R Booster zünden** · J Booster ab · **L Docken/Autopilot (<200 m)** · **I Modul einbauen** · **C Bellyflop (Starship)** · **V EVA (im All ODER gelandet – zu Fuß: WASD laufen, ↑ hüpfen)** · **K Knoten, ⇧K Auto-Knoten (Bordcomputer setzt den Transfer-Knoten selbst)** · B Experiment · **M Karte, ⇧M Kartenfilter »nur Ziel«** · U ∞Tank (Sandbox) · **H HUD (4-stufig: alles → Knopfleiste weg → Instrumente weg (Navball/Balken/Crew) → alles weg)** · **⇧F Fotomodus (Bild einfrieren, freie Kamera, [⏎] speichert PNG)** · Esc Pause · ,/. Warp, **⇧. = Zeitsprung zum Knoten/Startfenster** · WASD/QE drehen · ↑↓ Schub · **X Schub aus, ⇧X Vollgas** · **Z = Ziel wählen (IMMER: auf der Rampe das Startfenster, im Flug Station/Tanker/Planeten)**
 - ⚠️⚠️ **[Z] war bis August 2026 im Flug VOLLGAS und die Zielwahl brauchte ⇧Z** – »zu
   umständlich und verwirrend« (Simon), weil dieselbe Taste je nach Flugzustand etwas völlig
   anderes tat. Jetzt liegt der Schub komplett auf **[X]** (aus / ⇧ voll) und [Z] ist überall
   die Zielwahl. Ein freier Buchstabe für Vollgas existiert nicht – **alle 26 sind belegt** –,
   deshalb die Umschalt-Variante auf dem natürlichen Partner. Wer das nochmal anfasst: Die
-  Tastenhinweise stehen in `hudRight`, am `btnTarget`, in den INTRO/HINT-Texten von
+  Tastenhinweise stehen in `hudRight`, in `KEYMAP`, in den INTRO/HINT-Texten von
   index.html UND in tutorials.js (dort 7 Stellen »Vollgas«).
 
 ## Test-Workflow (immer so!)

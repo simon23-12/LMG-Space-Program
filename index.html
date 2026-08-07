@@ -129,12 +129,18 @@ button{cursor:pointer;font-family:inherit;}
    Bildschirm und liest sich schlecht. */
 #hudRight{top:12px;right:12px;text-align:right;max-width:min(640px, calc(100vw - 380px));}
 /* ⚠️ Über dem Navball-Element bleiben (dessen Oberkante liegt bei
-   NAV_BOTTOM + NAV_H ≈ 374 px) – sonst deckt die Meldung die
+   NAV_BOTTOM + NAV_H = 14 + 232 = 246 px) – sonst deckt die Meldung die
    Geschwindigkeitsanzeige zu. */
-#hudMsg{bottom:390px;z-index:6;left:50%;transform:translateX(-50%);font-size:18px;font-weight:700;
+#hudMsg{bottom:262px;z-index:6;left:50%;transform:translateX(-50%);font-size:18px;font-weight:700;
   color:var(--orange);display:none;text-align:center;}
-#hudControls{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
-#hudControls .btn{padding:8px 14px;font-size:13px;}
+/* ⚠️ Die Knopfleiste sitzt OBEN RECHTS, nicht mehr unten in der Mitte: Sie
+   trägt nur noch die drei Knöpfe ohne Tastenkürzel (s. #hudControls im HTML),
+   und unten ist damit Platz für den Navball. Das rechte HUD-Panel wird von
+   `Flight.layoutHud()` darunter geschoben – die Leiste bricht auf schmalen
+   Fenstern um, ein fester Abstand würde dort überlappen. */
+#hudControls{position:absolute;top:12px;right:12px;display:flex;gap:8px;flex-wrap:wrap;
+  justify-content:flex-end;max-width:calc(100vw - 24px);z-index:6;}
+#hudControls .btn{padding:7px 13px;font-size:12.5px;}
 #milestoneToast{top:70px;left:50%;transform:translateX(-50%);color:var(--green);font-weight:700;display:none;}
 #gauges{position:absolute;left:12px;bottom:12px;display:flex;gap:10px;}
 .gauge{display:flex;flex-direction:column;align-items:center;gap:4px;}
@@ -149,7 +155,7 @@ button{cursor:pointer;font-family:inherit;}
    Hintergrund oder ein border-radius würde die Kugel zudecken bzw. den
    Rahmen abschneiden. Maße/Position kommen aus NAV_W/NAV_H/NAV_BOTTOM und
    werden von drawNavball gesetzt – hier steht nur die Verankerung. */
-#navball{position:absolute;bottom:100px;left:50%;transform:translateX(-50%);
+#navball{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);
   z-index:3;pointer-events:none;}
 #hudControls.hidden{display:none !important;}
 /* ---- Fotomodus [⇧F] -------------------------------------------------------
@@ -391,8 +397,10 @@ input[type=file]{display:none;}
     <button class="btn" style="width:100%;margin-top:6px;padding:6px;font-size:12px;"
       onclick="Flight.removeNode()">Knoten löschen</button>
   </div>
-  <button id="hudToggle" class="btn" style="position:absolute;left:150px;bottom:12px;
-    padding:5px 10px;font-size:11px;z-index:5;opacity:.85;" onclick="Flight.toggleControlsBar()">⌨ [H]</button>
+  <!-- ⚠️ Der frühere ⌨-Knopf für die HUD-Stufen ist RAUS (er trug selbst eine
+       Taste im Namen, s. #hudControls). [H] meldet seine Stufe jetzt kurz als
+       Bildschirmtext – der verschwindet nach zwei Sekunden von allein und lässt
+       das Bild wirklich leer. -->
   <!-- ⚠️ Der Schubregler ist hier RAUS und sitzt jetzt links am Navball
        (wie in KSP, Wunsch Simon) – hier bleiben nur die Vorräte: Tank,
        (Booster), Strom und der Sauerstoff des Raumanzugs. -->
@@ -422,45 +430,24 @@ input[type=file]{display:none;}
     <div id="boosterCamView" style="width:380px;height:230px;"></div>
     <div id="boosterCamInfo" style="padding:4px 9px;font-size:11px;color:var(--muted);background:rgba(10,16,32,.92);"></div>
   </div>
+  <!-- ⚠️⚠️ NUR NOCH DIE DREI KNÖPFE OHNE TASTE (August 2026, Wunsch Simon).
+       Hier standen ~25 Knöpfe, die alle nur eine Taste doppelten ([T], [M],
+       [K], [N], …) – drei bis vier Reihen quer über den unteren Bildrand.
+       Die Tasten SOLLEN die Schüler*innen lernen, und nachschlagen können sie
+       sie seit dem ⚙️-Knopf auch mitten im Flug (Optionen → ⌨️ Tastenbelegung).
+       Übrig bleibt, wofür es keine Taste gibt: Neustart, Optionen, Flug beenden.
+       ⚠️ Wer hier einen Knopf ergänzt, prüft `Flight.layoutHud()` – das rechte
+       HUD-Panel wird unter diese Leiste geschoben, und die Leiste bricht auf
+       schmalen Fenstern um. -->
   <div id="hudControls">
-    <button class="btn" id="btnStage" onclick="Flight.stage()">Stufe [Leer]</button>
-    <button class="btn" id="sasBtn" onclick="Flight.toggleSAS()">SAS [T]</button>
-    <button class="btn" id="btnBoostR" onclick="Flight.igniteBoosters()">🔥 Booster [R]</button>
-    <button class="btn" id="btnBoostJ" onclick="Flight.jettisonBoosters()">Booster ab [J]</button>
-    <button class="btn" id="btnChute" onclick="Flight.toggleChute()">Schirm [P]</button>
-    <button class="btn" id="btnFairing" onclick="Flight.jettisonFairing()">Fairing [F]</button>
-    <button class="btn" id="btnSat" onclick="Flight.deploySat()">Satellit [N]</button>
-    <button class="btn" id="btnPanels" onclick="Flight.togglePanels()">☀️ Panele [G]</button>
-    <button class="btn" id="btnLegs" onclick="Flight.toggleLegs()">🦵 Beine [Y]</button>
-    <button class="btn" id="btnEva" onclick="Flight.toggleEVA()">🧑‍🚀 EVA [V]</button>
-    <button class="btn" id="btnFlag" onclick="Flight.plantFlag()">🚩 Flagge [F]</button>
-    <button class="btn" id="btnBelly" onclick="Flight.toggleBellyflop()">🤸 Bellyflop [C]</button>
-    <button class="btn" id="btnTarget" onclick="Flight.cycleTarget()">🎯 Ziel [Z]</button>
-    <button class="btn" id="btnDock" onclick="Flight.toggleDock()">🔗 Docken [L]</button>
-    <button class="btn" id="btnModul" onclick="Flight.installModule()">🏗 Modul [I]</button>
-    <button class="btn" id="btnBay" onclick="Flight.toggleBays()">📦 Bucht [O]</button>
-    <button class="btn" id="infBtn" style="display:none" onclick="Flight.toggleInfinite()">∞ Tank [U]</button>
-    <button class="btn" id="btnNode" onclick="Flight.addNode()">Manöver [K]</button>
-    <!-- Nur mit Bordcomputer UND Planeten-/Mondziel sichtbar (s. updateButtons) -->
-    <button class="btn" id="btnPlanNode" onclick="Flight.planTransferNode()">🧭 Auto-Knoten [⇧K]</button>
-    <button class="btn" id="btnExp" onclick="Flight.runExperiment()">Experiment [B]</button>
     <!-- ↩ Neustart gibt es NUR im Training/Tutorial (s. updateButtons): in der
          Karriere war er ein Freifahrtschein – Rakete verloren? Neustart drücken,
          und die abgebuchten Startkosten sind wieder da. -->
     <button class="btn" id="btnRevert" onclick="Flight.revert()">↩ Neustart</button>
-    <button class="btn" onclick="Flight.toggleMap()">Karte [M]</button>
-    <!-- Kartenfilter: nur eigene Bahn + Zielbahn (nur in der Karte, s. updateButtons) -->
-    <button class="btn" id="btnMapFocus" onclick="Flight.toggleMapFocus()">🔭 Nur Ziel [⇧M]</button>
-    <button class="btn" id="btnWarpDown" onclick="Flight.warpDown()">⏪ [,]</button>
-    <button class="btn" id="btnWarpUp" onclick="Flight.warpUp()">⏩ [.]</button>
-    <!-- Zeitsprung on rails; nur im freien Flug mit Ziel/Knoten (updateButtons) -->
-    <button class="btn" id="btnWarpTo" onclick="Flight.warpToEvent()">⏭ Zum Startfenster [⇧.]</button>
     <!-- ⚙️ auch MITTEN IM FLUG erreichbar: Grafikstufe, Lautstärke und die
          Tastentabelle braucht man genau dann, wenn es ruckelt oder eine Taste
          fehlt – und nicht erst nach dem Flug. Die Simulation steht solange
          still (s. UI.openOptions). -->
-    <!-- Fotomodus: bleibt auch beim Außeneinsatz stehen (s. updateButtons) -->
-    <button class="btn" id="btnPhoto" onclick="Flight.togglePhoto()" title="Bild einfrieren, Kamera frei, HUD aus">📸 Foto [⇧F]</button>
     <button class="btn" onclick="UI.openOptions()" title="Grafik, Lautstärke &amp; Tastenbelegung">⚙️</button>
     <button class="btn orange" onclick="Flight.endFlight()">Flug beenden</button>
   </div>
@@ -690,8 +677,12 @@ Settings.load();
    ⚠️ Bewusst READ-ONLY: In der AG sitzen zwei bis drei Kinder an einem
    Rechner, und eine still verstellte Belegung sieht man dem Spiel von außen
    nicht an – die nächste Gruppe hält es schlicht für kaputt. Außerdem nennen
-   Tutorials, Hinweistexte und die Knopfbeschriftungen die Tasten im Klartext;
-   frei belegbar müsste das alles mitziehen.
+   Tutorials und Hinweistexte die Tasten im Klartext; frei belegbar müsste das
+   alles mitziehen.
+   ⚠️ Seit die Knopfleiste im Flug auf drei Knöpfe geschrumpft ist (August
+   2026), ist DIESE Tabelle die einzige Stelle, an der man eine vergessene
+   Taste nachschlägt – erreichbar über ⚙️ auch mitten im Flug. Wer eine Taste
+   ändert, ändert sie hier zwingend mit.
    ⚠️ Das hier ist eine BESCHREIBUNG, keine zweite Quelle: Die Belegung selbst
    steht im keydown-Handler in Flight.init(). Wer dort etwas ändert, ändert es
    auch hier (und in tutorials.js). */
@@ -2524,7 +2515,8 @@ const HINTS = {
      <b>[T]</b> schaltet das <b>SAS</b> durch: Prograde halten → Retrograde halten → aus.
      Perfekt zum Zirkularisieren und Bremsen!<br>
      Maus ziehen = Kamera, Mausrad = Zoom, <b>[M]</b> = Orbitkarte.<br>
-     Alle Tasten auf einen Blick: <b>⚙️</b> unten in der Knopfleiste.`}
+     Gesteuert wird über die <b>Tastatur</b> – alle Tasten auf einen Blick
+     stehen hinter dem <b>⚙️</b> oben rechts (auch mitten im Flug).`}
 };
 function showHint(id){
   if(!HINTS[id] || localStorage.getItem("lmgHint_"+id)) return;
@@ -10579,9 +10571,12 @@ const SUN_SLEW = 0.05;                     // max. rad pro ECHTER Sekunde dazwis
 const NAV_W = 252, NAV_H = 232;      // Größe des HUD-Elements in CSS-Pixeln
 const NAV_CX = 126, NAV_CY = 130;    // Kugelmittelpunkt darin
 const NAV_R  = 67;                   // Kugelradius
-const NAV_BOTTOM = 100;              // Mindestabstand zum unteren Bildrand
-                                     // (der echte Wert weicht der Knopfleiste aus,
-                                     //  s. Flight.navBottom in renderNavball)
+/* Abstand zum unteren Bildrand. ⚠️ Bis August 2026 waren das 100 px, und der
+   Wert wurde pro Sekunde nachgemessen, weil die Knopfleiste unten in der Mitte
+   stand und je nach Fensterbreite zwei bis vier Reihen hoch war. Die Leiste
+   sitzt jetzt oben rechts (s. #hudControls) – unten ist frei, der Ball darf
+   ganz nach unten und die Zahl ist wieder eine Konstante. */
+const NAV_BOTTOM = 14;
 let _navTex = null;
 function navballTexture(){
   if(_navTex) return _navTex;
@@ -10619,26 +10614,44 @@ function navballTexture(){
   x.fillStyle = "#ffffff"; x.fillRect(0, YP(0)-2.5, W, 5);
   /* Beschriftung. ⚠️ Die Kugel STRECKT die Textur zu den Polen hin um
      1/cos(Neigung) – Schrift dort unkorrigiert aufgemalt wird breit und
-     unleserlich. Deshalb wird sie mit cos(Neigung) vorgestaucht. */
-  const label = (h, p, txt, font, col)=>{
+     unleserlich. Deshalb wird sie mit cos(Neigung) vorgestaucht.
+     ⚠️⚠️ Die GRADZAHLEN sind bewusst DUNKEL, die Himmelsrichtungen weiß:
+     Weiße Zahlen verschmolzen im hellen Fleck der Kugel mit dem Untergrund
+     (Bug-Report Simon). Das ist keine Geschmacksfrage, sondern eine
+     Richtungsfrage: Beleuchtung macht eine Fläche HELLER, und der Himmel
+     liegt am Horizont ohnehin schon bei (168|214|242). Weiße Schrift
+     verliert also genau dort, wo man am meisten hinsieht – dunkle GEWINNT
+     dort. Am fertigen Bild nachgemessen (Pixel aus dem Renderer, hellste
+     Himmelsstelle (249|255|255)): weiße Schrift hätte dort ein Kontrast-
+     verhältnis von **1,01:1** – also gar keins –, die dunkle Tinte kommt auf
+     **10,8:1**. Am Licht allein liegt es nicht: Auch mit der entschärften
+     Beleuchtung (s. buildNavball) bleibt die hellste Stelle bei ~250.
+     Die vier Buchstaben bleiben weiß (sie sind doppelt so groß und sollen
+     die Hauptmarken bleiben), bekommen dafür einen dunklen Rand – der trägt
+     sie über helle wie über dunkle Flächen. */
+  const INK = "rgba(12,30,52,.92)";      // dunkle Tinte der Gradzahlen
+  const label = (h, p, txt, font, col, out)=>{
     const px = XP(h), py = YP(p), k = Math.max(0.28, Math.cos(p*Math.PI/180));
     x.save(); x.translate(px, py); x.scale(k, 1);
     x.font = font; x.fillStyle = col; x.textAlign = "center"; x.textBaseline = "middle";
-    x.fillText(txt, 0, 0);
+    if(out){ x.strokeStyle = out[0]; x.lineWidth = out[1]; x.lineJoin = "round"; }
+    const put = ()=>{ if(out) x.strokeText(txt, 0, 0); x.fillText(txt, 0, 0); };
+    put();
     // am Rand ein zweites Mal, damit die Naht bei Kurs 270° nicht abschneidet
-    if(px < 60 || px > W-60){ x.translate((px<60 ? W : -W)/k, 0); x.fillText(txt, 0, 0); }
+    if(px < 60 || px > W-60){ x.translate((px<60 ? W : -W)/k, 0); put(); }
     x.restore();
   };
   for(const [h, L] of [[0,"N"],[90,"O"],[180,"S"],[270,"W"]])
-    label(h, 9.5, L, "bold 62px system-ui,sans-serif", "#ffffff");
+    label(h, 9.5, L, "bold 62px system-ui,sans-serif", "#ffffff",
+          ["rgba(8,20,38,.55)", 5]);
   for(let h=30; h<360; h+=30){
     if(h%90===0) continue;
-    label(h, 8.5, String(h), "bold 34px system-ui,sans-serif", "rgba(255,255,255,.92)");
+    label(h, 8.5, String(h), "bold 34px system-ui,sans-serif", INK);
   }
   // Neigungszahlen an den vier Hauptmeridianen
   for(const h of [0,90,180,270])
     for(const p of [-60,-30,30,60])
-      label(h, p, (p>0?"+":"")+p, "bold 30px system-ui,sans-serif", "rgba(255,255,255,.8)");
+      label(h, p, (p>0?"+":"")+p, "bold 30px system-ui,sans-serif", INK);
   // Pole: kleiner Kranz, damit Zenit/Nadir erkennbar bleiben
   for(const s of [1,-1]){
     x.strokeStyle = s>0 ? "rgba(190,225,255,.9)" : "rgba(255,210,170,.9)";
@@ -12051,7 +12064,6 @@ const Flight = {
     this.particles.forEach(p=>{ p.life=0; p.spr.visible=false; });
     this.updateNodeUI();
     this.camAz=0.5; this.camEl=0.18; this.camDist = Math.max(35, h*2.2);
-    document.getElementById("infBtn").style.display = Game.sandbox ? "" : "none";
     // Rakete & Rampe positionieren
     if(this.rocketGroup) this.scene.remove(this.rocketGroup);
     this.rocketGroup = buildRocketGroup(vessel.stack, this.v.fairingIntact);
@@ -12604,14 +12616,18 @@ const Flight = {
       this.photoPan.addScaledVector(d.normalize(), cd*0.018*(K.shift ? 4 : 1));
   },
   /* ---------- [H]: VIER Stufen statt drei ----------
-     Der Sprung von »Tastenleiste weg« direkt auf »alles weg« war zu grob
+     Der Sprung von »Knopfleiste weg« direkt auf »alles weg« war zu grob
      (Wunsch Simon): Wer ein ruhiges Bild will, aber Höhe und Bahn im Auge
      behalten muss, hatte keine Stufe dazwischen.
-       0 = alles · 1 = Tastenleiste weg · 2 = zusätzlich Instrumente weg
+       0 = alles · 1 = Knopfleiste weg · 2 = zusätzlich Instrumente weg
        (Navball, Tank/Strom, Crew) · 3 = alles weg · dann wieder 0.
      ⚠️ Stufe ≥ 2 blendet nicht nur das Canvas aus, sondern hält auch
      `renderNavball`/`drawNavball` an – die Kugel steckt IM Bild des
-     Renderers und wäre sonst weiter zu sehen. */
+     Renderers und wäre sonst weiter zu sehen.
+     ⚠️ Die erreichte Stufe steht als kurze Meldung im Bild: Der frühere
+     ⌨-Knopf, der sie als Beschriftung trug, ist mit der Knopfleiste
+     verschwunden – und ein Dauer-Knopf im »alles aus«-Modus wäre ohnehin
+     ein Widerspruch. */
   toggleControlsBar(){
     this.hudMode = ((this.hudMode||0)+1)%4;
     const m = this.hudMode;
@@ -12620,9 +12636,8 @@ const Flight = {
       document.getElementById(id).style.visibility = m>=2 ? "hidden" : "";
     for(const id of ["hudLeft","hudRight","nodeUI"])
       document.getElementById(id).style.visibility = m>=3 ? "hidden" : "";
-    const btn = document.getElementById("hudToggle");
-    btn.textContent = m===0 ? "⌨ [H]" : m===1 ? "⌨ Instrumente aus [H]" :
-                      m===2 ? "⌨ alles aus [H]" : "⌨ alles zeigen [H]";
+    this.showMsg("⌨ HUD: " + (m===0 ? "alles sichtbar" : m===1 ? "Knöpfe aus" :
+                 m===2 ? "Instrumente aus" : "alles aus") + " [H]", 1.6);
   },
   igniteBoosters(){
     if(!this.v || this.crashed || this.ended) return;
@@ -18363,25 +18378,8 @@ const Flight = {
     const fr = this.frameAt(this.pos);
     const mL = new THREE.Matrix4().makeBasis(fr.east, fr.up, fr.north);
     this.navBall.quaternion.setFromRotationMatrix(mV.multiply(mL));
-    /* ⚠️ Der Navball muss der KNOPFLEISTE ausweichen: die bricht je nach
-       Fensterbreite auf zwei oder drei Reihen um, und mit festem Abstand lag
-       er auf einem schmalen Laptop mitten unter den Knöpfen. Höhe alle 400 ms
-       messen (getBoundingClientRect erzwingt ein Layout) und nur, solange die
-       Leiste sichtbar ist – sonst spränge er beim Ausblenden nach unten. */
-    const now = performance.now();
-    if(!this._navBotAt || now - this._navBotAt > 400){
-      this._navBotAt = now;
-      const bh = document.getElementById("hudControls").getBoundingClientRect().height;
-      if(bh > 0){
-        this.navBottom = Math.max(NAV_BOTTOM, Math.round(14 + bh + 8));
-        document.getElementById("navball").style.bottom = this.navBottom + "px";
-        // Die Meldungszeile sitzt DARÜBER – sonst deckt sie die
-        // Geschwindigkeitsanzeige zu, sobald die Knopfleiste umbricht.
-        document.getElementById("hudMsg").style.bottom = (this.navBottom + NAV_H + 14) + "px";
-      }
-    }
     const R = NAV_R, x0 = w/2 - R;
-    const y0 = (this.navBottom || NAV_BOTTOM) + (NAV_H - NAV_CY) - R;
+    const y0 = NAV_BOTTOM + (NAV_H - NAV_CY) - R;
     const rd = this.renderer;
     rd.autoClear = false;
     rd.setViewport(x0, y0, 2*R, 2*R);
@@ -18408,9 +18406,14 @@ const Flight = {
     this.navScene.add(this.navBall);
     /* Viel Umgebungslicht, wenig Richtungslicht: Die Textur IST die
        Information – eine dunkle Seite würde Zahlen unlesbar machen. Das
-       bisschen Schattierung macht aus dem Kreis aber erst eine Kugel. */
-    this.navScene.add(new THREE.AmbientLight(0xffffff, 0.86));
-    const dl = new THREE.DirectionalLight(0xffffff, 0.5);
+       bisschen Schattierung macht aus dem Kreis aber erst eine Kugel.
+       ⚠️ Summe unter ~1,2 halten (vorher 0,86 + 0,50 = 1,36): Der helle
+       Himmel am Horizont (168|214|242) lief damit auf (228|255|255) aus –
+       ein weißer Fleck, in dem die Beschriftung verschwand. Zusammen mit
+       den dunklen Gradzahlen (s. navballTexture) ist der Ball dort jetzt
+       wieder lesbar, ohne seine Rundung zu verlieren. */
+    this.navScene.add(new THREE.AmbientLight(0xffffff, 0.82));
+    const dl = new THREE.DirectionalLight(0xffffff, 0.34);
     dl.position.set(-0.45, 0.8, 1.1);
     this.navScene.add(dl);
   },
@@ -18545,17 +18548,19 @@ const Flight = {
        wird nur per setTransform verkleinert – so bleibt jede Koordinate unten
        unverändert, und die Porträts belegen bei 6 Leuten statt 524 px nur
        noch 320 px unten rechts (s. #crewCam im HTML).
-       ⚠️ Zusätzlich wird sie in den FREIEN Platz neben der Knopfleiste
-       gequetscht: Die steht mittig unten und wächst auf schmalen Fenstern in
-       die Breite – bei 1280 px ragte die 6-Personen-Leiste sonst 19 px in sie
-       hinein. `_crewS` cacht das Ergebnis (getBoundingClientRect erzwingt ein
-       Layout, und drawCrew läuft in JEDEM Frame). */
+       ⚠️ Zusätzlich wird sie in den FREIEN Platz neben dem NAVBALL gequetscht:
+       Der steht mittig unten, und auf Höhe der Porträts liegt dort sein
+       Kurs/Neigung-Kasten (halbe Breite 73 px). Bei 1280 px ragte die
+       6-Personen-Leiste sonst in ihn hinein. `_crewS` cacht das Ergebnis, weil
+       drawCrew in JEDEM Frame läuft.
+       ⚠️ Gemessen wird NICHTS mehr per getBoundingClientRect (das erzwingt ein
+       Layout): Der Navball ist mittig verankert, seine rechte Kante steht
+       damit rechnerisch fest. Früher hing der Wert an der Knopfleiste – die
+       stand unten in der Mitte und ist seit August 2026 oben rechts. */
     const now = performance.now();
     if(!this._crewS || now - (this._crewSAt||0) > 500){
       this._crewSAt = now;
-      const ctl = document.getElementById("hudControls");
-      const free = (ctl && ctl.offsetParent)
-        ? window.innerWidth - 20 - ctl.getBoundingClientRect().right : 1e9;
+      const free = window.innerWidth/2 - 78 - 14;   // 73 px Kasten + Luft
       this._crewS = Math.max(0.40,
         Math.min(CREW_ICON_SCALE, free/(20 + this.crew.length*84)));
     }
@@ -18706,8 +18711,7 @@ const Flight = {
     x.moveTo(cx,cy); x.lineTo(cx,cy+8);
     x.stroke(); x.lineCap = "butt";
 
-    // ---- links: SCHUB (aus der Gauge-Leiste hierher gewandert)
-    const gx0 = 26, gy0 = 66, gw = 20, gh = 128;
+    // ---- abgerundeter Kasten (Geschwindigkeit oben, Kurs/Neigung unten)
     const rr = (px,py,pw,ph,r)=>{
       x.beginPath();
       x.moveTo(px+r,py); x.lineTo(px+pw-r,py); x.quadraticCurveTo(px+pw,py,px+pw,py+r);
@@ -18716,28 +18720,52 @@ const Flight = {
       x.lineTo(px,py+r); x.quadraticCurveTo(px,py,px+r,py);
       x.closePath();
     };
-    rr(gx0,gy0,gw,gh,5); x.fillStyle = "rgba(10,16,32,.82)"; x.fill();
-    x.strokeStyle = "#1c2b4d"; x.lineWidth = 1; x.stroke();
+
+    /* ---- links: SCHUB – als BOGEN an der Kugel, spiegelgleich zur G-Kraft
+       Vorher ein rechteckiger Balken daneben: das einzige eckige Element an
+       einem runden Instrument, und es schob den Ball optisch aus der Mitte
+       (Wunsch Simon). ⚠️ Spiegeln heißt beim Winkel θ → π−θ, der linke Bogen
+       läuft also von π−span nach π+span; Radius, Dicke und Öffnung sind
+       exakt dieselben Zahlen wie rechts (EINE Quelle: arcSpan/arcR).
+       ⚠️ Die FÜLLRICHTUNG ist bewusst nicht gespiegelt: Der Schub ist ein
+       Pegel und steigt von UNTEN nach oben – wie der Balken vorher und wie
+       jede Tankanzeige. Die G-Kraft läuft wie gehabt von oben nach unten. */
+    const arcSpan = Math.PI*0.35, arcR = R + 17;
     const thr = THREE.MathUtils.clamp(this.throttle || 0, 0, 1);
-    if(thr > 0.001){
-      x.save(); rr(gx0,gy0,gw,gh,5); x.clip();
-      const tg = x.createLinearGradient(0,gy0+gh,0,gy0);
+    /* ⚠️ Die vier Beschriftungen der Bögen liegen OHNE Kasten direkt auf der
+       Szene (das ist der Reiz dieser Anzeige – sie klebt an der Kugel). Über
+       heller Wiese oder hellem Himmel verlieren sie sich dort; ein weicher
+       dunkler Schatten kostet nichts und trägt sie über jeden Untergrund.
+       ⚠️ Immer paarweise mit `glow(false)` abschalten – ein stehen gebliebener
+       Schatten legt sich sonst auch unter die Kästen weiter unten. */
+    const glow = on => { x.shadowColor = on ? "rgba(4,8,18,.9)" : "transparent";
+                         x.shadowBlur  = on ? 4 : 0; };
+    x.lineWidth = 8; x.lineCap = "round";
+    x.strokeStyle = "rgba(255,255,255,.18)";        // Skala immer sichtbar
+    x.beginPath(); x.arc(cx, cy, arcR, Math.PI-arcSpan, Math.PI+arcSpan); x.stroke();
+    if(thr > 0.002){
+      const tg = x.createLinearGradient(0, cy+arcR, 0, cy-arcR);
       tg.addColorStop(0,"#c46a08"); tg.addColorStop(1,"#f7941d");
-      x.fillStyle = tg; x.fillRect(gx0, gy0+gh*(1-thr), gw, gh*thr);
-      x.restore();
+      x.strokeStyle = tg;
+      x.beginPath();
+      x.arc(cx, cy, arcR, Math.PI-arcSpan, Math.PI-arcSpan + 2*arcSpan*thr);
+      x.stroke();
     }
-    /* Die Marke für die Landereserve gehört mit an den Schubregler – sie
-       stand bisher an der Tank-Gauge, und dort bleibt sie auch (das ist die
-       Treibstoffmarke). Hier zeigt nur die Prozentzahl, wie weit offen ist. */
+    x.lineCap = "butt";
+    // Beschriftung spiegelbildlich zur G-Kraft: Wort senkrecht am Bogen,
+    // Zahl auf gleicher Höhe wie dort – so bleibt die Bogenöffnung frei.
+    glow(true);
     x.save();
-    x.translate(gx0+gw/2, gy0+gh/2); x.rotate(-Math.PI/2);
-    x.fillStyle = "rgba(255,255,255,.72)"; x.font = "bold 10px system-ui,sans-serif";
+    x.translate(cx - arcR - 11, cy); x.rotate(-Math.PI/2);
+    x.fillStyle = "rgba(255,255,255,.6)"; x.font = "bold 10px system-ui,sans-serif";
     x.textAlign = "center"; x.textBaseline = "middle";
     x.fillText("SCHUB", 0, 0);
     x.restore();
-    x.fillStyle = "#e8ecf5"; x.font = "bold 10px system-ui,sans-serif";
-    x.textAlign = "center"; x.textBaseline = "middle";
-    x.fillText(Math.round(thr*100)+"%", gx0+gw/2, gy0+gh+9);
+    x.textAlign = "left"; x.textBaseline = "middle";
+    x.fillStyle = thr > 0.002 ? "#f7941d" : "rgba(232,236,245,.7)";
+    x.font = "bold 14px system-ui,sans-serif";
+    x.fillText(Math.round(thr*100)+"%", 4, cy + arcR*0.78);
+    glow(false);
 
     /* ---- rechts: G-KRAFT (wie in KSP)
        `gLoad` ist die SPÜRBARE Beschleunigung (Triebwerk + Luftwiderstand,
@@ -18745,7 +18773,7 @@ const Flight = {
        Crew in den Sitz drückt. Bogen wie im Original, dazu die Zahl. */
     const gLoad = this.gLoad || 0;
     const gCol = gLoad >= 4 ? "#ff5c5c" : gLoad >= 2.5 ? "#ffc93c" : "#5fc46a";
-    const gA0 = -Math.PI*0.35, gA1 = Math.PI*0.35, gR = R + 17;
+    const gA0 = -arcSpan, gA1 = arcSpan, gR = arcR;
     x.lineWidth = 8; x.lineCap = "round";
     x.strokeStyle = "rgba(255,255,255,.18)";      // Skala bis 5 g immer sichtbar
     x.beginPath(); x.arc(cx,cy,gR,gA0,gA1); x.stroke();
@@ -18757,6 +18785,7 @@ const Flight = {
     x.lineCap = "butt";
     // Beschriftung spiegelbildlich zum Schubregler: Wort senkrecht am Bogen,
     // Zahl darunter – so bleibt die Bogenöffnung frei und nichts überlappt.
+    glow(true);
     x.save();
     x.translate(cx + gR + 11, cy); x.rotate(-Math.PI/2);
     x.fillStyle = "rgba(255,255,255,.6)"; x.font = "bold 10px system-ui,sans-serif";
@@ -18766,6 +18795,7 @@ const Flight = {
     x.textAlign = "right"; x.textBaseline = "middle";
     x.fillStyle = gCol; x.font = "bold 14px system-ui,sans-serif";
     x.fillText(gLoad.toFixed(1)+" g", NAV_W-4, cy + gR*0.78);
+    glow(false);
 
     /* ---- oben: Geschwindigkeit MIT Bezugssystem
        Eine Geschwindigkeit ohne Bezug ist im Weltraum eine sinnlose Zahl –
@@ -18799,17 +18829,23 @@ const Flight = {
       heading = THREE.MathUtils.radToDeg(Math.atan2(hor.dot(fr.east), hor.dot(fr.north)));
       if(heading < 0) heading += 360;
     }
-    rr(NAV_W/2-58, NAV_H-30, 116, 26, 6);
+    /* ⚠️ Die ZAHLEN sind RECHTSbündig und der Kasten ist 146 statt 116 breit:
+       Mit linksbündigen Werten lief »NEIG −17°« rechts aus dem Kasten heraus
+       (Bug-Report Simon). Gerechnet mit dem breitesten Fall – Kurs »359°«
+       und Neigung »−90°« sind bei bold 13px rund 30 px – bleibt in jeder
+       Hälfte zwischen Wort und Zahl noch Luft. */
+    const hb = 146, hx = NAV_W/2 - hb/2;
+    rr(hx, NAV_H-30, hb, 26, 6);
     x.fillStyle = "rgba(10,16,32,.86)"; x.fill();
     x.strokeStyle = "#1c2b4d"; x.lineWidth = 1.5; x.stroke();
     x.fillStyle = "rgba(255,255,255,.55)"; x.font = "9px system-ui,sans-serif";
-    x.textAlign = "left"; x.fillText("KURS", NAV_W/2-51, NAV_H-17);
+    x.textAlign = "left";
+    x.fillText("KURS", hx+7, NAV_H-17);
+    x.fillText("NEIG", NAV_W/2+6, NAV_H-17);
     x.fillStyle = "#5fc46a"; x.font = "bold 13px system-ui,sans-serif";
-    x.fillText(heading.toFixed(0).padStart(3,"0")+"°", NAV_W/2-24, NAV_H-16);
-    x.fillStyle = "rgba(255,255,255,.55)"; x.font = "9px system-ui,sans-serif";
-    x.fillText("NEIG", NAV_W/2+14, NAV_H-17);
-    x.fillStyle = "#5fc46a"; x.font = "bold 13px system-ui,sans-serif";
-    x.fillText((pitch>=0?"+":"")+pitch.toFixed(0)+"°", NAV_W/2+40, NAV_H-16);
+    x.textAlign = "right";
+    x.fillText(heading.toFixed(0).padStart(3,"0")+"°", NAV_W/2-10, NAV_H-16);
+    x.fillText((pitch>=0?"+":"−")+Math.abs(pitch).toFixed(0)+"°", hx+hb-7, NAV_H-16);
     x.textBaseline = "alphabetic";
   },
   /* Bezugssystem der angezeigten Geschwindigkeit: normal der Körper, in
@@ -18829,90 +18865,43 @@ const Flight = {
     return {name: (BODY_ICON[b.name] || "") + " " + b.name, col: "#5fc46a",
       v: this.vel.clone().sub(bodyVel(b, this.t)).length()};
   },
-  /* Nur Buttons zeigen, die zum aktuellen Vehikel passen – ohne Fallschirm
-     braucht niemand einen Schirm-Knopf (weniger Overwhelm für Klasse 8) */
+  /* ---------- Die drei verbliebenen Knöpfe ----------
+     ⚠️⚠️ Hier wurden bis August 2026 rund 25 Kontext-Knöpfe ein- und ausge-
+     blendet (Schirm nur mit Fallschirm, Docken nur mit Andockring, bei EVA
+     fast alles aus …). Die Leiste trägt jetzt nur noch das, wofür es KEINE
+     Taste gibt (s. #hudControls im HTML), also bleibt genau eine Bedingung
+     übrig. Die Ausrüstungs-Prüfungen sind deshalb nicht verschwunden – sie
+     liegen dort, wo sie ohnehin schon lagen: in den Aktionen selbst ([P] ohne
+     Schirm meldet, dass keiner an Bord ist). Wer die Leiste wieder wachsen
+     lässt, holt die Sichtbarkeits-Logik hierher zurück. */
   updateButtons(){
-    const st = this.v ? this.v.stack : [];
-    const has = type => st.some(id=>PARTS[id].type===type);
-    const show = (id, on)=>{
-      const el = document.getElementById(id);
-      if(el) el.style.display = on ? "" : "none";
-    };
-    const anyBoost = this.v && this.v.segs.some(sg=>sg.boost && sg.boost.attached);
-    show("btnBoostR", anyBoost);
-    show("btnBoostJ", anyBoost);
-    show("btnChute", has("chute"));
-    const evaGround = !!(this.eva && this.eva.onGround);
-    show("btnFairing", !!(this.v && this.v.fairingIntact) && !evaGround);
-    show("btnFlag", evaGround);
-    show("btnSat", has("sat") || st.includes("probe"));
-    show("btnPanels", has("solar"));
-    show("btnLegs", has("legs"));
-    show("btnEva", this.crew.length > 0);
-    show("btnBelly", st.some(id=>PARTS[id].type==="starship" && PARTS[id].flaps));
-    show("btnDock", has("dock"));
-    // 🎯 Ziel wechseln: nur sinnvoll, wenn es überhaupt mehr als eines gibt
-    // (Station + jeder geparkte Tanker) und man nicht gerade angedockt ist.
-    // ⚠️ NICHT targetList() aufrufen – updateButtons läuft pro Frame und würde
-    // sonst pro Ziel zwei Closures wegwerfen. Zählen reicht.
-    const onPad = this.landed && !this.flew;
-    // 🎯 Ziel: bei Tankern in der Nähe – und im Flug immer, sobald ein
-    // Bordcomputer an Bord ist (dann gibt es Planeten-Ziele zu wählen).
-    show("btnTarget", !evaGround && !this.docked &&
-      (!!this.tutTanker || (!this.landed && this.hasNavComp()) ||
-       (Game.assets||[]).some(a=>a.kind==="tanker" && a.body==="LEIBNIZ")));
-    const bt = document.getElementById("btnTarget");
-    if(bt && bt.textContent!=="🎯 Ziel [Z]") bt.textContent = "🎯 Ziel [Z]";
-    // 🧭 Auto-Knoten: nur mit Bordcomputer, im Flug und mit gewähltem
-    // Planeten-/Mondziel – sonst gäbe es nichts zu berechnen.
-    const bodyTgt = !!(this.target && this.target.kind === "body");
-    /* 🧭 auch OHNE gewähltes Ziel: In der Sphäre der fremden Welt fällt das
-       Ziel aus der Liste (targetList lässt den Körper weg, in dem man steckt) –
-       dort ist der Knopf aber am wichtigsten, denn jetzt kommt der Einfang-Burn.
-       ⚠️ `cheap`, weil updateButtons in JEDEM Frame läuft: keine eigene
-       Begegnungssuche (14 ms), nur die schon berechnete `this.encounter`. */
-    show("btnPlanNode", !this.landed && !evaGround && this.hasNavComp() &&
-      (bodyTgt || !!this.captureSituation(true)));
-    // ⏭ Zeitsprung: braucht ein Ziel in der Zukunft (Knoten oder Zündpunkt)
-    const hasNode = !!(this.node && this.node.t > this.t + 5);
-    show("btnWarpTo", !this.landed && !this.eva && !this.docked &&
-      (hasNode || (this.hasNavComp() && bodyTgt)));
-    const wb = document.getElementById("btnWarpTo");
-    const wt = hasNode ? "⏭ Zum Knoten [⇧.]" : "⏭ Zum Startfenster [⇧.]";
-    if(wb && wb.textContent !== wt) wb.textContent = wt;
-    show("btnModul", !Game.sandbox && has("dock"));
-    show("btnBay", has("bay"));
-    show("btnExp", has("lab"));
     // ↩ Neustart nur im Training/Tutorial. In der Karriere hat er den kompletten
     // Geld- und Missionsdruck ausgehebelt: Rakete verglüht, Mission verpatzt,
     // Booster zerschellt → Neustart drücken und alles ist ungeschehen, inklusive
     // der bereits abgebuchten Startkosten. Wer in der Karriere neu anfangen will,
     // beendet den Flug ganz normal (mit Konsequenzen) und baut wieder auf.
-    show("btnRevert", Game.sandbox || !!(typeof Tut!=="undefined" && Tut.active));
-    /* ---------- Draußen im Anzug ----------
-       ⚠️ Als Astronaut*in steuert man kein Schiff: Stufen, SAS, Bellyflop,
-       Knoten, Zeitraffer & Co. sind dort schlicht Quatsch (Bug-Report Simon,
-       Screenshot mit »Bellyflop« und »∞ Tank« neben dem laufenden Männchen).
-       Übrig bleibt, was die Person selbst tun kann: einsteigen, Flagge
-       aufstellen, Karte lesen – dazu ⚙️ und »Flug beenden«.
-       Der Block steht am ENDE und überschreibt die Zeilen darüber; alle
-       betroffenen Knöpfe werden im nächsten Frame regulär wiederhergestellt,
-       weil updateButtons pro Frame läuft. */
-    for(const id of ["btnStage","sasBtn","btnNode","btnWarpUp","btnWarpDown"])
-      show(id, !this.eva);
-    // 🔭 Kartenfilter: nur in der Karte und nur mit gewähltem Ziel sinnvoll
-    show("btnMapFocus", this.map && !!this.target && !this.eva);
-    const mf = document.getElementById("btnMapFocus");
-    const mft = this.mapFocus ? "🔭 Alle Bahnen [⇧M]" : "🔭 Nur Ziel [⇧M]";
-    if(mf && mf.textContent !== mft) mf.textContent = mft;
-    if(this.eva){
-      for(const id of ["btnBoostR","btnBoostJ","btnChute","btnFairing","btnSat","btnPanels",
-                       "btnLegs","btnBelly","btnTarget","btnDock","btnModul","btnBay",
-                       "btnPlanNode","btnExp","btnWarpTo","btnRevert","infBtn"])
-        show(id, false);
-      show("btnEva", true);          // [V] = einsteigen – der wichtigste Knopf da draußen
-      show("btnFlag", evaGround);
-    } else if(Game.sandbox) show("infBtn", true);
+    const rv = document.getElementById("btnRevert");
+    if(rv) rv.style.display =
+      (Game.sandbox || !!(typeof Tut!=="undefined" && Tut.active)) ? "" : "none";
+    this.layoutHud();
+  },
+  /* ---------- Das rechte HUD-Panel unter die Knopfleiste schieben ----------
+     Beide sitzen oben rechts. Die Leiste ist meistens eine Reihe hoch, bricht
+     aber um, sobald das Fenster schmal wird – mit festem Abstand läge der
+     Reiseplaner dann unter den Knöpfen. Ist die Leiste weg (HUD-Stufe [H],
+     Fotomodus), rückt das Panel wieder ganz nach oben.
+     ⚠️ Alle 400 ms messen, nicht pro Frame: `getBoundingClientRect` erzwingt
+     ein Layout (dieselbe Überlegung wie bei `_crewS` in drawCrew). */
+  layoutHud(){
+    const now = performance.now();
+    if(this._hudLayoutAt && now - this._hudLayoutAt < 400) return;
+    this._hudLayoutAt = now;
+    const bar = document.getElementById("hudControls"),
+          hr  = document.getElementById("hudRight");
+    if(!bar || !hr) return;
+    const bh = bar.offsetParent ? bar.getBoundingClientRect().height : 0;
+    const top = (bh > 0 ? Math.round(12 + bh + 8) : 12) + "px";
+    if(hr.style.top !== top) hr.style.top = top;
   },
   drawHUD(){
     this.updateButtons();
