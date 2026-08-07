@@ -1287,6 +1287,15 @@ aktive Stufe `ignited=true` bei `throttle=0`, `launchCost=0`.
 - Cap 8 für `kind:"ship"`, weil `spawnAssets` jedem Objekt ein **echtes** `buildRocketGroup`-Mesh
   gibt (Ursprung = Unterkante → `position.y = -stackHeight/2`, sonst hängt der Marker am Fuß).
 - **Missionszentrale:** `renderMissionControl()` hängt an den Missions-Screen Sektionen für Station/Kader/Funknetz/Entdeckungen/Orbit-Inventar an. 10 neue Missionen: relay1/relay3, mod* (5), anomaly1, rescue1.
+- **✅ Erledigt ist EINKLAPPBAR und startet zugeklappt** (`MIS_FOLDED`, 3. Feld der
+  `sections`-Zeilen in `renderMissions`; Klick auf die Überschrift schaltet um, ▸/▾ + Anzahl
+  im Titel). In einer laufenden Karriere sind das schnell 20+ Karten, und der Abschnitt liegt
+  MITTEN in der Liste – »Noch gesperrt« stand dahinter weit außerhalb des Bildes (Wunsch
+  Simon). Zugeklappt werden die Karten gar nicht erst gebaut. Verifiziert mit 12 erledigten
+  Missionen: 53 Karten zugeklappt ↔ 65 aufgeklappt, Umschalten in beide Richtungen.
+  ⚠️ `MIS_FOLDED` ist reiner ANSICHTS-Zustand und gehört NICHT in den Spielstand – nach einem
+  Neustart soll »Erledigt« wieder zu sein. Die anderen drei Abschnitte haben bewusst `null`
+  (aktiv/verfügbar sind der Grund, warum man den Bildschirm überhaupt öffnet).
 
 ### Die Sonne selbst (`makeSunMesh` / `SUN_FRAG`)
 Statt einfarbiger Kugel eine Photosphäre, alles analytisch (kein Texel Speicher): **Randverdunklung** `I(µ)/I(1) = 1 − 0.62(1−µ) − 0.20(1−µ)²` (am Rand blickt man schräg in kühlere Schichten – der wichtigste Effekt), **Granulation** (Konvektionszellen + Supergranulation, langsam brodelnd), **Sonnenflecken** (Umbra + Penumbra, nur in den Aktivitätsgürteln ±30° Breite), **Chromosphäre** (schmaler roter Saum, `pow(1−µ, 7)`). Farbe interpoliert ~4800 K (Zellränder, orange) ↔ ~5900 K (Zellmitten, weißgelb). AdminCam kriegt zusätzlich ein additives **Korona**-Billboard (`coronaTexture`).
@@ -1709,13 +1718,33 @@ Nutzlastverkleidung, und genau dafür war der Wunsch da. Die 3 Beine hängen an 
 
 ## Montagehalle (VAB-3D-Szene)
 ### ⚠️ Hallenmaße hängen an der Kamera (`HW`/`HH` ↔ `camDist`-Deckel)
-`const HW = 300, HH = 260` (halbe Breite / Höhe, Halle also 600×600×260). **`HW` MUSS größer
+`const HW = 300, HH = 520` (halbe Breite / Höhe, Halle also 600×600×520). **`HW` MUSS größer
 bleiben als der `camDist`-Deckel im wheel-Handler (250)** – sonst steht die Kamera beim
 Rauszoomen in der Wand, und bei einer hohen Rakete sieht man statt der Rakete nur Trapezblech
 (so gemeldet: »bei komplexeren Raketen ist die Hallenwand im Weg«). Faustregel: HW ≈ camDist_max + 50.
 Wer hier dreht, muss mitziehen: Stützen-/Binder-/Lampen-Loops (laufen über `HW`), die
 Textur-`repeat` (an `HW`/`HH` gekoppelt, sonst ziehen die Betonkacheln lang) und das
 Schatten-Ortho-Fenster (s. Licht-Abschnitt).
+- ⚠️⚠️ **`HH` ist im August 2026 von 260 auf 520 verdoppelt worden** (»ich stoße zu schnell an
+  die Decke«, Simon): Schon 8–9 gestapelte Teile reißen die alte Höhe (Testrakete
+  Schirm+Kapsel+Trenner+6×tankL+Ochse = **283,5** Einheiten), die Spitze stach dann durch die
+  Dachbinder. **Die übrige Struktur ist bewusst unangetastet** – Binder, Kranbahn und
+  Lampenreihen hängen ohnehin an `HH` und wandern einfach mit, die Wandkachel behält über
+  `HH/32` ihr Format, und Tor (GATE_H 108), Firmenschild (y 120), Formeltafel, Regale,
+  Werkbänke und Gerüst stehen auf festen Höhen. Die Lampen sind `MeshBasicMaterial`-Flächen,
+  keine echten Lichter – die Beleuchtung ändert sich durch das höhere Dach also nicht.
+- ⚠️⚠️ **Dazu gehört zwingend `sun.position.normalize().multiplyScalar(900)`** (vorher 700).
+  Die Lichtrichtung zeigt kräftig nach unten (0,81 der Länge in y): Bei 700 lag die Firstecke
+  des doppelt so hohen Dachs nur noch **34,9** Einheiten vor der Schattenkamera und damit VOR
+  deren near-Ebene (80) – Dachbinder hätten dort aufgehört, Schatten zu werfen. Bei 900 liegt
+  die ganze Halle zwischen **234,9 und 1143,3**, also sauber zwischen near 80 und far 1300;
+  `near`/`far` und das ±380-Ortho-Fenster bleiben unverändert. ⚠️ Für ein Richtungslicht zählt
+  nur die RICHTUNG – die Helligkeit ändert sich dadurch nicht. Verifiziert: Schatten machen
+  weiterhin 13,0 % der Bildpixel aus (A/B mit `castShadow = false`).
+- ⚠️ **Der `camDist`-Deckel bleibt bei 250** – er hängt an `HW`, nicht an `HH`. Eine Rakete
+  über ~147 Einheiten passt also weiterhin nicht komplett ins Bild; das war vor der
+  Dachanhebung genauso und ist ein Kamera-, kein Hallenproblem (die Kamera zielt auf die
+  halbe Raketenhöhe, man dreht sich an einer hohen Rakete entlang).
 - ⚠️⚠️ **`VAB.rebuild()` MUSS denselben Deckel benutzen** (`clamp(h·1,7, 45, 250)`). Die
   automatische Einpassung kannte ihn nicht: Gemessen bei 11 Teilen (h = 182) landete sie bei
   **camDist 309** – also außerhalb der 300 Einheiten Halbbreite, die Kamera stand IM
@@ -1844,6 +1873,28 @@ Werkzeugleiste `#vabTop` per `clamp()` an `vw` gekoppelt.
   zweizeilig um und macht die Leiste **höher** statt schmaler.
 - Der eigentliche »rechte Seite abgeschnitten«-Bug war aber **nicht** das Layout, sondern die
   Canvas-Größe – s. `gfxPixelRatio()` im Optionen-Abschnitt.
+
+### Bautisch: Ablegezonen & 🗑️ Alles löschen (`VAB.buildStackList` / `VAB.clearStack`)
+Die Stückliste unter »Aufbau (oben → unten)« hat **zwei** gestrichelte Ablegezonen: eine ÜBER
+der Liste (»ganz oben« = Index 0 = die SPITZE) und die alte darunter (»ganz unten«). Beide
+entstehen aus derselben lokalen Fabrik `zone(label, idx)` und rufen dasselbe `dropAt`.
+- ⚠️ Die obere fehlte bis August 2026 (Wunsch Simon): Eine Item-Zeile legt immer VOR sich ab,
+  wer also eine Kapsel über den fertigen Stapel setzen wollte, musste das oberste Teil exakt
+  treffen – daneben fing `host.ondrop` (die 3D-Halle) das Ereignis und das Teil landete am
+  FALSCHEN Ende der Rakete. Verifiziert: neues Teil oben → Index 0 · unten → ans Ende ·
+  `{kind:"move"}` vom untersten Teil auf die obere Zone → Index 0 · abgelehnte Bau-Caps
+  greifen aus beiden Zonen (»Nur EIN Triebwerk pro STUFE!«, Stack unverändert).
+- **🗑️ Alles löschen** (`VAB.clearStack`, Knopf unter der Liste) leert den Bautisch für einen
+  neuen Entwurf – vorher musste jedes Teil einzeln weggeklickt werden.
+  - ⚠️⚠️ **Bewusst NICHT in `#vabTop`.** Die Werkzeugleiste braucht in der Karriere schon 853
+    von 858 px (bei 1280 px Fensterbreite) und bricht mit einem weiteren Knopf zweizeilig um –
+    s. »Layout«. Unter der Stückliste steht er außerdem genau dort, wo man sonst die ✕ drückt.
+  - ⚠️ **Mit Rückfrage**, und die sagt ausdrücklich, dass der 📂 Hangar (`lmgRockets`) heil
+    bleibt – sonst traut sich niemand auf den Knopf, und ein Fehlklick kostet eine Rakete, an
+    der eine halbe AG-Stunde gebaut wurde (ein Undo gibt es nicht).
+  - ⚠️ Setzt `fairingOpen`/`bayOpen` mit zurück: Ohne Hülle im Stack gibt es keinen
+    🔍-Knopf mehr, der sie wieder zumachen könnte.
+  - Der Knopf erscheint nur bei nicht-leerem Stapel; auf leerem Tisch ist `clearStack()` still.
 
 ### 🔍 Reinschauen: Fairing aufklappen & Servicebucht öffnen (`VAB.animCovers`)
 Was unter der Nutzlasthülle steckt, war beim Bauen **unsichtbar** – man stapelt blind und

@@ -2885,23 +2885,41 @@ function unlockTech(id){
     Game.science -= t.cost; Game.unlocked.push(id); autoSave(); renderTech();
   }
 }
+/* Welche Missions-Abschnitte sind zugeklappt? (nur Ansicht, gehört NICHT in
+   den Spielstand – beim nächsten Start soll »Erledigt« wieder eingeklappt sein.)
+   ⚠️ »Erledigt« startet zugeklappt: In einer laufenden Karriere sind das schnell
+   20+ Karten, und der Abschnitt steht MITTEN in der Liste – die eigentlich
+   interessanten (verfügbar, gesperrt) lagen dahinter weit außerhalb des Bildes
+   (Wunsch Simon). Aufgeklappt wird er dadurch nicht weniger vollständig. */
+const MIS_FOLDED = {done:true};
 function renderMissions(){
   document.getElementById("misSci").textContent = sciBadge();
   const list = document.getElementById("missionList"); list.innerHTML = "";
   const act = Game.activeMissions||[];
+  // 3. Feld = Schlüssel in MIS_FOLDED (nur diese Abschnitte sind einklappbar)
   const sections = [
-    [`🎯 Aktive Missionen (${act.length}/${maxMissions()})`, m=>act.includes(m.id) && !Game.done.includes(m.id)],
-    ["📋 Verfügbar – wähle eine Mission!", m=>missionAvailable(m) && !act.includes(m.id)],
-    ["✅ Erledigt", m=>Game.done.includes(m.id)],
-    ["🔒 Noch gesperrt", m=>!Game.done.includes(m.id) && !missionAvailable(m)]
+    [`🎯 Aktive Missionen (${act.length}/${maxMissions()})`, m=>act.includes(m.id) && !Game.done.includes(m.id), null],
+    ["📋 Verfügbar – wähle eine Mission!", m=>missionAvailable(m) && !act.includes(m.id), null],
+    ["✅ Erledigt", m=>Game.done.includes(m.id), "done"],
+    ["🔒 Noch gesperrt", m=>!Game.done.includes(m.id) && !missionAvailable(m), null]
   ];
-  for(const [title, filter] of sections){
+  for(const [title, filter, fold] of sections){
     const ms = MISSIONS.filter(filter);
     if(!ms.length) continue;
     const h = document.createElement("h3");
     h.style.cssText = "color:var(--orange);margin:14px 0 6px;width:100%;";
-    h.textContent = title;
-    list.appendChild(h);
+    if(fold){
+      const open = !MIS_FOLDED[fold];
+      h.style.cursor = "pointer"; h.style.userSelect = "none";
+      h.textContent = (open?"▾ ":"▸ ") + title + " (" + ms.length + ")";
+      h.title = open ? "Zuklappen" : "Aufklappen – zeigt alle erledigten Missionen";
+      h.onclick = ()=>{ MIS_FOLDED[fold] = open; renderMissions(); };
+      list.appendChild(h);
+      if(!open) continue;                    // Karten gar nicht erst bauen
+    } else {
+      h.textContent = title;
+      list.appendChild(h);
+    }
     for(const m of ms){
       const done = Game.done.includes(m.id);
       const active = act.includes(m.id) && !done;
@@ -9276,14 +9294,25 @@ const VAB = {
        EINEM InstancedMesh aus Einheitswürfeln und EINEM aus Zylindern –
        Größe und Farbe kommen pro Instanz. Sonst wären es ~200 Draw-Calls
        für ein paar Regale. `box()`/`cyl()` sammeln, `flushProps()` baut. */
-    /* ⚠️ Halbe Breite / Höhe der Halle. Muss GRÖSSER bleiben als die maximale
+    /* ⚠️ Halbe Breite / Höhe der Halle. HW muss GRÖSSER bleiben als die maximale
        Kamera-Entfernung (`camDist`-Deckel im wheel-Handler, aktuell 250) –
        sonst steht die Kamera beim Rauszoomen in der Wand oder davor, und bei
        einer hohen Rakete sieht man statt der Rakete nur noch Trapezblech.
        Faustregel: HW ≈ camDist_max + 50. Wer hier dreht, muss die Loops für
        Stützen/Binder/Lampen (die hängen an HW) und das Schatten-Ortho-Fenster
-       weiter unten mitziehen. */
-    const HW = 300, HH = 260;                     // halbe Breite, Höhe
+       weiter unten mitziehen.
+       ⚠️⚠️ HH war bis August 2026 260 – bei einer Rakete ab ~260 Einheiten
+       (das sind schon 8–9 gestapelte Teile) stieß die Spitze durch die
+       Dachbinder (»ich stoße zu schnell an die Decke«, Simon). Jetzt DOPPELT.
+       Die übrige Struktur bleibt unangetastet: Binder, Kranbahn und
+       Lampenreihen hängen ohnehin an HH und wandern einfach mit nach oben,
+       die Wandtextur ist über `HH/32` an die Höhe gekoppelt (die Kachel
+       behält also ihr Format), und Tor, Firmenschild, Regale, Werkbänke und
+       Formeltafel stehen auf festen Höhen am Boden bzw. an der Wand.
+       ⚠️ Das Hallendach liegt damit über der near-Ebene der Schattenkamera,
+       wenn die Lichtquelle bei 700 stehen bleibt – s. `multiplyScalar(900)`
+       weiter unten. */
+    const HW = 300, HH = 520;                     // halbe Breite, Höhe
     const props = [], pipes = [];
     const box = (x,y,z, sx,sy,sz, col, ry)=>props.push({x,y,z,sx,sy,sz,col,ry:ry||0});
     const cyl = (x,y,z, r,h, col, rx,rz)=>pipes.push({x,y,z,r,h,col,rx:rx||0,rz:rz||0});
@@ -9596,9 +9625,16 @@ const VAB = {
        sonst brechen die Schatten an den Wänden abrupt ab. Bei ±380 und 2048 px
        sind das 0,37 Einheiten ≈ 14 cm pro Texel – fein genug, denn eine Figur
        ist gut 6 Einheiten (~2,3 m) hoch.
-       near/far umschließen die Halle vom Licht aus: Abstand 700, Hallenecke
-       |(HW,HH,HW)| ≈ 500 → alles liegt zwischen 200 und 1200. */
-    sun.position.normalize().multiplyScalar(700);
+       near/far umschließen die Halle vom Licht aus. ⚠️⚠️ Der Abstand ist mit
+       dem doppelt so hohen Dach von 700 auf 900 gewachsen: Die Lichtrichtung
+       zeigt kräftig nach unten (0,81 der Länge in y), die Firstecke des Dachs
+       lag bei 700 nur noch 35 Einheiten vor der Kamera und damit VOR der
+       near-Ebene (80) – Dachbinder hätten dort aufgehört, Schatten zu werfen.
+       Bei 900 liegt die ganze Halle zwischen 235 und 1143, also sauber
+       zwischen near und far; die LICHTRICHTUNG ändert sich dabei nicht (für
+       ein Richtungslicht zählt nur sie, die Position nur für die
+       Schattenkamera). */
+    sun.position.normalize().multiplyScalar(900);
     sun.castShadow = true;
     const sc = sun.shadow.camera;
     sc.left = sc.bottom = -380; sc.right = sc.top = 380;
@@ -9841,6 +9877,24 @@ const VAB = {
       : "Das "+PARTS[ship].name+" hat KEINEN Frachtraum – wo bei anderen die Nutzlast sitzt, sind bei ihm die Tanks. 🛢️\n\nFür Satelliten das normale Starship nehmen.";
   },
   remove(i){ this.stack.splice(i,1); this.refresh(); },
+  /* 🗑️ Alles vom Bautisch nehmen – für einen neuen Entwurf, ohne 15-mal ✕ zu
+     drücken (Wunsch Simon).
+     ⚠️ MIT Rückfrage: Ein Fehlklick kostet sonst eine Rakete, an der eine
+     halbe AG-Stunde gebaut wurde – und der Bautisch ist nicht der Hangar,
+     ein Undo gibt es nicht.
+     ⚠️ Der 📂 Hangar (`lmgRockets`) bleibt unangetastet; die Rückfrage sagt
+     das ausdrücklich, sonst traut sich niemand auf den Knopf.
+     ⚠️ Die Klapp-Schalter mit zurücksetzen: Ohne Hülle im Stack gibt es
+     keinen 🔍-Knopf mehr, der sie wieder zumachen könnte – der nächste
+     Entwurf käme sonst mit aufgeklappter Hülle auf den Tisch. */
+  clearStack(){
+    if(!this.stack.length) return;
+    if(!confirm("Alle "+this.stack.length+" Bauteile vom Bautisch nehmen und neu anfangen?\n\n"+
+                "Gespeicherte Raketen im 📂 Hangar bleiben erhalten.")) return;
+    this.stack = [];
+    this.fairingOpen = this.bayOpen = false;
+    this.refresh();
+  },
   /* ---------- Hangar: Raketen speichern & wiederverwenden ("Workhorses") ---------- */
   savedRockets(){
     try{ return JSON.parse(localStorage.getItem("lmgRockets")) || []; }catch(e){ return []; }
@@ -10362,6 +10416,15 @@ const VAB = {
     html += `<h3>Aufbau (oben → unten)</h3>
       <small style="color:var(--muted)">Ziehen zum Umsortieren · Teile aus der Liste hierher ziehen</small>
       <div id="stackList"></div>`;
+    /* 🗑️ Bautisch leeren – der Knopf für den NÄCHSTEN Entwurf. Ohne ihn muss
+       jedes Teil einzeln weggeklickt werden (Wunsch Simon).
+       ⚠️ Bewusst HIER und nicht in `#vabTop`: Die Werkzeugleiste braucht in
+       der Karriere schon 853 von 858 px (bei 1280 px Fensterbreite) und
+       bricht mit einem weiteren Knopf zweizeilig um – s. »Layout«. Unter der
+       Stückliste steht er außerdem genau dort, wo man sonst die ✕ drückt. */
+    if(this.stack.length)
+      html += `<button class="btn" onclick="VAB.clearStack()" title="Nimmt alle Bauteile vom Bautisch, damit du neu anfangen kannst. Gespeicherte Raketen im 📂 Hangar bleiben erhalten."
+        style="width:100%;margin-top:5px;padding:5px;font-size:12px;background:none;color:var(--red);border-color:var(--red);">🗑️ Alles löschen</button>`;
     info.innerHTML = html;
     this.buildStackList();
   },
@@ -10389,6 +10452,25 @@ const VAB = {
     /* 🔍-Knopf nur dort, wo wirklich etwas zu sehen ist: an der Hülle, die
        auch eine Nutzlast trägt (buildRocketGroup nimmt das ERSTE Fairing und
        nur, wenn etwas darüber steht), und an jeder Bucht, die etwas verkleidet. */
+    /* Ablegezonen oben UND unten. Die obere fehlte: Wer eine Kapsel oder ein
+       Fairing über den fertigen Stapel setzen wollte, musste das oberste Teil
+       exakt treffen (die Item-Zeilen legen VOR sich ab) – daneben landete das
+       Teil über `host.ondrop` ganz UNTEN, also am falschen Ende der Rakete.
+       ⚠️ Beide Zonen benutzen dasselbe `dropAt`; oben ist Index 0, weil
+       Index 0 im Stack die SPITZE ist. */
+    const zone = (label, idx)=>{
+      const d = document.createElement("div");
+      d.style.cssText = "min-height:46px;border:1px dashed #2a3a64;border-radius:5px;margin:3px 0;"+
+        "display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;";
+      d.textContent = label;
+      d.ondragover = e=>{ e.preventDefault(); d.style.borderColor="var(--orange)"; };
+      d.ondragleave = ()=>{ d.style.borderColor="#2a3a64"; };
+      // ⚠️ stopPropagation: sonst fängt `host.ondrop` (die 3D-Halle darunter)
+      // das Ereignis nach und legt das Teil zusätzlich ganz unten an.
+      d.ondrop = e=>{ e.stopPropagation(); dropAt(idx===-1?this.stack.length:idx, e); };
+      list.appendChild(d);
+    };
+    zone("hierher ziehen = ganz oben", 0);
     const fIdx = this.stack.findIndex(id=>PARTS[id].type==="fairing");
     const bays = bayCoverage(this.stack);
     this.stack.forEach((id,i)=>{
@@ -10434,13 +10516,7 @@ const VAB = {
       div.ondrop = e=>{ e.stopPropagation(); dropAt(i,e); };
       list.appendChild(div);
     });
-    const tail = document.createElement("div");
-    tail.style.cssText="min-height:46px;border:1px dashed #2a3a64;border-radius:5px;margin:3px 0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;";
-    tail.textContent="hierher ziehen = ganz unten";
-    tail.ondragover=e=>{e.preventDefault(); tail.style.borderColor="var(--orange)";};
-    tail.ondragleave=()=>{tail.style.borderColor="#2a3a64";};
-    tail.ondrop=e=>dropAt(this.stack.length,e);
-    list.appendChild(tail);
+    zone("hierher ziehen = ganz unten", -1);
     const host = document.getElementById("vab3d");
     host.ondragover = e=>e.preventDefault();
     host.ondrop = e=>dropAt(this.stack.length,e);
