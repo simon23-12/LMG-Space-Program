@@ -7352,6 +7352,18 @@ const SEA_R = "41000.0";              // Radius = Uferlinie im Mittel bei 1500 m
    und lässt Geometrie (`wobbleRim`) und Shader (`dShore`) unverändert. */
 const SHORE_N   = 1024;      // Stützstellen über ±SHORE_HALF (≈ 82 m Raster)
 const SHORE_HALF = 42000;    // muss den Rand der Meeres-Scheibe abdecken
+/* ⚠️⚠️ Wertebereich, in dem `wob` in die 16-Bit-Textur passt (±SHORE_ENC).
+   Hier standen fest verdrahtete 20 000 – und der Encoder KLEMMT, was nicht
+   hineinpasst. Der Wert kann aber viel größer werden: Am fernen Rand
+   (nord = ±42 km) liegt die Meeres-Scheibe schon 42 km von ihrer eigenen
+   Mitte weg, dazu bis zu 26 km Suchklammer – gemessen bis **+39,4 km**.
+   Alles darüber war in der Textur abgeschnitten, im JS-Array aber nicht:
+   Shader-Uferlinie und Geometrie-Rand (`wobbleRim`, JS) lagen dort
+   KILOMETERWEIT auseinander, obwohl beide »dieselbe« Tabelle benutzten.
+   48 km deckt den echten Bereich (−24,5 … +39,4 km) mit Reserve ab; die
+   16-Bit-Auflösung sinkt dabei nur von 0,61 auf 1,46 m je Stufe – die Küste
+   wandert von Zeile zu Zeile ohnehin um bis zu 300 m. */
+const SHORE_ENC = 48000;
 let SHORE = null;            // aktive Tabelle (pro Rampe gebaut & gecacht)
 const _shoreCache = {};
 
@@ -7447,7 +7459,10 @@ function buildShoreTable(key, up, east, north){
   // Float-Textur: die braucht Extensions, die auf Schulrechnern fehlen können.
   const px = new Uint8Array(SHORE_N*4);
   for(let i=0;i<SHORE_N;i++){
-    const v = Math.max(0, Math.min(65535, Math.round((wob[i] + 20000)/40000*65535)));
+    // ⚠️ Bereich SHORE_ENC, nicht 20 000: sonst klemmt hier still die halbe
+    // Ferntabelle und der Shader sieht eine andere Küste als `shoreWobble`.
+    const v = Math.max(0, Math.min(65535,
+      Math.round((wob[i] + SHORE_ENC)/(2*SHORE_ENC)*65535)));
     px[i*4] = v >> 8; px[i*4+1] = v & 255; px[i*4+2] = 0; px[i*4+3] = 255;
   }
   const tex = new THREE.DataTexture(px, SHORE_N, 1, THREE.RGBAFormat);
@@ -7519,18 +7534,35 @@ const SHORE_SEGS = 4000;
 const BEACH_CLIP = 60;
 function wobbleRim(geo, R, wob, extra){
   const p = geo.attributes.position;
+  extra = extra || 0;
   for(let i=0;i<p.count;i++){
     const x = p.getX(i), y = p.getY(i), r = Math.hypot(x, y);
     if(r < 1) continue;                        // Mittelpunkt der Fächer-Geometrie
-    // ⚠️ Die Wobble-Phase hängt von der VERSCHOBENEN Nord-Koordinate ab
-    // (so liest sie der Shader). Einmal naiv mit y gerechnet, wandert der
-    // Scheitel weit draußen um mehr als eine halbe Wobble-Wellenlänge –
-    // Geometrie und Shader-Uferlinie liefen dann auseinander. Deshalb
-    // Fixpunkt-Iteration: s = (R + wob(y·s) + extra)/r. Am fernen Rand
-    // (|y| ≈ R) ist die Kontraktion nur ~0,8 pro Schritt → großzügig
-    // iterieren; der Aufbau läuft einmal pro Rampe und kostet ~5 ms.
-    let f = 1;
-    for(let k=0;k<24;k++) f = (R + wob(y*f) + (extra||0))/r;
+    /* Gesucht ist der Radius ρ des Scheitels mit
+           ρ = R + wob(nord) + extra,   nord = y·ρ/r
+       ⚠️ Die Wobble-Phase hängt von der VERSCHOBENEN Nord-Koordinate ab (so
+       liest sie der Shader) – deshalb steht ρ auf beiden Seiten.
+       ⚠️⚠️ BISEKTION, KEINE FIXPUNKT-ITERATION (August 2026). Vorher lief hier
+       24× `f = (R + wob(y·f) + extra)/r`. Diese Iteration zieht sich nur
+       zusammen, solange |y/r · wob′| < 1 – und wob′ erreicht die volle
+       SLEW-Steigung von 300 m je 82-m-Zeile, also 3,7. Am fernen Rand (|y| ≈ r)
+       DIVERGIERT sie damit. Gemessen an einem Anker am Äquator-Raumhafen:
+       5 % der 4001 Randscheitel landeten 8–12 km NEBEN ihrer eigenen
+       Uferlinie – die Meeres-Scheibe lag dort kilometerweit über dem Strand,
+       zwei fast deckungsgleiche Riesendreiecke im Abstand von 2 m, und das
+       ergab das gelbe Flimmern am Horizont (Bug-Report Simon).
+       Die Bisektion kann nicht divergieren: g(ρ) = ρ − R − wob(y·ρ/r) − extra
+       ist stetig, g(0) ≤ 0 und g(R+SHORE_ENC+extra) ≥ 0, weil |wob| ≤
+       SHORE_ENC gilt (dafür ist die Zahl da). 30 Schritte = < 1 mm auf
+       90 km Klammer, und es sind sogar weniger Tabellenzugriffe als vorher.
+       Verifiziert: Randscheitel jetzt exakt auf der Uferlinie (Abweichung
+       0,000 m statt bis 12 548 m). */
+    let lo = 0, hi = R + SHORE_ENC + extra;
+    for(let k=0;k<30;k++){
+      const m = 0.5*(lo + hi);
+      if(m - R - wob(y*m/r) - extra < 0) lo = m; else hi = m;
+    }
+    const f = 0.5*(lo + hi)/r;
     p.setXY(i, x*f, y*f);
   }
   p.needsUpdate = true;
@@ -7549,7 +7581,7 @@ float shoreWob(float n){
   vec2 b = texture2D(uShore, vec2((i0 + 1.5)/${SHORE_N}.0, 0.5)).rg;
   float va = (a.r*65280.0 + a.g*255.0)/65535.0;
   float vb = (b.r*65280.0 + b.g*255.0)/65535.0;
-  return mix(va, vb, fr)*40000.0 - 20000.0;
+  return mix(va, vb, fr)*${2*SHORE_ENC}.0 - ${SHORE_ENC}.0;
 }`;
 
 const OCEAN_T = 1200;   // uTime-Wrap in Sekunden (s. Frequenz-Quantisierung)
@@ -17940,8 +17972,45 @@ const Flight = {
             const H = Math.max(6, this.height());
             const wMax = this.v.stack.length
               ? Math.max(...this.v.stack.map(id=>PARTS[id].w)) : 6;
-            const ca = Math.abs(V3(0,1,0).applyQuaternion(this.q).dot(aDir));  // 1 = Nase voran
-            const half = 0.5*(ca*H + (1-ca)*wMax);      // halbe Ausdehnung LÄNGS des Windes
+            const noseV = V3(0,1,0).applyQuaternion(this.q);
+            const ca = Math.abs(noseV.dot(aDir));       // 1 = Nase voran
+            /* ⚠️⚠️ STAUPUNKT statt Schwerpunkt (August 2026, Bug-Report Simon:
+               »die Cone reagiert nicht auf geänderte Neigungswinkel«).
+               Die Stoßfront steht IMMER quer zum Wind – das ist Physik und
+               bleibt so; sie richtet sich nach der Flugrichtung, nicht nach der
+               Nase. Sie saß aber auf der Windachse durch den SCHWERPUNKT, und
+               damit lief sie bei Anstellwinkel neben der Nase her: Beim
+               Gravity Turn liegen Nase und Bahn schon mal 20° auseinander, das
+               sind bei einem 60 Einheiten langen Schiff **7 Einheiten** seitlich
+               – mehr als der Radius der Stoßfront (8,5), sie berührte das Schiff
+               also nicht mehr. Wer dann die Nase bewegte, sah einen Kegel, der
+               stur stehen blieb.
+               Richtig ist der Staupunkt: der windzugewandteste Punkt des
+               Körpers. Für eine Kapsel (Zylinder Länge H, Durchmesser w) ist das
+               die Stützpunktformel – Längsanteil zur Spitze, Queranteil zur
+               windzugewandten Flanke. ⚠️ Sie fällt an BEIDEN Enden von selbst
+               auf null zurück: Nase voran liegt der Punkt auf der Windachse,
+               quer im Wind (Bellyflop) ebenfalls – dort soll die Front ja
+               mittig auf dem Bauch sitzen. Nur dazwischen wandert sie mit. */
+            const cd   = noseV.dot(aDir);               // MIT Vorzeichen
+            const perp = aDir.clone().addScaledVector(noseV, -cd);
+            const pl   = perp.length();                 // = sin(Anstellwinkel)
+            // Halbe Ausdehnung LÄNGS des Windes – jetzt exakt (Stützweite von
+            // Länge und Durchmesser) statt der alten Näherung 0,5·(ca·H+(1−ca)·w).
+            const half = 0.5*(ca*H + pl*wMax);
+            /* ⚠️ Der Längsanteil wird mit `cd` gewichtet, NICHT mit sign(cd):
+               Quer im Wind (Bellyflop, cd = 0) gehört die Front mittig auf den
+               Bauch – mit dem Vorzeichen sprang sie dort bei 90° schlagartig
+               ans eine oder andere Ende (gemessen: 116 statt 58 Einheiten
+               daneben). So läuft der Versatz an BEIDEN Enden sauber auf null. */
+            /* ⚠️ `perp` geht UNNORMIERT ein (Länge = sin des Anstellwinkels):
+               Genau vorne oder genau hinten gibt es keine angeströmte Flanke,
+               der Queranteil muss dort also verschwinden. Mit normiertem perp
+               blieb bei 0°/180° ein Versatz von w/2 = 7 Einheiten stehen. */
+            const shock = noseV.clone().multiplyScalar(cd*H/2)
+                                       .addScaledVector(perp, wMax/2);
+            this.plasmaGroup.position.copy(shock)
+                .addScaledVector(aDir, -shock.dot(aDir));
             /* ⚠️ Der Querschnitt geht als FLÄCHE ein, nicht als Kante. Quer im
                Wind ist die Silhouette ein 124×14-Rechteck – nimmt man davon die
                halbe LÄNGE als Radius (62), steht um das Starship eine Glocke

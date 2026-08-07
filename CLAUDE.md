@@ -289,6 +289,25 @@ Damit ist der Strand vor der Rampe wirklich derselbe Kontinentrand wie aus dem O
   völlig klar (`uGHazeK = 0` schaltet den Term ganz ab, alle anderen Körper haben ihn nie).
   Gemessener Bildsprung an der 16-km-Grenze: **18,5 → 10,2** von 255 – und damit kleiner als
   die 14,3, um die sich das Bild beim normalen Weiterfliegen (14 → 15,9 km) ohnehin ändert.
+- ⚠️⚠️ **OFFEN und nachgemessen: der Horizont ist beim Aufstieg »unrund«, weil die MEERES-
+  Scheibe ihn bildet** (Bug-Report Simon, August 2026, Screenshot bei 9 km). Der Dunst oben
+  mildert die Naht farblich, die GEOMETRIE bleibt aber: Die Scheiben sind eben, der Planet
+  krümmt sich weg – Höhe der flachen Scheibe über der Kugel: 20 km → 333 m · 40 km →
+  1 333 m · 60 km → **3 000 m** · 83 km → **5 741 m**. Das Fern-Meer reicht bis 83,5 km Ost
+  (r 41 km um einen Mittelpunkt 42,5 km östlich), steht dort also fast 6 km über der
+  Oberfläche und bildet die Silhouette. Per Raycast über die Bildbreite bei 9 km Höhe
+  gemessen: linke Bildhälfte = **Kugel in 90…121 km**, rechte Hälfte = **Strand/Meer in
+  53…64 km** – dazwischen knickt die Horizontlinie sichtbar ab. Sobald die Bodenszene
+  ausgeht, ist der Horizont wieder rund (»bis er in die Orbitalansicht flippt«).
+  - ⚠️ **NICHT die Tessellierung.** Naheliegender Verdacht, gemessen und widerlegt: mit 128
+    gegen 320 Segmenten ändert sich die Abweichung der Horizontlinie von der Ausgleichs-
+    geraden nur von 9,5 auf 9,1 px (RMS 4,20 → 4,03). Die Facetten-Pfeilhöhe ist bei
+    128 Segmenten 181 m ⇒ ~2 px – das ist nicht der Effekt. Kugel also NICHT feiner machen.
+  - **Der Weg wäre**, die Scheiben um `dist²/(2R)` nach unten zu biegen (dann liegt ihr Rand
+    auf der Kugel und die Silhouette ist wieder die echte). ⚠️ Geht NICHT ohne Umbau: Fern-
+    Meer und Strand sind FÄCHER (`CircleGeometry`) mit Scheiteln nur am Rand – eine
+    quadratische Schüssel lässt sich damit nicht darstellen, beide bräuchten eine Ring-
+    Tessellierung wie `terrainGeometry`. Gelände und `seaPatch` könnten es sofort.
 - ⚠️ **Eine echte Überblendung der Bodenszene wurde PROBIERT und wieder verworfen.** Sobald
   Wiese/Sand/Meer `transparent` werden, wandern sie in three.js' sortierten Durchgang und die
   Szene zeichnet sich intern anders zusammen – gemessen: schon bei Deckkraft 0,99 änderte
@@ -1000,7 +1019,9 @@ Plattform 8×8 und Crawlerway 30×3), `makeScorchTex` (Brandfleck), `makePadWall
   - ⚠️ **Änderungsrate auf 300 m/Zeile begrenzt** (`SLEW`): weit draußen dreht die echte Küste nach OSTEN und ist dann keine Funktion von Nord mehr – ohne Bremse knickt die Tabelle rechtwinklig weg. Nahe der Rampe greift sie nie.
   - `shoreDist(east,north)` ist die JS-Kopie von `dShore` im Shader (Brandung, Flachwasser, Abtauchen unter den Strand) und entscheidet auch über »gewassert« UND über die Droneship-Position (die schiebt sich ostwärts, bis sie wirklich auf See liegt – »6 km Ost« ist bei Buchten nicht mehr automatisch Wasser).
   - `SHORE_GLSL` dekodiert die Textur mit **handgeschriebener linearer Interpolation** (NearestFilter, 16 Bit aus R/G). Bewusst keine Float-Textur: die braucht Extensions, die auf Schulrechnern fehlen können.
-  - `wobbleRim(geo,R,wob,extra)` verschiebt die Randscheitel einer CircleGeometry radial. ⚠️ **4000 Segmente**, nicht 1200: bei r = 40 km sind das 63 m Scheitelabstand ≈ 8 Stützstellen auf die kürzeste Wobble-Welle (520 m) – mit 1200 sieht die Küste facettiert aus. ⚠️ Die Wobble-Phase hängt von der VERSCHOBENEN Nord-Koordinate ab (so liest sie der Shader), deshalb **Fixpunkt-Iteration** `s = (R + wob(y·s) + extra)/r`; naiv mit dem alten `y` gerechnet driften Geometrie und Shader-Uferlinie am fernen Rand um > 120 m auseinander. Kontraktion dort nur ~0,8/Schritt → 24 Iterationen.
+  - `wobbleRim(geo,R,wob,extra)` verschiebt die Randscheitel einer CircleGeometry radial. ⚠️ **4000 Segmente**, nicht 1200: bei r = 40 km sind das 63 m Scheitelabstand ≈ 8 Stützstellen auf die kürzeste Wobble-Welle (520 m) – mit 1200 sieht die Küste facettiert aus. ⚠️ Die Wobble-Phase hängt von der VERSCHOBENEN Nord-Koordinate ab (so liest sie der Shader), der gesuchte Radius steht also auf beiden Seiten der Gleichung: `ρ = R + wob(y·ρ/r) + extra`.
+  - ⚠️⚠️ **BISEKTION, keine Fixpunkt-Iteration (August 2026) – das war das »gelbe Flimmern«.** Vorher lief hier 24× `f = (R + wob(y·f) + extra)/r`. Diese Iteration zieht sich nur zusammen, solange `|y/r · wob′| < 1` – `wob′` erreicht aber die volle SLEW-Steigung (300 m je 82-m-Zeile = 3,7), am fernen Rand (|y| ≈ r) **divergiert** sie also. Gemessen an einem Anker beim Äquator-Raumhafen: **444 von 4001 Randscheiteln** der Meeres-Scheibe lagen im Mittel **6,7 km, schlimmstenfalls 12,7 km LANDEINWÄRTS** – das Meer lag dort großflächig über dem Strand, zwei fast deckungsgleiche Riesendreiecke im Abstand von 2 m, und genau das flimmerte gelb/blau am Horizont (Bug-Report Simon). Die Bisektion kann nicht divergieren: `g(ρ) = ρ − R − wob(y·ρ/r) − extra` ist stetig, `g(0) ≤ 0`, `g(R+SHORE_ENC+extra) ≥ 0`. 30 Schritte = < 1 mm, und es sind weniger Tabellenzugriffe als vorher. Verifiziert an allen drei Rampen: **0 Scheitel über Land, maximale Abweichung 4–7 mm** (vorher bis 12 548 m); Startdauer unverändert (54–129 ms).
+  - ⚠️⚠️ **`SHORE_ENC` = 48 000 statt fest verdrahteter 20 000.** Die 16-Bit-Textur kodierte `wob` nur über ±20 km und **klemmte den Rest still ab** – das JS-Array `SHORE.wob` nicht. Damit sahen Shader (`dShore`) und Geometrie (`wobbleRim`, JS) in den fernen Zeilen zwei Küsten, die KILOMETERWEIT auseinanderlagen, obwohl beide »dieselbe« Tabelle benutzten. Der echte Wertebereich ist −24,5 … **+39,4 km** (am fernen Rand liegt die Scheibe schon 42 km von ihrer eigenen Mitte weg, dazu 26 km Suchklammer). Auflösung sinkt dabei von 0,61 auf 1,46 m je 16-Bit-Stufe – die Küste wandert von Zeile zu Zeile ohnehin um bis zu 300 m. ⚠️ Wer den Encoder anfasst, fasst `SHORE_GLSL` mit an (beide Stellen leiten aus derselben Konstante ab).
   - Der Fern-Meer-Rand liegt **30 m seewärts** der Uferlinie (`extra:-30`); die eigentliche Wasserkante zeichnet allein der fein aufgelöste `seaPatch`.
 - **Boden-Optik (bewusst ~gratis):** `makeGroundTexture("grass"/"sand"/"sea")` – einmalige 256er-Canvas-Kacheln (RepeatWrapping, repeat 220/220/130, anisotropy 4), **fast weiß gemalt, damit `material.color` sie tönt** → Polar-Umschalter braucht keine eigenen Texturen; Formen 3×3 versetzt zeichnen = nahtlos (⚠️ Zufallsparameter EINMAL würfeln, dann an 9 Offsets zeichnen). Flachwasser-Verlauf und Brandungslinie macht seit dem Ozean-Rewrite der Shader (kein `shallowRings`/`groundFoam` mehr).
 
@@ -1832,7 +1853,25 @@ Alles danach läuft über **Uniforms** – kein Puffer wird je neu hochgeladen (
   Kante: Quer im Wind ist die Silhouette eines Starships ein 124×14-Rechteck – nimmt man die
   halbe LÄNGE als Radius (62), steht um das Schiff eine Glocke von 124 Einheiten Durchmesser
   und die Verfolgerkamera hängt mitten darin (gemessen: reiner Weißabriss). Die Fläche liefert
-  23,5. `half` (Ausdehnung LÄNGS des Windes) bleibt die lineare Interpolation.
+  23,5.
+- ⚠️⚠️ **Die Front sitzt auf dem STAUPUNKT, nicht auf der Achse durch den Schwerpunkt**
+  (August 2026, Bug-Report Simon: »die Cone reagiert nicht auf geänderte Neigungswinkel«).
+  Ausgerichtet wird sie weiterhin am WIND, nicht an der Nase – das ist Physik und bleibt so.
+  Sie saß aber auf der Windachse durch den Schwerpunkt, und beim Gravity Turn liegen Nase und
+  Bahn schon mal 20° auseinander: gemessen an einem 116 Einheiten langen Träger stand die Nase
+  dann **19,8 Einheiten** neben der Achse bei nur 15,4 Einheiten Stoßfront-Radius – die Front
+  berührte das Schiff nicht mehr und blieb beim Nicken scheinbar stehen. Jetzt wird der
+  windzugewandteste Punkt gerechnet (Stützweite aus Länge und Durchmesser) und die Gruppe um
+  dessen Querversatz verschoben. Gemessen (Abstand Luv-Ende zur Achse, alt → neu):
+  5° 5,1 → **0,6** · 10° 10,1 → **1,4** · 20° 19,8 → **3,4** · 35° 33,3 → **9,3**.
+  - ⚠️ Der Längsanteil wird mit `cd = nase·wind` gewichtet, NICHT mit dessen Vorzeichen, und
+    `perp` geht UNNORMIERT ein. Nur so läuft der Versatz an beiden Enden sauber auf null:
+    **0° und 180° → 0** (Nase bzw. Heck voran, Front auf der Achse) und **90° → 0**
+    (Bellyflop – dort gehört sie mittig auf den Bauch, gemessen unverändert 58). Mit
+    `sign(cd)` sprang sie bei 90° schlagartig an ein Ende (116 statt 58).
+  - `half` (Ausdehnung LÄNGS des Windes, geht in Standoff, Krümmung und Nachlauf-Ansatz) ist
+    damit die exakte Stützweite `0,5·(ca·H + sin·w)` statt der alten Näherung
+    `0,5·(ca·H + (1−ca)·w)`.
 - ⚠️ **Die Nachlauf-LÄNGE hängt an `height()`, nicht am Stoßfront-Radius.** Die Kamera steht
   bei 2,2·H, also ist H das einzige Maß, das zum Bildausschnitt passt. Über den Radius
   gerechnet war die Fahne eines quer liegenden Starships 400 Einheiten lang bei 150 Einheiten
