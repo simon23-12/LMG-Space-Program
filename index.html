@@ -1514,6 +1514,11 @@ const SHAKE_LIFTOFF = 2;
    Rampe kostet extra, während das Droneship dem Booster entgegenfährt. */
 const BOOSTER_RESERVE = {rtls: 0.30, ship: 0.12};
 function boosterReserve(site){ return site==="rtls" ? BOOSTER_RESERVE.rtls : BOOSTER_RESERVE.ship; }
+/* Regler des Boostback-Burns (s. updateBooster, Zustand "boostback").
+   `BB_ERR_REF` ist der wichtigste davon: Ab hier wird der Schub heruntergefahren,
+   damit der Aufschlagpunkt zwischen zwei Rechenschritten nicht über das Ziel
+   hinausspringt. */
+const BB_ERR_REF = 25000, BB_NEAR = 30000, BB_STOP_CATCH = 150, BB_STOP_LZ = 500;
 function launchFee(stack){
   if(Game.sandbox) return 0;
   if(!stack.some(id=>PARTS[id].type==="gridfin")) return 0;   // ohne Gitterflossen landet nichts
@@ -1576,7 +1581,10 @@ function nextTankerName(){
    ~1450 🪙 Rakete, ~730 🪙 Bergung, 400 🪙 Prämie. Verdoppelt trägt sich ein
    geglückter Flug ungefähr selbst, und Bergung/Wiederverwendung bleiben der
    Hebel für echten Gewinn. */
-function missionCash(m){ return 300 + m.sci*20; }
+/* ⚠️ Der Dauerbonus (Börsengang, s. SIDE_JOBS) wird HIER aufgeschlagen – dann
+   stimmen Missionskarte, Auszahlung und Flugbericht automatisch überein.
+   `missionBonus` steht weiter unten; Funktionsdeklarationen werden gehoistet. */
+function missionCash(m){ return Math.round((300 + m.sci*20) * (1 + missionBonus())); }
 
 /* ---------- Raumstation »Große Pause« (ISS – Internationale Schul-Station) ----------
    Fliegt "on rails" in einem exakten 100-km-Kreisorbit um Leibniz – in Karriere,
@@ -1604,7 +1612,7 @@ const PADS = [
   {id:"eq",    icon:"🏟️", name:"Raumhafen »Schulhof Süd«", lat:0, maxMass:Infinity, tech:"padEq",
    short:"Direkt am Äquator – perfekte Lage für die »Große Pause« (Startfenster mit [Z]). Kein Gewichtslimit."},
   {id:"polar", icon:"🏔️", name:"Polarstation »Skihütte«", lat:86*Math.PI/180, maxMass:Infinity, tech:"padPolar",
-   short:"86° Nord: Start nach Osten ergibt fast polare Orbits – ideal für Kartierung. Einfach gebaut, kein Gewichtslimit."}
+   short:"86° Nord: Start nach Osten ergibt fast polare Orbits – ideal für Kartierung. Kein Gewichtslimit, mit Flammengraben und Mechazilla-Fangturm – auch für den Superheavy."}
 ];
 /* ---------- Rampen ans Meer setzen ----------
    Der BREITENGRAD ist Didaktik (Inklination = Breitengrad) und steht fest.
@@ -1723,6 +1731,35 @@ const ROLES = {
 const XP_LEVELS = [0, 3, 8, 15, 25, 40];
 const LEVEL_NAMES = ["Rekrut*in","Kadett*in","Crew","Profi","Veteran*in","LEGENDE"];
 function crewLevel(a){ let l=0; for(let i=0;i<XP_LEVELS.length;i++) if(a.xp>=XP_LEVELS[i]) l=i; return l; }
+/* ---------- 🎓 Ausbildung: Wissenschaft in Erfahrung tauschen ----------
+   ⚠️ Gemessen gibt es im Spiel mehr Wissenschaft, als der Forschungsbaum
+   verlangt: 3269 🧪 aus den 58 Missionen gegen 1485 🧪 für ALLE 24 Knoten –
+   1784 🧪 Überschuss, und die Experimente [B] kommen noch obendrauf. Wer
+   fertig geforscht hat, sammelte also eine Währung ohne Ware (Wunsch Simon).
+   Der Simulator schickt seine Leute jetzt stattdessen in die Ausbildung.
+   Freigeschaltet mit »Bemannte Raumfahrt« – vorher gibt es niemanden, der
+   fliegen könnte.
+   ⚠️ Die Preise sind so gelegt, dass NICHT alle sechs Astronaut*innen
+   maximal ausgebildet werden können: 20+35+55+80+120 = 310 🧪 je Person,
+   also 1860 🧪 für den ganzen Kader gegen 1784 🧪 Überschuss. Man muss sich
+   entscheiden – genau das macht es zur Entscheidung und nicht zum Automat. */
+const TRAIN_COST = [0, 20, 35, 55, 80, 120];
+function trainingUnlocked(){ return (Game.unlocked||[]).includes("crewed"); }
+function trainCost(a){
+  const l = crewLevel(a);
+  return l+1 < XP_LEVELS.length ? TRAIN_COST[l+1] : null;   // null = schon LEGENDE
+}
+function trainCrew(name){
+  if(Game.sandbox || !trainingUnlocked()) return;
+  const a = (Game.roster||[]).find(x=>x.name===name);
+  if(!a || a.status!=="bereit") return;      // Gestrandete/Verschollene bilden wir nicht aus
+  const cost = trainCost(a);
+  if(cost===null || Game.science < cost) return;
+  Game.science -= cost;
+  a.xp = XP_LEVELS[crewLevel(a)+1];          // exakt auf die nächste Stufe heben
+  autoSave();
+  renderMissions();
+}
 function newRoster(){
   return [
     {name:"Alex",  role:"pilot", xp:0, flights:0, status:"bereit"},
@@ -1738,6 +1775,11 @@ function newRoster(){
    Bemannt = immer steuerbar. Sonden: nahe Leibniz reicht die Bodenstation,
    weiter draußen braucht es eine Antenne an Bord UND Relais-Satelliten. */
 function commRelays(){ return (Game.relays||0) + (stationHasMod("modFunk")?2:0); }
+/* Satelliten im Synchronband – EINE Quelle für Missions-Check und Nullpunkt. */
+function geoSatCount(){
+  return (Game.assets||[]).filter(a=>a.kind==="sat" && a.body==="LEIBNIZ" &&
+    a.alt>GEO_MIN && a.alt<GEO_MAX).length;
+}
 function commCheck(stack, pos, t){
   if(isCrewedStack(stack)) return {ok:true, why:"bemannt"};
   const dL = pos.distanceTo(bodyPos(LEIBNIZ,t));
@@ -2002,9 +2044,9 @@ const TECH = [
   {id:"droneship", name:"Droneship",              cost:60,  req:["landZone"],           desc:"Autonomes Landeschiff »Lies die Anleitung« wartet im Ozean östlich der Rampe: Der Booster darf LÄNGER brennen (späterer Cutoff = mehr Nutzlast) und landet downrange auf See. 90 % Bergungswert."},
   {id:"raptorSL",  name:"Raptor (Meereshöhe)",    cost:120, req:["reuse"],              desc:"Vollstrom-Methantriebwerk – das effizienteste Triebwerk seiner Klasse. Schaltet den SUPERHEAVY-Booster frei!"},
   {id:"raptorVac", name:"Raptor (Vakuum)",        cost:150, req:["raptorSL"],           desc:"Die Vakuum-Version mit riesiger Glocke: Isp 380 s bei gewaltigem Schub."},
-  {id:"starshipT", name:"Starship",               cost:250, req:["raptorVac"],          desc:"Das beste Vehikel im Spiel: Edelstahl, Bellyflop-Landung [C], Platz für 6 Crew oder mehrere Satelliten. Dazu: Tanker-Variante fürs Auftanken im Orbit – UND der Mechazilla-Startturm am Raumhafen, der den Superheavy nach dem Start wieder CATCHT (100 % Bergung)!"},
+  {id:"starshipT", name:"Starship",               cost:250, req:["raptorVac"],          desc:"Das beste Vehikel im Spiel: Edelstahl, Bellyflop-Landung [C], Platz für 6 Crew oder mehrere Satelliten. Dazu: Tanker-Variante fürs Auftanken im Orbit – UND der Mechazilla-Startturm, der den Superheavy nach dem Start wieder CATCHT (100 % Bergung). Er steht an BEIDEN großen Rampen: am Äquator-Raumhafen und an der Polarstation."},
   {id:"padEq",     name:"Raumhafen am Äquator",   cost:35,  req:["basic","struct"],     desc:"Bodenstation-Ausbau: der Raumhafen »Schulhof Süd« liegt PERFEKT am Äquator – gleiche Bahnebene wie die »Große Pause«, Startfenster-Peilung [Z] und KEIN Gewichtslimit. Schwerlast startet nur hier!"},
-  {id:"padPolar",  name:"Polare Startrampe",      cost:70,  req:["padEq","heavy"],      desc:"Die Polarstation »Skihütte« am 86. Breitengrad: Ein Ost-Start mündet fast im Polarorbit – der Satellit sieht nach und nach die GANZE Oberfläche. Einfach gebaut, aber ohne Gewichtslimit."},
+  {id:"padPolar",  name:"Polare Startrampe",      cost:70,  req:["padEq","heavy"],      desc:"Die Polarstation »Skihütte« am 86. Breitengrad: Ein Ost-Start mündet fast im Polarorbit – der Satellit sieht nach und nach die GANZE Oberfläche. Einfach gebaut, aber ohne Gewichtslimit – und mit Flammengraben und Mechazilla-Fangturm (Forschung »Starship«), also auch superheavy-tauglich."},
   {id:"mission2",  name:"Missionsplanung",        cost:20,  req:["struct"],             desc:"Das Bodenteam wächst: Nimm ZWEI Missionen gleichzeitig an."},
   {id:"mission3",  name:"Missionszentrale",       cost:75,  req:["mission2","payload"], desc:"Profi-Planung mit großem Kontrollraum: DREI Missionen gleichzeitig."}
 ];
@@ -2022,9 +2064,26 @@ const SIDE_JOBS = [
    desc:"Die Mensa bewirbt ihre Lasagne-Schalen jetzt mit eurem Hitzeschild-Logo (»übersteht den Wiedereintritt UND den Ofen«). Ihr bekommt eine Beteiligung – und lebenslang Nachschlag."},
   {id:"jobBlueprints", icon:"📐", cash:1500, needs:["crewed","payload","heavy","explore"],
    name:"Blueprints »ganz diskret« an die Nachbarschule verkaufen",
-   desc:"Deren Raumfahrt-AG zahlt bar auf die Kralle für eure Triebwerks-Baupläne. Keine Sorge: Ohne eure Randnotizen bauen die das GARANTIERT falsch herum zusammen."}
+   desc:"Deren Raumfahrt-AG zahlt bar auf die Kralle für eure Triebwerks-Baupläne. Keine Sorge: Ohne eure Randnotizen bauen die das GARANTIERT falsch herum zusammen."},
+  /* ⚠️ Der Börsengang ist der ABSCHLUSS des Forschungsbaums: `needs:"all"`
+     verlangt jeden einzelnen Knoten. Er ist als einziger Nebenverdienst nicht
+     nur eine Einmalzahlung, sondern eine DAUERWIRKUNG (`bonus`) – ab jetzt
+     zahlt jede erfüllte Mission 10 % mehr (s. missionCash). Didaktisch das
+     Gegenstück zur Dauerwerbung der Kommerz-Satelliten: Wer ein komplettes
+     Raumfahrtprogramm vorweisen kann, verdient nicht mehr am einzelnen Flug,
+     sondern am Vertrauen der Anleger. */
+  {id:"jobIPO", icon:"📈", cash:10000, needs:"all", bonus:0.10,
+   name:"An die Börse gehen: »LMG Space AG«",
+   desc:"Der Forschungsbaum ist komplett – aus der Schul-AG wird eine Aktiengesellschaft. Der Börsengang spült einmalig 10.000 🪙 in die Kasse, und ab jetzt gibt es für JEDE erfüllte Mission 10 % mehr Geld (die Aktionär*innen lesen eure Missionsberichte)."}
 ];
-function jobUnlocked(j){ return j.needs.every(t=>Game.unlocked.includes(t)); }
+function jobUnlocked(j){
+  return j.needs==="all" ? TECH.every(t=>Game.unlocked.includes(t.id))
+                         : j.needs.every(t=>Game.unlocked.includes(t));
+}
+/* Dauerbonus auf Missionsprämien (aktuell nur der Börsengang) */
+function missionBonus(){
+  return SIDE_JOBS.reduce((f,j)=>f + (j.bonus && (Game.jobsDone||[]).includes(j.id) ? j.bonus : 0), 0);
+}
 /* ---------- Satelliten-Aufträge: endlos nachspawnende Geld-Verträge ----------
    Freigeschaltet mit »Satellitentechnik« (payload). Kommerz-Satellit »Werbefunk«
    im geforderten Orbit aussetzen [N] → Prämie; der Sat funkt danach dauerhaft
@@ -2098,7 +2157,7 @@ const MISSIONS = [
   {id:"alt20",   name:"Höhenrekord: 20 km",  desc:"Erreiche eine Höhe von 20 km.",  sci:8,  req:["alt5"], check:s=>s.alt>20000},
   {id:"alt40",   name:"Höhenrekord: 40 km",  desc:"Erreiche eine Höhe von 40 km.",  sci:10, req:["alt20"], check:s=>s.alt>40000},
   {id:"lab1",    name:"Wissenschaft unterwegs", desc:"Führe mit dem Materiallabor ein Experiment durch. [B]", sci:10,
-   req:["alt20"], check:s=>s.labAny},
+   req:["alt20"], check:s=>s.labAny && s.labNew},
   {id:"space",   name:"Grenze zum Weltraum", desc:"Verlasse die Atmosphäre (70 km).", sci:15, req:["alt40"], check:s=>s.alt>70000},
   {id:"speed2k", name:"Fast Orbitalgeschwindigkeit", desc:"Erreiche 2200 m/s.", sci:8, req:["speed1k","alt40"], check:s=>s.speed>2200},
   {id:"orbit",   name:"Orbit!",              desc:"Stabiler Orbit um Leibniz (Periapsis > 70 km).", sci:25,
@@ -2123,7 +2182,7 @@ const MISSIONS = [
    req:["reuse1"], check:s=>s.lzLanded},
   {id:"ship1",   name:"Ahoi, Booster!", desc:"Downrange-Landung: Forsche »Droneship«, wähle es als Landeplatz und lande die erste Stufe auf dem Landeschiff »Lies die Anleitung« im Ozean. Der spätere Cutoff schenkt dir ordentlich Nutzlast!", sci:45,
    req:["lz1"], check:s=>s.shipLanded},
-  {id:"catch1",  name:"Mechazilla!", desc:"Fang den Superheavy mit den Turm-Armen: Starship vom Raumhafen »Schulhof Süd« starten, Stufentrennung – der Autopilot fliegt den Booster per Boostback zurück, und der Turm CATCHT ihn. (Forschung »Starship«)", sci:60,
+  {id:"catch1",  name:"Mechazilla!", desc:"Fang den Superheavy mit den Turm-Armen: Starship von einer der großen Rampen starten (Raumhafen »Schulhof Süd« oder Polarstation »Skihütte« – nur dort steht der Turm), dann Stufentrennung: Der Autopilot fliegt den Booster per Boostback zurück, und der Turm CATCHT ihn. Trenne, solange der Tank über der orangen Marke steht – dann reicht der Sprit sicher. (Forschung »Starship«)", sci:60,
    req:["reuse1"], check:s=>s.caught},
   {id:"satWetter", name:"Wetterdienst Leibniz", desc:"Setze den Wettersatelliten »Wolkengucker« in einem stabilen Orbit um Leibniz aus [N]. Ab morgen gibt's Pausenhof-Wettervorhersage! (Tipp: Sondenbus »Teller« als Steuereinheit.)", sci:35,
    req:["sat1"], check:s=>s.satWeather},
@@ -2151,11 +2210,11 @@ const MISSIONS = [
   {id:"geo1", name:"Synchroner Orbit", desc:"Ein Leibniz-Tag dauert 14.000 s – und in ≈2000 km Höhe braucht ein Umlauf GENAU so lange: Der Satellit steht scheinbar still am Himmel! Erreiche einen Kreis-Orbit zwischen 1850 und 2150 km (blauer Ring in der Karte).", sci:40,
    req:["highOrbit"], check:s=>s.body===LEIBNIZ && isGeoOrbit(s.pe, s.ap),
    orbitGoal:{body:"LEIBNIZ", alt:GEO_ALT, peMin:GEO_MIN, apMax:GEO_MAX, label:"Synchronbahn ≈2000 km"}},
-  {id:"gps1", name:"Navigation I: »Schulweg«", desc:"Das Navi-Projekt beginnt! Setze einen Satelliten im SYNCHRONEN Orbit aus (kreisrund, 1850–2150 km) [N] – »Lorenz« genügt. Von dort sieht er immer dieselbe Seite von Leibniz.", sci:50,
-   req:["geo1","sat1"], check:s=>s.geoSats>=1,
+  {id:"gps1", name:"Navigation I: »Schulweg«", desc:"Das Navi-Projekt beginnt! Setze einen Satelliten im SYNCHRONEN Orbit aus (kreisrund, 1850–2150 km) [N] – »Lorenz« genügt. Es zählt der Satellit, den du in DIESEM Flug aussetzt – schon geparkte Sats lösen den Auftrag nicht aus. Von dort sieht er immer dieselbe Seite von Leibniz.", sci:50,
+   req:["geo1","sat1"], check:s=>s.geoSats>=1 && s.geoSatsNew>=1,
    orbitGoal:{body:"LEIBNIZ", alt:GEO_ALT, peMin:GEO_MIN, apMax:GEO_MAX, label:"Synchronbahn ≈2000 km"}},
-  {id:"gps3", name:"Navigation II: GPS-Konstellation", desc:"DREI Navigationssatelliten im synchronen Orbit = flächendeckendes GPS für Leibniz! Baue die Konstellation auf 3 Satelliten aus – mehrere Flüge oder gleich mehrere »Lorenz« auf einer Rakete (jeder wird einzeln mit [N] abgestoßen).", sci:90,
-   req:["gps1"], check:s=>s.geoSats>=3,
+  {id:"gps3", name:"Navigation II: GPS-Konstellation", desc:"DREI Navigationssatelliten im synchronen Orbit = flächendeckendes GPS für Leibniz! Baue die Konstellation auf 3 Satelliten aus – mehrere Flüge oder gleich mehrere »Lorenz« auf einer Rakete (jeder wird einzeln mit [N] abgestoßen). Erfüllt ist der Auftrag in dem Flug, in dem der fehlende Satellit dazukommt.", sci:90,
+   req:["gps1"], check:s=>s.geoSats>=3 && s.geoSatsNew>=1,
    orbitGoal:{body:"LEIBNIZ", alt:GEO_ALT, peMin:GEO_MIN, apMax:GEO_MAX, label:"Synchronbahn ≈2000 km"}},
   {id:"satSonne", name:"Sonnenspäher", desc:"Verlasse Leibniz' Gravitationssphäre und setze einen Satelliten in einem Orbit um die SONNE aus [N] (»Lorenz« genügt). Antenne + Solar nicht vergessen – so weit draußen braucht die Sonde Funkkontakt (1 Relais)!", sci:65,
    req:["satLeo","montiOrb"], check:s=>s.satDeploys.some(d=>d.body==="Sonne")},
@@ -2167,20 +2226,20 @@ const MISSIONS = [
   {id:"dock1",   name:"Rendezvous: »Große Pause«", desc:"Docke mit einem Docking-Port [L] an der Raumstation »Große Pause« an (100-km-Orbit). Tipp: vom Äquator-Raumhafen starten (gleiche Bahnebene!) – und erst das Tutorial »Rendezvous & Docking«!", sci:55,
    req:["highOrbit"], check:s=>s.docked,
    orbitGoal:{body:"LEIBNIZ", alt:100000, apMax:200000, label:"Stationsorbit 100 km"}},
-  {id:"relay1",  name:"Funknetz I: Erstes Relais", desc:"Setze einen Relais-Satelliten aus: Sondenkern + Antenne + Solar in stabilem Leibniz-Orbit [N]. Sonden im tiefen All brauchen Funkkontakt!", sci:35,
-   req:["sat1"], check:s=>s.relays>=1},
+  {id:"relay1",  name:"Funknetz I: Erstes Relais", desc:"Setze einen Relais-Satelliten aus: Sondenkern + Antenne + Solar in stabilem Leibniz-Orbit [N]. Sonden im tiefen All brauchen Funkkontakt! (Es zählt das Relais aus DIESEM Flug.)", sci:35,
+   req:["sat1"], check:s=>s.relays>=1 && s.relaysNew>=1},
   {id:"relay3",  name:"Funknetz II: Volle Abdeckung", desc:"Baue das Netz auf 3 Relais aus – erst dann erreichen Sonden-Signale auch Newton am Rand des Systems. (Tipp: die Relaisstation »Pausenfunk« zählt doppelt!)", sci:60,
-   req:["relay1"], check:s=>s.relays>=3},
+   req:["relay1"], check:s=>s.relays>=3 && s.relaysNew>=1},
   {id:"modLab",  name:"Stationsausbau: Labormodul", desc:"Bring ein Materiallabor »Curie« zur »Großen Pause«: andocken, dann [I]. Bonus danach: +50 % Experiment-Wissenschaft!", sci:50,
-   req:["dock1"], check:s=>s.mods.includes("modLab")},
+   req:["dock1"], check:s=>s.modsNew.includes("modLab")},
   {id:"modSolar",name:"Stationsausbau: Solarfarm", desc:"Bring ZWEI Solarpanele zur Station: andocken, dann [I]. Bonus: Andocken lädt künftig deine Batterien voll.", sci:50,
-   req:["dock1"], check:s=>s.mods.includes("modSolar")},
+   req:["dock1"], check:s=>s.modsNew.includes("modSolar")},
   {id:"modHab",  name:"Stationsausbau: Wohnmodul", desc:"Bring eine Servicebucht + Batterie zur Station (wird zum »Schlafsaal« umgebaut): andocken, dann [I].", sci:60,
-   req:["modLab"], check:s=>s.mods.includes("modHab")},
+   req:["modLab"], check:s=>s.modsNew.includes("modHab")},
   {id:"modScope",name:"Stationsausbau: Teleskop", desc:"Bring Sondenkern + Antenne zur Station: andocken, dann [I]. Das »Superblick«-Teleskop verrät danach, wo Anomalien versteckt sind!", sci:60,
-   req:["modSolar"], check:s=>s.mods.includes("modScope")},
+   req:["modSolar"], check:s=>s.modsNew.includes("modScope")},
   {id:"modFunk", name:"Stationsausbau: Relaisstation", desc:"Bring ZWEI Antennen zur Station: andocken, dann [I]. »Pausenfunk« zählt wie zwei Relais-Satelliten.", sci:60,
-   req:["modLab","modSolar"], check:s=>s.mods.includes("modFunk")},
+   req:["modLab","modSolar"], check:s=>s.modsNew.includes("modFunk")},
   {id:"anomaly1",name:"Entdecker*in", desc:"Irgendwo da draußen verstecken sich seltsame Orte… Lande in der Nähe einer leuchtenden ANOMALIE und untersuche sie!", sci:40,
    req:["land"], check:s=>s.anomalies>=1},
   {id:"rescue1", name:"Rettungsmission!", desc:"Hole gestrandete Crew aus dem Orbit zurück: mit Kommandokapsel auf unter 40 m ranfliegen (wie beim Docking) und sicher auf Leibniz landen!", sci:80,
@@ -2431,9 +2490,9 @@ const UI = {
       return;
     }
     // Superheavy braucht den Mechazilla-Turm (Startaufhängung + Flame Diverter)
-    if(!orbitStart && VAB.stack.some(id=>PARTS[id].type==="superheavy") && pad.id!=="eq"){
+    if(!orbitStart && VAB.stack.some(id=>PARTS[id].type==="superheavy") && !padHasCatchTower(pad.id)){
       VAB.oops();
-      alert("🦾 Der SUPERHEAVY startet nur vom Raumhafen »Schulhof Süd«!\n\nNur dort stehen der Mechazilla-Startturm und der Flame Diverter – und nur dort kann der Booster nach dem Start wieder GECATCHT werden.");
+      alert("🦾 Der SUPERHEAVY startet nur von den GROSSEN Rampen!\n\nEr braucht den Mechazilla-Startturm und den Flammengraben – die stehen am Raumhafen »Schulhof Süd« (Äquator) und an der Polarstation »Skihütte«. Nur dort wird der Booster nach dem Start auch wieder GECATCHT.\n\nAm kleinen LMG-Startplatz gibt es beides nicht.");
       return;
     }
     // Karriere: die Rakete muss bezahlt werden – Bergung nach Landung erstattet sie
@@ -3000,12 +3059,15 @@ function renderMissionControl(list){
   // --- Nebenverdienste (einmalige Geld-Aktionen, via Forschung freigeschaltet) ---
   sec("💰 Nebenverdienste – die AG-Kasse aufbessern");
   const jobsCard = card(`<p style="margin-bottom:8px;color:var(--muted)">Einmalige Aktionen –
-    neue Forschung schaltet neue Geldquellen frei. Kassenstand: <b>🪙 ${Game.funds}</b></p>`);
+    neue Forschung schaltet neue Geldquellen frei. Kassenstand: <b>🪙 ${Game.funds}</b>${
+    missionBonus() ? ` · <b style="color:var(--green)">📈 Börsenbonus: +${Math.round(missionBonus()*100)} % auf jede Missionsprämie</b>` : ""}</p>`);
   for(const j of SIDE_JOBS){
     const done = Game.jobsDone.includes(j.id), open = jobUnlocked(j);
     const row = document.createElement("div");
     row.style.cssText = "display:flex;gap:10px;align-items:center;margin:7px 0;"+(open||done?"":"opacity:.5;");
-    const techNames = j.needs.map(id=>"»"+(TECH.find(t=>t.id===id)||{}).name+"«").join(" + ");
+    const techNames = j.needs==="all"
+      ? "der KOMPLETTE Forschungsbaum ("+(Game.unlocked||[]).length+" / "+TECH.length+" Knoten)"
+      : j.needs.map(id=>"»"+(TECH.find(t=>t.id===id)||{}).name+"«").join(" + ");
     row.innerHTML = `<span style="font-size:20px;">${done?"✅":open?j.icon:"🔒"}</span>
       <div style="flex:1;"><b>${j.name}</b><br>
       <small style="color:var(--muted)">${open||done ? j.desc : "Forschung nötig: "+techNames}</small></div>`;
@@ -3055,22 +3117,45 @@ function renderMissionControl(list){
         <span>${done?"✅":"⬜"} ${m.icon} <b>${m.name}</b></span>
         <small style="color:var(--muted)">${done ? m.bonus : m.desc+" → andocken, dann [I]"}</small></div>`;
     }).join(""));
-  // --- Crew-Kader ---
+  // --- Crew-Kader (+ 🎓 Ausbildung: Wissenschaft → Erfahrung, s. trainCrew) ---
   sec("🧑‍🚀 Astronaut*innen-Kader");
-  card((Game.roster||[]).map(a=>{
+  const crewCard = card(trainingUnlocked()
+    ? `<p style="margin-bottom:8px;color:var(--muted)">🎓 <b>Ausbildung</b>: Übrige Wissenschaft
+       lässt sich im Simulator in Erfahrung umsetzen – ein Level kostet 🧪, wirkt aber sofort
+       und bei jedem Flug. Erfahrung sammeln die Leute weiterhin auch selbst, aber nur auf
+       Flügen über ${COM_ALT_MIN/1000} km. Vorrat: <b>🧪 ${Game.science}</b></p>`
+    : `<p style="margin-bottom:8px;color:var(--muted)">🔒 Mit der Forschung »Bemannte Raumfahrt«
+       öffnet hier zusätzlich die <b>Ausbildung</b>: Wissenschaft gegen Erfahrungslevel.</p>`);
+  for(const a of (Game.roster||[])){
     const lvl = crewLevel(a);
     const next = XP_LEVELS[lvl+1];
     const stranded = a.status==="gestrandet";
     const gone = a.status==="verschollen";      // Sauerstoff bei EVA alle (evaO2Out)
-    return `<div style="display:flex;gap:10px;align-items:baseline;margin:3px 0;">
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:10px;align-items:baseline;margin:3px 0;";
+    row.innerHTML = `
       <b style="min-width:120px;${stranded||gone?"color:var(--red)":""}">${ROLES[a.role].icon} ${a.name}</b>
       <span style="min-width:120px;">${"⭐".repeat(lvl)||"–"} ${LEVEL_NAMES[lvl]}</span>
-      <small style="color:var(--muted)">${a.xp} XP${next!==undefined?" (Level-Up bei "+next+")":""} ·
+      <small style="flex:1;color:var(--muted)">${a.xp} XP${next!==undefined?" (Level-Up bei "+next+")":""} ·
         ${a.flights||0} Flüge · ${ROLES[a.role].bonus}</small>
       ${stranded?'<b style="color:var(--red)">🆘 GESTRANDET – Rettungsmission!</b>':""}
-      ${gone?'<b style="color:var(--red)">💀 VERSCHOLLEN (Sauerstoff bei EVA)</b>':""}
-    </div>`;
-  }).join(""));
+      ${gone?'<b style="color:var(--red)">💀 VERSCHOLLEN (Sauerstoff bei EVA)</b>':""}`;
+    const cost = trainCost(a);
+    if(trainingUnlocked() && !stranded && !gone){
+      const btn = document.createElement("button");
+      btn.className = "btn";
+      btn.style.cssText = "padding:5px 10px;font-size:12px;white-space:nowrap;";
+      if(cost===null){ btn.textContent = "🏅 austrainiert"; btn.disabled = true; }
+      else {
+        btn.textContent = "🎓 Level "+(lvl+1)+" · 🧪 "+cost;
+        btn.disabled = Game.science < cost;
+        if(!btn.disabled){ btn.classList.add("orange"); btn.onclick = ()=>trainCrew(a.name); }
+        else btn.title = "Dafür fehlen noch "+(cost-Game.science)+" 🧪.";
+      }
+      row.appendChild(btn);
+    }
+    crewCard.appendChild(row);
+  }
   // --- Funknetz ---
   sec("📡 Funknetz");
   const r = commRelays();
@@ -4278,6 +4363,15 @@ const FOOT_MAX = 140, FOOT_STEP = 0.85;
    Rauch neben der Öffnung aus dem Beton. */
 const DIV_VENT_X = 34;
 function padHasDiverter(kind){ return kind === "eq" || kind === "polar"; }
+/* ⚠️ Welche Rampen tragen den MECHAZILLA-Fangturm? Beide GROSSEN – der
+   Äquator-Raumhafen und die Polarstation (August 2026, Wunsch Simon). Sie haben
+   ohnehin schon den Flammengraben und keine Massengrenze; ohne Turm im Norden
+   ließe sich ein Starship nie in einen Polarorbit bringen, ohne den Booster
+   wegzuwerfen. Der kleine LMG-Schulstartplatz hat weiterhin KEINEN – das ist
+   genau der sichtbare Unterschied zwischen Schulhof und Bahnhof.
+   EINE Quelle für Mesh (`buildPad`), Fangpunkt (`Flight.start` → `catchLocal`)
+   und den Start-Guard in `UI.launch`. */
+function padHasCatchTower(kind){ return kind === "eq" || kind === "polar"; }
 /* Höhe der Unterkante, bis zu der der Abgasstrahl den Boden trifft und
    umgelenkt wird (s. Flight.frame, »Abgas & Startrauch«). Darüber zieht die
    Fahne nur noch nach hinten. */
@@ -12004,33 +12098,6 @@ const Flight = {
           dz===0?orangeMat:new THREE.MeshStandardMaterial({color:0x2a6fb8}));
         flag.position.set(-246.8,14.5,-60+dz); g.add(flag);
       }
-      // Starship-Startanlage (Forschung »Starship«): Mechazilla-Turm mit
-      // Catch-Armen + Flame Diverter – der Superheavy wird nach dem Start GECATCHT
-      if(Game.sandbox || (Game.unlocked||[]).includes("starshipT")){
-        const mzMat = new THREE.MeshStandardMaterial({color:0x3a4150, roughness:.55, metalness:.5});
-        const mz = new THREE.Group();
-        const shaft = new THREE.Mesh(new THREE.BoxGeometry(9,104,9), mzMat);
-        shaft.position.y = 52; mz.add(shaft);
-        for(let y=6; y<102; y+=10){
-          const strut = new THREE.Mesh(new THREE.BoxGeometry(11.4,0.7,11.4),
-            new THREE.MeshStandardMaterial({color:0x8d94a6, metalness:.5}));
-          strut.position.y = y; mz.add(strut);
-        }
-        // Catch-Arme (»Chopsticks«): Drehgelenk am Turm, geöffnet ±; schließen
-        // beim Catch (Animation über Flight.mzArmFold in frame())
-        for(const side of [1,-1]){
-          const piv = new THREE.Group(); piv.name = "mzArm"; piv.userData.side = side;
-          piv.position.set(side*5.2, 72, -6);   // Gelenk an der Turm-Nordkante
-          const arm = new THREE.Mesh(new THREE.BoxGeometry(3.2,2.8,32), mzMat);
-          arm.position.set(0,0,-16); piv.add(arm);
-          const tip = new THREE.Mesh(new THREE.BoxGeometry(2.4,1.6,7), orangeMat);
-          tip.position.set(0,-0.6,-30); piv.add(tip);
-          piv.rotation.y = side*0.55;
-          mz.add(piv);
-        }
-        mz.position.set(0,0,34);   // +Z = Süd: Turm steht südlich, Arme reichen zur Rampe
-        g.add(mz);
-      }
     } else {
       // Polarstation »Skihütte«: zwei Container, kleiner Tank, Radarkuppel
       const contMat = new THREE.MeshStandardMaterial({color:0xc84f3a, roughness:.6});
@@ -12047,6 +12114,35 @@ const Flight = {
         const st = new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,5,5), orangeMat);
         st.position.set(-45-k*14,2.5,52+Math.sin(k*2.1)*6); g.add(st);
       }
+    }
+    /* Starship-Startanlage (Forschung »Starship«): Mechazilla-Turm mit
+       Catch-Armen – der Superheavy wird nach dem Start GECATCHT. Steht an
+       BEIDEN großen Rampen (s. padHasCatchTower), den Flammengraben haben sie
+       ohnehin schon. */
+    if(padHasCatchTower(kind) && (Game.sandbox || (Game.unlocked||[]).includes("starshipT"))){
+      const mzMat = new THREE.MeshStandardMaterial({color:0x3a4150, roughness:.55, metalness:.5});
+      const mz = new THREE.Group();
+      const shaft = new THREE.Mesh(new THREE.BoxGeometry(9,104,9), mzMat);
+      shaft.position.y = 52; mz.add(shaft);
+      for(let y=6; y<102; y+=10){
+        const strut = new THREE.Mesh(new THREE.BoxGeometry(11.4,0.7,11.4),
+          new THREE.MeshStandardMaterial({color:0x8d94a6, metalness:.5}));
+        strut.position.y = y; mz.add(strut);
+      }
+      // Catch-Arme (»Chopsticks«): Drehgelenk am Turm, geöffnet ±; schließen
+      // beim Catch (Animation über Flight.mzArmFold in frame())
+      for(const side of [1,-1]){
+        const piv = new THREE.Group(); piv.name = "mzArm"; piv.userData.side = side;
+        piv.position.set(side*5.2, 72, -6);   // Gelenk an der Turm-Nordkante
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(3.2,2.8,32), mzMat);
+        arm.position.set(0,0,-16); piv.add(arm);
+        const tip = new THREE.Mesh(new THREE.BoxGeometry(2.4,1.6,7), orangeMat);
+        tip.position.set(0,-0.6,-30); piv.add(tip);
+        piv.rotation.y = side*0.55;
+        mz.add(piv);
+      }
+      mz.position.set(0,0,34);   // +Z = Süd: Turm steht südlich, Arme reichen zur Rampe
+      g.add(mz);
     }
     /* =============================================================
        GEMEINSAMES DRUMHERUM (alle drei Rampen)
@@ -12456,6 +12552,21 @@ const Flight = {
     this.statBoosterLanded = false; this.statBoosterRefund = 0;
     this.statLZLanded = false; this.statShipLanded = false; this.statCaught = false;
     this.statComIncome = 0; this.statComN = 0; this.comReached = false;
+    /* ⚠️⚠️ NULLPUNKT für alle Missionen, die einen DAUERZUSTAND zählen
+       (Satelliten im Synchronband, Relais, Stationsmodule, Experimente).
+       Ohne ihn war jede solche Mission ein Selbstläufer: Wer schon einen
+       Satelliten im Zielorbit geparkt hatte, bekam »Navigation I« in dem
+       Moment gutgeschrieben, in dem er sie annahm – die Erfolgsmeldung kam
+       auf der STARTRAMPE, noch vor der Zündung (Bug-Report Simon).
+       Gezählt wird ab hier deshalb nur noch, was IN DIESEM FLUG dazukommt;
+       der Gesamtstand zählt weiterhin für die Zielmarke (»3 Satelliten«),
+       nur ausgelöst wird nichts mehr rückwirkend. */
+    this._missBase = {
+      geo:    geoSatCount(),
+      relays: commRelays(),
+      mods:   (Game.stationMods||[]).slice(),
+      lab:    (Game.labDone||[]).length
+    };
     // Tutorial-Tanker aufräumen (setzt Tut.start bei Bedarf neu)
     if(this.tutTankerMesh){ this.world.remove(this.tutTankerMesh); this.tutTankerMesh = null; }
     this.tutTanker = null; this.refueled = false;
@@ -12583,8 +12694,8 @@ const Flight = {
     this.lzLocal = (Game.sandbox || Game.unlocked.includes("landZone"))
       ? this.padLocal.clone().addScaledVector(east, 10).addScaledVector(north, 260) : null;
     this.dsLocal = null;
-    // Mechazilla-Catch-Punkt (nur Raumhafen »Schulhof Süd« mit Starship-Forschung)
-    this.catchLocal = (this.pad.id==="eq" && (Game.sandbox || Game.unlocked.includes("starshipT")))
+    // Mechazilla-Catch-Punkt (beide großen Rampen, s. padHasCatchTower)
+    this.catchLocal = (padHasCatchTower(this.pad.id) && (Game.sandbox || Game.unlocked.includes("starshipT")))
       ? this.padLocal.clone().addScaledVector(north, -20) : null;
     if(!this.droneMesh){
       this.droneMesh = this.buildDroneship();
@@ -14048,17 +14159,39 @@ const Flight = {
           b.stateT = 0;
         }
       } else if(b.state==="boostback"){
-        // Boostback-Burn: horizontal Richtung Landing Zone brennen, bis der
-        // vorhergesagte Aufschlagpunkt nah genug an der Plattform liegt
-        if(b._pT===undefined || tt - b._pT > 0.8){ b._imp = this.predictImpactRel(b, tt); b._pT = tt; }
+        /* Boostback-Burn: horizontal Richtung Landeplatz brennen, bis der
+           vorhergesagte Aufschlagpunkt nah genug an der Plattform liegt.
+           ⚠️⚠️ SCHUB PROPORTIONAL ZUM FEHLER – und die Vorhersage in Zielnähe
+           in JEDEM Substep neu. Vorher lief der Burn mit VOLLGAS gegen eine
+           nur alle 0,8 s aufgefrischte Vorhersage, und das ging bei einem
+           leichten Booster nicht gut: Ein fast leerer Superheavy beschleunigt
+           mit rund 400 m/s², in 0,8 s sind das über 300 m/s Δv – und ein m/s
+           verschiebt den Aufschlagpunkt um ~90 m. Gemessen sprang der Fehler
+           damit zwischen zwei Abtastungen von **779 m auf 29 km** auf die
+           andere Seite; der Booster pendelte über das Ziel hin und her, bis
+           der Sprit auf 12 % stand, und setzte dann 1,1 km neben dem Turm auf
+           (Bug-Report Simon: »trennt man knapp vor der Marke, schafft er es
+           nicht«). Paradox und genau deshalb schwer zu finden: Es traf die
+           FRÜHE Trennung mit MEHR Restsprit, weil erst die dann übrige Δv das
+           Überschießen möglich macht.
+           Mit `errRef` = 25 km bewegt ein Substep (0,05 s) den Aufschlagpunkt
+           dicht am Ziel nur noch um ~50 m statt um 28 km. */
+        const near0 = b._imp && b.tgt.clone().sub(b._imp).length() < BB_NEAR;
+        if(b._pT===undefined || tt - b._pT > (near0 ? 0 : 0.8)){
+          b._imp = this.predictImpactRel(b, tt); b._pT = tt;
+        }
         let err = b._imp ? b.tgt.clone().sub(b._imp) : null;
         if(err) err.addScaledVector(up, -err.dot(up));   // nur horizontal zählt
-        if(!err || err.length() < (b.site==="catch" ? 350 : 800) || b.fuel < b.fuelMax*0.12 || b.stateT > 90){
+        const errLen = err ? err.length() : 0;
+        if(!err || errLen < (b.site==="catch" ? BB_STOP_CATCH : BB_STOP_LZ) ||
+           b.fuel < b.fuelMax*0.12 || b.stateT > 90){
           b.state = "coast"; b.stateT = 0; b.throttle = 0; b._bbDir = null;
         } else {
           b._bbDir = err.normalize();
           const nose = V3(0,1,0).applyQuaternion(b.q);
-          b.throttle = nose.dot(b._bbDir) > 0.9 ? 1 : 0;   // erst ausrichten, dann brennen
+          // erst ausrichten, dann brennen – und zum Schluss nur noch tupfen
+          b.throttle = nose.dot(b._bbDir) > 0.9
+            ? Math.max(0.03, Math.min(1, errLen/BB_ERR_REF)) : 0;
         }
       } else if(b.state==="coast"){
         b.finDeploy = Math.min(1, b.finDeploy + dtb/1.8);   // Flossen ausklappen
@@ -17507,6 +17640,8 @@ const Flight = {
     const o = this.orbit();
     if(o.body===MONTI) this.visitedMonti = true;
     if(o.body===LEIBNIZ && o.pe>LEIBNIZ.atmoH && o.ap>0) this.statOrbit = true;
+    const base = this._missBase ||
+      {geo:0, relays:0, mods:[], lab:0};   // Alt-Flüge ohne Nullpunkt
     const state = {alt:o.alt, speed:o.speed, ap:o.ap, pe:o.pe, body:o.body,
       landed:this.landed, flew:this.flew,
       satL:this.satL, satM:this.satM, visitedMonti:this.visitedMonti,
@@ -17516,10 +17651,17 @@ const Flight = {
       docked:!!this.docked,
       inc:this.orbitInc(),
       satDeploys:this.satDeploys||[],
-      geoSats:(Game.assets||[]).filter(a=>a.kind==="sat"&&a.body==="LEIBNIZ"&&a.alt>GEO_MIN&&a.alt<GEO_MAX).length,
+      geoSats:geoSatCount(),
       asteroids:(Game.asteroidsScanned||[]).length,
       cometScanned:(Game.asteroidsScanned||[]).includes("comWhipple"),
       relays:commRelays(), mods:Game.stationMods||[],
+      /* … und dasselbe nochmal als ZUWACHS dieses Fluges (s. _missBase in
+         start()). Die `*New`-Felder sind der Auslöser, die Gesamtzahlen
+         bleiben die Zielmarke. */
+      geoSatsNew:Math.max(0, geoSatCount() - base.geo),
+      relaysNew:Math.max(0, commRelays() - base.relays),
+      modsNew:(Game.stationMods||[]).filter(m=>!base.mods.includes(m)),
+      labNew:(Game.labDone||[]).length > base.lab,
       anomalies:(Game.anomaliesFound||[]).length,
       flags:(Game.flags||[]).map(f=>f.body),
       rescueLanded:!!this.rescueLanded,
@@ -17587,10 +17729,19 @@ const Flight = {
     this.statComIncome = (this.fromAsset || !this.comReached) ? 0 : nCom*COM_INCOME;
     if(this.statComIncome) Game.funds += this.statComIncome;
     const missionsDone = Game.done.length - this.statMissions;
-    // Crew-Erfahrung: fliegen, Orbit, Docking, fremde Welten, heil zurück
+    /* Crew-Erfahrung: fliegen, Orbit, Docking, fremde Welten, heil zurück.
+       ⚠️⚠️ NUR nach einem Flug über `COM_ALT_MIN` (70 km) – genau wie die
+       Dauerwerbung. Vorher brachte JEDER beendete Flug mindestens 1 XP (mit
+       Landung 2), und damit war der Kader hochzuhüpfen: zünden, 2 km steigen,
+       landen, beenden, wiederholen (Bug-Report Simon). Ein Hüpfer über dem
+       Schulhof ist keine Raumfahrt-Erfahrung.
+       ⚠️ `a.flights` zählt trotzdem hoch – das ist das Flugbuch, keine
+       Belohnung. Wer nicht ins All will, kann seine Leute jetzt über die
+       🎓 AUSBILDUNG in der Missionszentrale hochziehen (Wissenschaft statt
+       Hüpfer, s. trainCrew). */
     for(const a of (this.crewObjs||[])){
       a.flights = (a.flights||0)+1;
-      if(!this.crashed){
+      if(!this.crashed && this.comReached){
         let xp = 1 + 2*missionsDone;
         if(this.statOrbit) xp += 1;
         if(this.statDocked) xp += 2 + (stationHasMod("modHab") ? 2 : 0);

@@ -1134,12 +1134,40 @@ Was passiert, wenn ein Triebwerk auf den Boden zielt oder ein Stiefel ihn berüh
   - ⚠️ Die Tankmarke erscheint jetzt auch **ohne Gitterflossen**, sobald ein Superheavy in der aktiven Stufe sitzt: Ihn fängt der Turm, Flossen braucht er dafür nicht – den Boostback-Sprit schon.
   - Verifiziert: Superheavy+Starship mit `Game.boosterSite="ship"` → Marke 30 %, `site="catch"`, Gebühr 0, VAB zeigt die Droneship-Zeile gesperrt (»🚫 nicht für Superheavy«) · klassische Rakete mit Gitterflossen unverändert (ship → 12 %/`site="ship"`/50 🪙, rtls → 30 %/`site="rtls"`).
 - **Startgebühr Droneship:** `DRONESHIP_FEE` = 50 🪙, addiert von `launchFee(stack)` (nur Karriere, nur mit Gitterflossen im Stack, nur bei gewähltem+erforschtem Droneship) auf `stackCost` in `UI.launch` → steckt in `Flight.launchCost`, wird also bei einem ABGEBROCHENEN Start korrekt zurückgebucht (verifiziert: netto ±0), bei erfolgreicher Bergung dagegen nicht (das ist die Dienstleistung). Sichtbar im VAB-Infopanel: Zeile »Kosten (inkl. 🚢 50)« + Notiz am Landeplatz-Wähler.
-- **Autopilot-Zustände:** flip → **boostback** (nur rtls/catch, Sprit > 22 %: brennt horizontal, bis `predictImpactRel(b,tt)` (grobe ballistische Vorhersage im Leibniz-Frame, cdA≈13) < 350/800 m am Ziel) → coast (Droneship-Position s. u.; Gitterflossen-»Lift« zieht die Bahn zum Ziel; **< 8 km: direkte Quergeschwindigkeits-Regelung** `vLat = err/tGo`, cap 45 m/s / 6 m/s² – die Prediction allein streut bei Warp zu sehr!) → burn (Hoverslam relativ zu `b.catchAlt`, Ziel-Kipp + Schubvektor-Lateral-Regler < 2,5 km) → landed/caught/crashed. Getestet: LZ 14–30 m, Droneship 10–17 m, Catch 7,5 m (auch mit Warp 2).
+- **Autopilot-Zustände:** flip → **boostback** (nur rtls/catch, Sprit > 22 %: brennt horizontal Richtung Ziel, bis der aus `predictImpactRel(b,tt)` (grobe ballistische Vorhersage im Leibniz-Frame, cdA≈13) vorhergesagte Aufschlagpunkt näher als `BB_STOP_CATCH`/`BB_STOP_LZ` liegt – mit Schub PROPORTIONAL zum Fehler, s. u.) → coast (Droneship-Position s. u.; Gitterflossen-»Lift« zieht die Bahn zum Ziel; **< 8 km: direkte Quergeschwindigkeits-Regelung** `vLat = err/tGo`, cap 45 m/s / 6 m/s² – die Prediction allein streut bei Warp zu sehr!) → burn (Hoverslam relativ zu `b.catchAlt`, Ziel-Kipp + Schubvektor-Lateral-Regler < 2,5 km) → landed/caught/crashed. Getestet: LZ 14–30 m, Droneship 10–17 m, Catch 7,5 m (auch mit Warp 2).
 - ⚠️⚠️ **Droneship-Position (`b.tgt`/`dsLocal`): drei Fallen, alle drei waren gestellt.** Ergebnis vorher: Der Booster fiel bei JEDEM getesteten Profil 29–40 km neben der Barge ins Wasser, zündete den Landing Burn gar nicht mehr und bekam 50 % statt 90 %. Jetzt 10–17 m in vier Profilen (Trennung 19–34 km / 1200–1900 m/s).
   1. **Nicht EINMAL am Scheitelpunkt festlegen.** Die Position wird bis 25 km Höhe alle 2 s nachgeführt (`b._dsT`) und erst darunter eingefroren. Beim ersten Impact-Predict steht der Booster am Apogäum, wo die grobe ballistische Vorhersage am schlechtesten ist – ein Schiff darf sich aber bewegen, das ist ja sein Vorteil gegenüber der ortsfesten LZ. Unter 25 km muss es stehen, sonst fährt das Deck im Endanflug davon.
   2. **Kein Tangentialebenen-Umweg.** Ziel ist der vorhergesagte Aufschlagpunkt SELBST (`imp.normalize()·R`). Vorher wurde er in Ost/Nord-Koordinaten der RAMPE zerlegt und aus `padLocal` wieder zusammengesetzt: Der Ost-Anteil einer 290-km-Sehne ergibt über `atan(e/R)` nur 268 km Bogen = **22 km zu kurz**. Bei kurzen Strecken identisch, deshalb fiel es nie auf.
   3. **Wassersuche in BEIDE Richtungen.** Östlich des Äquator-Raumhafens liegt Meer nur von ~2 bis ~60 km, dann kommt der nächste Kontinent (gemessen `landH > 0` von 65 bis ~190 km). Die alte Suche schob nur ostwärts und höchstens 40×800 m – bei Aufschlag 130 km downrange lief sie 40-mal ins Leere und das Deck stand am Ende **exakt 32 km** daneben (konstanter Offset = verräterisch). Jetzt ±40 km entlang der Bahnspur, nächstgelegenes Wasser gewinnt, Verschiebung als WINKEL (`s/R`) am Zielpunkt; nach Westen nur, solange das Deck > 6 km östlich der Rampe bleibt.
-- **Mechazilla (eq-Pad, Tech starshipT):** Turm+Arme (`name:"mzArm"`, `userData.side`) + Flame Diverter in `buildPad("eq")`; `Flight.catchLocal` = padLocal + Nord·(−20). Superheavy-Stufe (braucht Decoupler drüber!) → `site:"catch"`, `catchAlt = 72 − H + 6` (Arme greifen oben, Unterkante schwebt). Catch-Check VOR dem Boden-Check: alt ≤ catchAlt+2, horizontal < 45 m, < 9 m/s → `state:"caught"` (sackt 2,5 m nach, `b.sink`), 100 % Erstattung, `statCaught`. Arme schließen via `Flight.mzArmFold` in frame(). **Superheavy startet NUR von eq** (Guard in `UI.launch`). Diverter-Extra-Rauch: 4 Partikel/Frame seitlich (Ost/West) bei alt < 100 + superheavy im Stack; Partikel-Pool dafür 170.
+- ⚠️⚠️ **Der Boostback drosselt am Ende – `BB_ERR_REF` ist der wichtigste
+  Regler des ganzen Autopiloten** (August 2026). Vorher lief der Burn mit
+  VOLLGAS gegen eine nur alle 0,8 s aufgefrischte Vorhersage. Ein fast leerer
+  Superheavy beschleunigt mit rund **400 m/s²**, in 0,8 s sind das über
+  300 m/s Δv – und **ein m/s verschiebt den Aufschlagpunkt um ~90 m**.
+  Gemessen sprang der Fehler zwischen zwei Abtastungen von **779 m auf 29 km**
+  auf die andere Seite; der Booster pendelte über den Turm hin und her, bis
+  der Sprit auf 12 % stand, und setzte 1,1 km daneben auf.
+  ⚠️⚠️ **Und zwar ausgerechnet bei der FRÜHEN Trennung mit MEHR Restsprit**
+  (Bug-Report Simon: »trennt man knapp vor der Marke, schafft er es nicht«) –
+  erst die dann noch übrige Δv macht das Überschießen möglich. Genau deshalb
+  war es so schwer zu finden: Die naheliegende Vermutung ist immer »zu wenig
+  Sprit«, hier war es zu viel.
+  Fix: Vorhersage in Zielnähe (`BB_NEAR` = 30 km) in JEDEM Substep neu, und
+  `throttle = clamp(err/BB_ERR_REF, 0,03, 1)` – dicht am Ziel bewegt ein
+  Substep den Aufschlagpunkt damit noch ~50 m statt 28 km.
+  Gemessen (Superheavy ab eq, Trennung bei Resttank): **50/45/40/35/32/30/28/26/24 %
+  → alle `caught`, 10 m** · 22 % und darunter → ehrliche Notlandung downrange
+  (`missed`). Vorher fiel 35 % durch. Auch über fünf Aufstiegsprofile
+  (Pitch 0,8–1,6) stabil, ebenso von der Polarstation.
+  ⚠️ Der DRONESHIP-Zweig ist davon nicht betroffen – dort gibt es gar keinen
+  Boostback (`site==="ship"` geht direkt auf `coast`). Klassisches RTLS
+  nachgemessen: 40/32/30/26 % → exakt auf der LZ (0 m), 22 % und darunter
+  `missed`.
+  ⚠️ **Die orange Tankmarke bleibt bei 30 %** (`BOOSTER_RESERVE.rtls`) – sie
+  liegt damit 6 Punkte über der gemessenen Grenze von ~24 %. Genau das war der
+  Wunsch: über der Marke klappt es IMMER, darunter je nach Resttank noch
+  (28/26/24 %) oder eben nicht mehr (≤22 %).
+- **Mechazilla (Tech starshipT, beide großen Rampen):** Turm+Arme (`name:"mzArm"`, `userData.side`) im gemeinsamen Teil von `buildPad` (s. u.), Flammengraben via `padHasDiverter`; `Flight.catchLocal` = padLocal + Nord·(−20). Superheavy-Stufe (braucht Decoupler drüber!) → `site:"catch"`, `catchAlt = 72 − H + 6` (Arme greifen oben, Unterkante schwebt). Catch-Check VOR dem Boden-Check: alt ≤ catchAlt+2, horizontal < 45 m, < 9 m/s → `state:"caught"` (sackt 2,5 m nach, `b.sink`), 100 % Erstattung, `statCaught`. Arme schließen via `Flight.mzArmFold` in frame(). **Superheavy startet nur von den GROßEN Rampen** – `padHasCatchTower(kind)` (= eq ODER polar) ist die EINE Quelle für Mesh (`buildPad`), Fangpunkt (`catchLocal`) und den Guard in `UI.launch`. ⚠️⚠️ Die Polarstation hat den Turm seit August 2026 (Wunsch Simon): Sie hat ohnehin schon den Flammengraben und kein Gewichtslimit, und ohne Turm im Norden lässt sich ein Starship nie in einen Polarorbit bringen, ohne den Booster wegzuwerfen. Der Mechazilla-Block steht deshalb NICHT mehr im eq-Zweig, sondern im gemeinsamen Teil von `buildPad`. Der kleine LMG-Schulstartplatz hat weiterhin keinen – das ist der sichtbare Unterschied zwischen Schulhof und Bahnhof. Verifiziert: Turmarme lmg 0 / eq 2 / polar 2, und ein kompletter Superheavy-Flug ab Polarstation endet `caught` bei 10 m (Bahnneigung 86°). Diverter-Extra-Rauch: 4 Partikel/Frame seitlich (Ost/West) bei alt < 100 + superheavy im Stack; Partikel-Pool dafür 170.
 - ⚠️⚠️ **Wann der Landing Burn zündet, entscheidet `boosterMustBurn` – NICHT die
   Bremsstrecken-Formel allein.** `burnDist = v²/(2·(Schub/m − g))` tut so, als müsse das
   Triebwerk die ganze Energie abbauen; in Wahrheit nimmt der LUFTWIDERSTAND auf dem Weg nach
@@ -1226,6 +1254,51 @@ Was passiert, wenn ein Triebwerk auf den Boden zielt oder ein Stiefel ihn berüh
 
 ## Langzeit-Systeme (Jahresprojekt für die AG, alles NUR Karriere; Sandbox/Tutorial = neutral)
 - **Stationsausbau:** `STATION_MODS` (5 Module, `needs`=Teile-Multiset). Angedockt + Teile an Bord → **[I]** `installModule()`: Teile raus, `Game.stationMods`, `buildStationMesh(stationModsEff())` wächst. Sandbox = Vollausbau (`stationModsEff`). Boni: modLab ×1,5 Experimente · modSolar lädt beim Docken · modHab +2 Crew-XP bei Docking · modScope zeigt Anomalie-Hinweise · modFunk zählt als 2 Relais.
+- ⚠️⚠️ **MISSIONEN LÖSEN NUR DURCH TATEN IM LAUFENDEN FLUG AUS**
+  (`Flight._missBase`, gesetzt in `start()`; Felder `geoSatsNew` / `relaysNew` /
+  `modsNew` / `labNew` im Zustandsobjekt von `checkMissions`). Jede Mission, die
+  einen DAUERZUSTAND zählt, war vorher ein Selbstläufer: Wer schon einen
+  Satelliten im Synchronband geparkt hatte, bekam »Navigation I« in dem Moment
+  gutgeschrieben, in dem er sie annahm – die Erfolgsmeldung kam **auf der
+  Startrampe**, noch vor der Zündung (Bug-Report Simon).
+  Betroffen und umgestellt: `gps1` (`geoSats>=1 && geoSatsNew>=1`), `gps3`
+  (`>=3 && New>=1`), `relay1`/`relay3`, alle fünf `mod*` (jetzt `modsNew`),
+  `lab1` (`labAny && labNew`). Der Gesamtstand bleibt die ZIELMARKE (»drei
+  Satelliten«), ausgelöst wird nur noch, was in diesem Flug dazukommt.
+  ⚠️ Alle übrigen Satelliten-Missionen (sat1, satMonti, satLeo, satIncl,
+  satEllip, satSonne, polar1, satWetter …) hängen ohnehin schon an
+  PRO-FLUG-Flags (`satL`, `satM`, `satDeploys`, `satPolar` …) und brauchten
+  nichts.
+  ⚠️⚠️ **BEWUSST NICHT umgestellt: `anomaly1`, `flagMonti`, `ast1`, `comet1`,
+  `astAll`.** Sie haben denselben Auto-Auslöser, aber ein zweiter Anlauf kostet
+  dort einen interplanetaren Flug bzw. eine Mondlandung – Wochen Spielzeit, nur
+  weil die Reihenfolge von Tun und Annehmen nicht passte. Bei Satellit, Relais,
+  Modul und Experiment ist die Wiederholung dagegen ein einzelner
+  Leibniz-Flug. Wer das ändern will, muss nur denselben Nullpunkt (`_missBase`)
+  auf `asteroids`/`anomalies`/`flags` ausweiten.
+  Verifiziert: GEO-Sat schon oben + Mission angenommen → auf der Rampe **nicht**
+  erfüllt, nach dem Aussetzen sofort erfüllt; dasselbe für relay1, modSolar
+  und lab1.
+- ⚠️⚠️ **CREW-XP NUR AB `COM_ALT_MIN` (70 km)** (`settleCrewAndAssets`).
+  Vorher brachte JEDER beendete Flug mindestens 1 XP (mit Landung 2) – der
+  Kader war also hochzuhüpfen: zünden, 2 km steigen, landen, beenden,
+  wiederholen (Bug-Report Simon, dieselbe Lücke wie bei der Dauerwerbung).
+  Gemessen: 2 km → 0 XP · 69 km → 0 XP · 200 km → 3 XP.
+  ⚠️ `a.flights` zählt trotzdem hoch – das ist das Flugbuch, keine Belohnung.
+- **🎓 Ausbildung: Wissenschaft → Erfahrung** (`TRAIN_COST` / `trainCrew` /
+  `trainingUnlocked`, Sektion »Astronaut*innen-Kader« in `renderMissionControl`).
+  ⚠️ Der Anlass ist gemessen: Die 58 Missionen geben zusammen **3269 🧪**, alle
+  24 Tech-Knoten kosten **1485 🧪** – **1784 🧪 Überschuss**, und die
+  [B]-Experimente kommen noch obendrauf. Wer fertig geforscht hatte, sammelte
+  eine Währung ohne Ware (Wunsch Simon).
+  Ein Level kostet `TRAIN_COST[lvl+1]` = 20/35/55/80/120 🧪, `trainCrew` hebt
+  `a.xp` exakt auf `XP_LEVELS[lvl+1]`.
+  ⚠️⚠️ **Die Preise sind so gelegt, dass NICHT der ganze Kader maximal
+  ausgebildet werden kann:** 310 🧪 je Person × 6 = **1860 🧪** gegen 1784 🧪
+  Überschuss. Man muss wählen, wen man hochzieht – sonst wäre es kein
+  Tauschgeschäft, sondern ein Automat.
+  ⚠️ Freigeschaltet mit Tech `crewed` (vorher gibt es niemanden, der fliegt),
+  gesperrt in der Sandbox und für `gestrandet`/`verschollen`.
 - **Crew-Kader:** `Game.roster` (6 feste Astronaut*innen, `ROLES` pilot/ing/sci, `XP_LEVELS`). Auswahl in `Flight.start` (bereit + wenigste Flüge), Boni via `Flight.crewLvl(role)`: Pilot +8 %/Lvl Agilität, Ing −4 %/Lvl Sprit (`fuelEff`), Sci +10 %/Lvl Experimente. XP in `settleCrewAndAssets()` (endFlight). Im All zurückgelassen → `status:"gestrandet"` + Wrack-Asset.
 - **Funknetz:** `commCheck(stack,pos,t)` – bemannt immer ok; Sonde: Leibniz-SOI ok, sonst Antenne nötig + `commRelays()` (1 = inneres System <2.6e10 m Sonnenabstand, 3 = Newton). Ohne Signal: `commDead` blockt Rotation/Schub/Z/X. Relais = Sat mit Antenne+Solar via [N] (`Game.relays`).
 - **Anomalien:** `ANOMALIES` (8 Stück, `dir` = Einheitsvektor körperfest). Leuchtfeuer-Meshes (`anomalyMeshes`) pro Frame auf Oberfläche. Entdeckung in `onLanded(b)`: Winkel < 0,25 rad. `Game.anomaliesFound`.
@@ -2056,7 +2129,17 @@ Dazu weiter: Wirbel-Blobs an Emittern (Heck-Totwasser + Stufen, blähen sich mit
 - **Tech-Balancing Energie:** `solar` + `bayS` hängen an `surv` (»Überleben & Forschung«), NICHT an payload – sonst treiben Anfänger stromlos im Orbit. `battery`/`probe`/`bay`/`fairing` bleiben bei payload.
 - **Tech-Balancing Erststufe:** Tech `propI` »Flüssigtriebwerke I« (10 🧪, req start) → `engStd` **Triebwerk »Ochse«** (200 kN, Isp 265, 600 kg, Ø 10, 300 🪙, `cat:"lower"`). Davor gab es bis `heavy` (60 🧪) NUR Oberstufen-Triebwerke (`engS` 45 kN / `engVac`) oder Feststoff – man MUSSTE die erste Stufe mit Boostern bauen, was Simon zu Recht als unrealistisch gemeldet hat. Isp 265 ist bewusst die schlechteste Flüssig-Effizienz im Spiel (kurze Meereshöhen-Düse; steht so im Info-Text – Didaktik: große Vakuumdüsen taugen am Boden nicht). `advProp` (»Flüssigtriebwerke II«) hängt jetzt an `["basic","struct","propI"]`, damit die Kette I → II stimmt; `migrateGame` schenkt Bestands-Saves mit advProp den Knoten propI. Verifiziert: Stack `chute/probePod/tankS/engS/decoupler/inter/fin/3×tankS/engStd` = 8,05 t, TWR 2,5, Δv 1917+2666 ≈ 4580 m/s → Orbit (Bedarf ~3400) mit Startkapital + propI + struct + basic erreichbar.
 - Karriere: `MISSIONS` (Verträge, nur AKTIVE erfüllbar; `Game.activeMissions` = Array, max. `maxMissions()` = 1 + Tech mission2/mission3; `req`-Ketten), `TECH` (DAG; Layout: 2-Pass mit echten Kartenhöhen, `top{}`-Map für SVG-Äste – NICHT festes Raster, sonst Überlappung), `Game.labDone` (Experimente [B] je `situation()` einmalig).
-- Geld (nur Karriere): `Game.funds` (Start 3500), `PART_COSTS`→`PARTS[..].cost`, `stackCost()`, Missionsprämie **`missionCash(m)=300+20·sci`** (⚠️ verdoppelt: Von einer Orbitalrakete kommt nur die OBERSTE Stufe zurück – `settleCrewAndAssets` erstattet `stackCost(v.stack)`, und `stage()` löscht abgeworfene Teile aus `v.stack` – und am Anfang darf man nur EINE Mission annehmen. Mit `150+10·sci` war jeder Orbitalflug ein sicheres Minusgeschäft. Nachgerechnet: Hüpfer 730 🪙 / volle Bergung / +400 Prämie · Orbitrakete 1445 🪙, Bergung 730, Prämie 800 → ±0 · Sat-Träger 2495/1380/900 → −215 · Docking 2865/1750/1400 → +285. Bergung und Wiederverwendung bleiben damit der Hebel für echten Gewinn). **Nebenverdienste** `SIDE_JOBS` (4 einmalige Geld-Aktionen: 2×1000 bei basic+struct »Seminare«; 1500 »Mensa-Deal« braucht KOMPLETTE Spalte 3 (surv+advProp+padEq+mission2); 1500 »Blueprints« komplette Spalte 4 (crewed+payload+heavy+explore)) – Sektion »💰 Nebenverdienste« oben in `renderMissionControl`, `doSideJob(id)`, `Game.jobsDone` (migrateGame legt Array an). Hilft schwächeren Schüler*innen, die sich verbaut haben.
+- Geld (nur Karriere): `Game.funds` (Start 3500), `PART_COSTS`→`PARTS[..].cost`, `stackCost()`, Missionsprämie **`missionCash(m)=(300+20·sci)·(1+missionBonus())`** (⚠️ verdoppelt: Von einer Orbitalrakete kommt nur die OBERSTE Stufe zurück – `settleCrewAndAssets` erstattet `stackCost(v.stack)`, und `stage()` löscht abgeworfene Teile aus `v.stack` – und am Anfang darf man nur EINE Mission annehmen. Mit `150+10·sci` war jeder Orbitalflug ein sicheres Minusgeschäft. Nachgerechnet: Hüpfer 730 🪙 / volle Bergung / +400 Prämie · Orbitrakete 1445 🪙, Bergung 730, Prämie 800 → ±0 · Sat-Träger 2495/1380/900 → −215 · Docking 2865/1750/1400 → +285. Bergung und Wiederverwendung bleiben damit der Hebel für echten Gewinn). **Nebenverdienste** `SIDE_JOBS` (4 einmalige Geld-Aktionen: 2×1000 bei basic+struct »Seminare«; 1500 »Mensa-Deal« braucht KOMPLETTE Spalte 3 (surv+advProp+padEq+mission2); 1500 »Blueprints« komplette Spalte 4 (crewed+payload+heavy+explore); **10.000 »An die Börse gehen«** – `needs:"all"`, verlangt also JEDEN Tech-Knoten) – Sektion »💰 Nebenverdienste« oben in `renderMissionControl`, `doSideJob(id)`, `Game.jobsDone` (migrateGame legt Array an). Hilft schwächeren Schüler*innen, die sich verbaut haben.
+  - ⚠️⚠️ **Der Börsengang (`jobIPO`) ist der einzige Nebenverdienst mit
+    DAUERWIRKUNG:** `bonus:0.10` läuft über `missionBonus()` in `missionCash`
+    ein, ab dann zahlt jede erfüllte Mission 10 % mehr. Er ist der Abschluss
+    des Forschungsbaums (`needs:"all"`, `jobUnlocked` prüft dafür `TECH.every`)
+    und das Gegenstück zur Dauerwerbung der Kommerz-Satelliten: Wer ein
+    komplettes Programm vorweisen kann, verdient am Vertrauen der Anleger statt
+    am einzelnen Flug. ⚠️ Der Aufschlag gehört in `missionCash` und nirgends
+    sonst – nur so zeigen Missionskarte, Auszahlung und Flugbericht dieselbe
+    Zahl. Verifiziert: 23 von 24 Knoten → gesperrt, alle 24 → offen, Prämie
+    »Orbit!« 800 → 880 🪙.
 ### ⚠️ Δv einer Stufe MIT Seitenboostern (`VAB.stageDeltaV`)
 Die Anzeige war mit und ohne Booster **identisch** (Bug-Report Simon): `renderInfo`
 rechnete Ziolkowski nur über den Kern, der Booster-Pool ging ausschließlich in
